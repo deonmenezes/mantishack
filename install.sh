@@ -27,8 +27,18 @@ uname_m=$(uname -m)
 log "host: $uname_s/$uname_m"
 
 # 1. Toolchain check ----------------------------------------------------------
+# rustup installs to ~/.cargo/bin and adds it to PATH via ~/.cargo/env, which
+# isn't sourced in a non-login shell. Pick it up here so users don't have to
+# restart their terminal after `rustup install`.
+if [ -f "$HOME/.cargo/env" ]; then
+    # shellcheck disable=SC1091
+    . "$HOME/.cargo/env"
+fi
+if ! command -v cargo >/dev/null 2>&1 && [ -x "$HOME/.cargo/bin/cargo" ]; then
+    export PATH="$HOME/.cargo/bin:$PATH"
+fi
 if ! command -v cargo >/dev/null 2>&1; then
-    die "cargo not found. Install Rust from https://rustup.rs and rerun."
+    die "cargo not found. Install Rust from https://rustup.rs (then run 'source \$HOME/.cargo/env' or open a new shell) and rerun."
 fi
 if ! command -v git >/dev/null 2>&1; then
     die "git not found. Install git and rerun."
