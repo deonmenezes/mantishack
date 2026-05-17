@@ -15,6 +15,33 @@ service Engagement {
   rpc List(ListRequest) returns (ListResponse);
   rpc Scan(ScanRequest) returns (ScanResponse);
   rpc Export(ExportRequest) returns (ExportResponse);
+
+  // FSM phase transitions. Drives the linear pipeline
+  // RECON -> AUTH -> HUNT -> CHAIN -> VERIFY -> GRADE -> REPORT.
+  // The daemon validates the transition against the engagement's
+  // SessionState, appends a PhaseTransitioned event to the merkle
+  // log, and returns the new phase plus any blockers that fired.
+  rpc TransitionPhase(TransitionPhaseRequest) returns (TransitionPhaseResponse);
+  // Read the current FSM session state for an engagement.
+  rpc GetSessionState(SessionStateRequest) returns (SessionStateResponse);
+
+  // 3-round verification cascade.
+  // Open a fresh attempt — wipes any in-flight rounds and freezes a
+  // snapshot of the current finding set. Returns the attempt_id and
+  // snapshot_hash that subsequent rounds and the report-writer must
+  // reference.
+  rpc OpenVerificationAttempt(OpenVerificationAttemptRequest)
+      returns (OpenVerificationAttemptResponse);
+  // Record one round's verdicts. `round` is brutalist|balanced|final.
+  // The daemon canonicalises the payload, appends a
+  // VerificationRoundWritten event, and stores it in the session.
+  rpc WriteVerificationRound(WriteVerificationRoundRequest)
+      returns (WriteVerificationRoundResponse);
+  // After both brutalist and balanced are recorded, the daemon
+  // builds the deterministic adjudication plan. Returns the
+  // plan_hash that the final round MUST reference.
+  rpc BuildVerificationAdjudication(BuildVerificationAdjudicationRequest)
+      returns (BuildVerificationAdjudicationResponse);
 }
 
 enum EngagementState {
@@ -73,4 +100,108 @@ message ExportRequest {
 message ExportResponse {
   // One JSON object per line, newline-separated.
   bytes jsonl = 1;
+}
+
+// Phase values mirror mantis-fsm::Phase. Strings keep the proto
+// schema flat across future phase additions (e.g. EXPLORE).
+message TransitionPhaseRequest {
+  string engagement_id = 1;
+  // One of RECON | AUTH | HUNT | CHAIN | VERIFY | GRADE | REPORT.
+  string to_phase = 2;
+  // Operator rationale for overriding a non-empty gate. Required to
+  // be at least 20 characters when supplied. Only permitted for the
+  // HUNT -> CHAIN and CHAIN -> VERIFY edges.
+  optional string override_reason = 3;
+  // Optional auth_status when transitioning AUTH -> HUNT.
+  // One of "authenticated" | "unauthenticated".
+  optional string auth_status = 4;
+}
+
+message Blocker {
+  // Stable enum value: pending_wave, unexplored_high_surfaces,
+  // blocked_high_surfaces, open_requeue_coverage,
+  // chain_attempts_missing, verification_incomplete,
+  // evidence_packs_invalid, grade_missing, report_missing,
+  // inconsistent.
+  string code = 1;
+  string message = 2;
+  // Surface IDs / finding IDs the blocker refers to (when relevant).
+  repeated string identifiers = 3;
+}
+
+message TransitionPhaseResponse {
+  string engagement_id = 1;
+  string from_phase = 2;
+  string to_phase = 3;
+  bool transitioned = 4;
+  // Empty when the gate opened cleanly. Non-empty when the gate
+  // would have refused but `override_reason` was accepted, or when
+  // the transition was rejected.
+  repeated Blocker blockers = 5;
+  // True iff this transition was performed under an operator
+  // override. Mirrors the audit-log entry recorded in SessionState.
+  bool override_applied = 6;
+}
+
+message SessionStateRequest {
+  string engagement_id = 1;
+}
+
+message SessionStateResponse {
+  string engagement_id = 1;
+  // JSON-serialized SessionState (mantis-fsm::SessionState). Kept as
+  // an opaque payload so the proto schema does not need to track
+  // every field. Stable canonical JSON.
+  bytes session_json = 2;
+}
+
+message OpenVerificationAttemptRequest {
+  string engagement_id = 1;
+  // ULID-style identifier for the new attempt. The daemon validates
+  // uniqueness within the engagement.
+  string attempt_id = 2;
+  // Finding IDs the cascade will cover. Snapshot hash is the
+  // deterministic blake3 of this set.
+  repeated string finding_ids = 3;
+}
+
+message OpenVerificationAttemptResponse {
+  string engagement_id = 1;
+  string attempt_id = 2;
+  string snapshot_hash = 3;
+}
+
+message WriteVerificationRoundRequest {
+  string engagement_id = 1;
+  string attempt_id = 2;
+  // brutalist | balanced | final.
+  string round = 3;
+  // Canonical JSON of `VerificationRoundResult` (see mantis-fsm).
+  // Daemon deserialises, validates, and re-serialises for storage.
+  bytes round_json = 4;
+}
+
+message WriteVerificationRoundResponse {
+  string engagement_id = 1;
+  string round = 2;
+  // blake3 of the canonical JSON payload stored.
+  string results_canonical_hash = 3;
+  uint32 results_count = 4;
+}
+
+message BuildVerificationAdjudicationRequest {
+  string engagement_id = 1;
+}
+
+message BuildVerificationAdjudicationResponse {
+  string engagement_id = 1;
+  string attempt_id = 2;
+  string plan_hash = 3;
+  uint32 agreed_count = 4;
+  uint32 disagreements_count = 5;
+  uint32 replay_required_count = 6;
+  uint32 qa_sample_count = 7;
+  // Canonical JSON of the full Adjudication for clients that want
+  // the full plan (not just the hash).
+  bytes adjudication_json = 8;
 }

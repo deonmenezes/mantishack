@@ -23,6 +23,11 @@ pub mod reproducer;
 
 pub use crate::error::PrimitiveError;
 pub use crate::primitives::cors_wildcard::CorsWildcard;
+pub use crate::primitives::extended::{
+    CachePoisoning, CommandInjection, CrlfInjection, FileUploadExtensionBypass,
+    HostHeaderInjection, LdapInjection, NoSqlInjection, PathTraversal, SsrfReflection, SstiBasic,
+    SubdomainTakeoverDanglingCname, XxeBasic,
+};
 pub use crate::primitives::idor::Idor;
 pub use crate::primitives::missing_security_headers::MissingSecurityHeaders;
 pub use crate::primitives::open_redirect::OpenRedirect;

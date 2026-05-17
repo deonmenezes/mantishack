@@ -7,6 +7,7 @@
 //! Top 10 (XSS, SQLi, IDOR, SSRF, etc.).
 
 pub mod cors_wildcard;
+pub mod extended;
 pub mod idor;
 pub mod missing_security_headers;
 pub mod open_redirect;
