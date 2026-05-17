@@ -1,0 +1,28 @@
+[package]
+name = "mantis-tiered-exec"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Three-tier escalating execution model for Mantis. Light tier: fixed Rust primitives. Medium tier: LLM-synthesized exploit scripts run in a sandbox. Hard tier: verifier loop that rewrites failed exploits and re-runs. Auto-escalates on miss."
+
+[dependencies]
+mantis-auth = { workspace = true }
+mantis-auth-differential = { workspace = true }
+mantis-fsm = { workspace = true }
+mantis-synthesizer = { workspace = true }
+
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

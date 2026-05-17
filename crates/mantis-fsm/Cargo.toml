@@ -1,0 +1,22 @@
+[package]
+name = "mantis-fsm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Mantis pipeline FSM: linear RECON -> AUTH -> HUNT -> CHAIN -> VERIFY -> GRADE -> REPORT with 3-round verification (brutalist / balanced / final), severity floors, and gate-driven transitions."
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+blake3 = { workspace = true }
+hex = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

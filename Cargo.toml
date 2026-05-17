@@ -42,6 +42,14 @@ members = [
     "crates/mantis-video",
     "crates/mantis-crawler-dynamic",
     "crates/mantis-mcp",
+    "crates/mantis-fsm",
+    "crates/mantis-auth",
+    "crates/mantis-pack",
+    "crates/mantis-auth-differential",
+    "crates/mantis-signup",
+    "crates/mantis-orchestrator",
+    "crates/mantis-recon-tools",
+    "crates/mantis-tiered-exec",
 ]
 
 [workspace.package]
@@ -92,6 +100,14 @@ mantis-crawler = { path = "crates/mantis-crawler" }
 mantis-video = { path = "crates/mantis-video" }
 mantis-crawler-dynamic = { path = "crates/mantis-crawler-dynamic" }
 mantis-mcp = { path = "crates/mantis-mcp" }
+mantis-fsm = { path = "crates/mantis-fsm" }
+mantis-auth = { path = "crates/mantis-auth" }
+mantis-pack = { path = "crates/mantis-pack" }
+mantis-auth-differential = { path = "crates/mantis-auth-differential" }
+mantis-signup = { path = "crates/mantis-signup" }
+mantis-orchestrator = { path = "crates/mantis-orchestrator" }
+mantis-recon-tools = { path = "crates/mantis-recon-tools" }
+mantis-tiered-exec = { path = "crates/mantis-tiered-exec" }
 core_affinity = "0.8"
 num_cpus = "1.16"
 criterion = { version = "0.5", default-features = false, features = ["plotters", "cargo_bench_support"] }

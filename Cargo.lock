@@ -2059,6 +2059,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "mantis-auth"
+version = "0.0.1"
+dependencies = [
+ "blake3",
+ "camino",
+ "hex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "zeroize",
+]
+
+[[package]]
+name = "mantis-auth-differential"
+version = "0.0.1"
+dependencies = [
+ "blake3",
+ "hex",
+ "mantis-auth",
+ "mantis-fsm",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+]
+
+[[package]]
 name = "mantis-benches"
 version = "0.0.1"
 dependencies = [
@@ -2111,10 +2141,17 @@ dependencies = [
  "anyhow",
  "camino",
  "clap",
+ "mantis-auth",
+ "mantis-auth-differential",
  "mantis-core",
  "mantis-daemon",
+ "mantis-fsm",
+ "mantis-orchestrator",
  "mantis-proto",
+ "mantis-recon-tools",
+ "mantis-scanner-http",
  "mantis-scope",
+ "mantis-signup",
  "mantis-synthesizer",
  "mantis-workspace",
  "serde_json",
@@ -2164,6 +2201,7 @@ dependencies = [
  "mantis-core",
  "mantis-egress",
  "mantis-event-store",
+ "mantis-fsm",
  "mantis-hypothesis",
  "mantis-planner",
  "mantis-posterior",
@@ -2172,10 +2210,12 @@ dependencies = [
  "mantis-report",
  "mantis-scanner-http",
  "mantis-scope",
+ "mantis-tiered-exec",
  "mantis-workspace",
  "prost",
  "reqwest",
  "serde_json",
+ "tempfile",
  "tokio",
  "tokio-stream",
  "tonic",
@@ -2219,6 +2259,18 @@ dependencies = [
  "tokio",
  "tracing",
  "ulid",
+]
+
+[[package]]
+name = "mantis-fsm"
+version = "0.0.1"
+dependencies = [
+ "blake3",
+ "hex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -2283,10 +2335,16 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "clap",
+ "mantis-auth",
+ "mantis-auth-differential",
  "mantis-core",
+ "mantis-pack",
  "mantis-proto",
+ "mantis-recon-tools",
  "mantis-scope",
+ "mantis-tiered-exec",
  "mantis-workspace",
+ "reqwest",
  "rmcp",
  "schemars",
  "serde",
@@ -2318,6 +2376,34 @@ dependencies = [
  "serde_json",
  "thiserror 1.0.69",
  "ulid",
+]
+
+[[package]]
+name = "mantis-orchestrator"
+version = "0.0.1"
+dependencies = [
+ "mantis-auth",
+ "mantis-auth-differential",
+ "mantis-fsm",
+ "mantis-scanner-http",
+ "mantis-signup",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "ulid",
+]
+
+[[package]]
+name = "mantis-pack"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -2387,6 +2473,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "mantis-recon-tools"
+version = "0.0.1"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "mantis-registry"
 version = "0.0.1"
 dependencies = [
@@ -2440,6 +2539,7 @@ name = "mantis-scanner-http"
 version = "0.0.1"
 dependencies = [
  "camino",
+ "mantis-auth",
  "mantis-core",
  "mantis-event-store",
  "mantis-workspace",
@@ -2479,6 +2579,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "mantis-signup"
+version = "0.0.1"
+dependencies = [
+ "mantis-auth",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "ulid",
+]
+
+[[package]]
 name = "mantis-synthesizer"
 version = "0.0.1"
 dependencies = [
@@ -2503,6 +2617,23 @@ dependencies = [
  "serde_json",
  "thiserror 1.0.69",
  "ulid",
+]
+
+[[package]]
+name = "mantis-tiered-exec"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "mantis-auth",
+ "mantis-auth-differential",
+ "mantis-fsm",
+ "mantis-synthesizer",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

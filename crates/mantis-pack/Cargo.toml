@@ -1,0 +1,17 @@
+[package]
+name = "mantis-pack"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Capability-pack abstraction: routes surfaces to (hunter, verifier, brief-profile, replay-tool) triples. Inspired by hacker-bob's capability-packs.js; v1 ships the `web` pack only."
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

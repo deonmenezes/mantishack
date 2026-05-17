@@ -1,0 +1,23 @@
+[package]
+name = "mantis-recon-tools"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Opportunistic detection + invocation of external recon binaries (subfinder, httpx, nuclei, dnsx, tlsx, katana, jwt_tool, assetfinder, amass, subzy). Mirrors hacker-bob's optional-tools list. Mantis runs without them — install any to extend coverage."
+
+[dependencies]
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,25 @@
+[package]
+name = "mantis-signup"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Auto-signup: detect signup endpoints and capture an AuthProfile by POSTing JSON. Ports hacker-bob's `bounty_signup_detect` + `bounty_auto_signup` (Supabase / Next.js NextAuth subset). Browser-driven flows (Patchright + CAPTCHA solver) are out of scope for v1."
+
+[dependencies]
+mantis-auth = { workspace = true }
+
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+ulid = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

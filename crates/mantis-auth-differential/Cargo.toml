@@ -1,0 +1,27 @@
+[package]
+name = "mantis-auth-differential"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Multi-account auth-differential runner. Ports hacker-bob's `bounty_run_auth_differential` (auth-differential.js / auth-differential-runner.js) to Rust. Detects cross-tenant reads, IDOR, mass-assignment, and broken-access-control by replaying the same request under N auth profiles and classifying response divergence."
+
+[dependencies]
+mantis-auth = { workspace = true }
+mantis-fsm = { workspace = true }
+
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+blake3 = { workspace = true }
+hex = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

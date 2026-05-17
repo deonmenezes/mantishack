@@ -1,0 +1,24 @@
+[package]
+name = "mantis-auth"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Mantis per-engagement auth profile store: typed headers/cookies, zeroize-on-drop secrets, blake3 fingerprinting, atomic JSON persistence."
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+blake3 = { workspace = true }
+hex = { workspace = true }
+zeroize = { workspace = true, features = ["zeroize_derive"] }
+camino = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

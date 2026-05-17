@@ -1,0 +1,30 @@
+[package]
+name = "mantis-orchestrator"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "End-to-end auth-bug pipeline: signup attacker + victim, enumerate endpoints, run auth-diff per endpoint, aggregate findings. The Rust equivalent of hacker-bob's orchestrator prompt driving a sequence of bounty_* tool calls."
+
+[dependencies]
+mantis-auth = { workspace = true }
+mantis-auth-differential = { workspace = true }
+mantis-fsm = { workspace = true }
+mantis-scanner-http = { workspace = true }
+mantis-signup = { workspace = true }
+
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+ulid = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true
