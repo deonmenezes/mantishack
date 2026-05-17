@@ -10,16 +10,19 @@
 //! API clients) land in M4.2b–M4.2h, one platform per milestone,
 //! so each adapter can be reviewed independently.
 
+pub mod discord;
 pub mod identity;
 pub mod inbound;
 pub mod platform;
 pub mod platforms;
 pub mod registry;
+pub mod slack;
 pub mod telegram;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+pub use crate::discord::DiscordWebhookPlatform;
 pub use crate::identity::{IdentityBinding, IdentityStore};
 pub use crate::inbound::{Command, InboundMessage};
 pub use crate::platform::{
@@ -29,6 +32,7 @@ pub use crate::platforms::{
     DiscordPlatform, EmailPlatform, MatrixPlatform, SignalPlatform, SlackPlatform, WhatsAppPlatform,
 };
 pub use crate::registry::GatewayRegistry;
+pub use crate::slack::SlackWebhookPlatform;
 pub use crate::telegram::{
     InboundMessage as TelegramInboundMessage, TelegramPlatform, UpdateBatch,
 };

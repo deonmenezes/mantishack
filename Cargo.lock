@@ -2013,6 +2013,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "mantis-chain"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "mantis-claim"
 version = "0.0.1"
 dependencies = [

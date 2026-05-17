@@ -1,0 +1,61 @@
+# systemd unit for the Mantis daemon (PRD §14.2 self-hosted VPS).
+#
+# Install:
+#   sudo cp deploy/systemd/mantis-daemon.service /etc/systemd/system/
+#   sudo useradd --system --create-home --home-dir /var/lib/mantis mantis
+#   sudo install -m 755 target/release/mantis-daemon /usr/local/bin/mantis-daemon
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now mantis-daemon
+#
+# Logs:  journalctl -u mantis-daemon -f
+# Stop:  systemctl stop mantis-daemon
+
+[Unit]
+Description=Mantis offensive-security daemon
+Documentation=https://github.com/deonmenezes/mantishack
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mantis
+Group=mantis
+WorkingDirectory=/var/lib/mantis
+Environment=MANTIS_WORKSPACE=/var/lib/mantis/workspace
+Environment=RUST_LOG=info
+ExecStart=/usr/local/bin/mantis-daemon
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+
+# Hardening per PRD §6.4 sandbox + scope-enforcement principles.
+# The daemon already enforces scope at the egress proxy; these
+# systemd directives provide defense-in-depth.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/mantis
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# Resource caps. Operators with larger workloads should override
+# these via systemd drop-in files at
+# /etc/systemd/system/mantis-daemon.service.d/limits.conf
+LimitNOFILE=65536
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target

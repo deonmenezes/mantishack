@@ -1,0 +1,9 @@
+target/
+.git/
+.github/
+.omc/
+.vercel/
+*.md
+docs/
+deploy/
+.gitignore

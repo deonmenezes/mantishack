@@ -14,6 +14,16 @@ pub struct WebState {
     pub engagements: Vec<EngagementView>,
     pub claims: Vec<ClaimView>,
     pub log_tail: Vec<String>,
+    /// MCTS tree snapshot for the currently-selected engagement.
+    /// Empty when no engagement is selected or planner inactive.
+    #[serde(default)]
+    pub mcts_tree: Option<McTreeView>,
+    /// Time-travel timeline marks. Each entry is a unix-second
+    /// timestamp of a notable event (claim, scope change,
+    /// authorization, completion). The Web UI renders this as a
+    /// scrub-bar; selecting a mark replays state up to that time.
+    #[serde(default)]
+    pub timeline: Vec<TimelineMark>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,6 +48,37 @@ pub enum Event {
     EngagementUpserted(EngagementView),
     ClaimAdded(ClaimView),
     LogLine { line: String },
+    McTreeUpdated(McTreeView),
+    TimelineMarkAdded(TimelineMark),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McTreeView {
+    pub root: McNode,
+    pub iterations: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McNode {
+    pub id: String,
+    pub label: String,
+    /// UCB1 score at the time of snapshot. The Web UI uses this to
+    /// scale node radius / color.
+    pub ucb1: f32,
+    /// Visit count.
+    pub visits: u64,
+    /// Bayesian posterior probability (0..1) that this branch
+    /// will produce a verified claim if pursued.
+    pub posterior: f32,
+    pub children: Vec<McNode>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimelineMark {
+    pub unix_seconds: u64,
+    pub label: String,
+    /// Event kind: "claim", "scope", "auth", "complete", "pause"
+    pub kind: String,
 }
 
 /// Wrapper over a tokio broadcast channel sized for the daemon's

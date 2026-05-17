@@ -1,0 +1,16 @@
+[package]
+name = "mantis-chain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Capability graph + multi-step exploit chain discovery (PRD §5.7.7, §10.4)."
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

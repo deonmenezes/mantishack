@@ -17,85 +17,80 @@
       --low: #56d364;
       --panel: #161b22;
       --border: #30363d;
+      --tree-line: #444c56;
     }
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--fg);
-      font-family: ui-monospace, "SF Mono", Menlo, monospace;
-      font-size: 13px;
-    }
-    header {
-      padding: 12px 20px;
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      gap: 24px;
-      align-items: center;
-    }
-    header h1 {
-      margin: 0;
-      font-size: 14px;
-      color: var(--accent);
-      letter-spacing: 2px;
-    }
+    body { margin: 0; background: var(--bg); color: var(--fg); font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; }
+    header { padding: 12px 20px; border-bottom: 1px solid var(--border); display: flex; gap: 24px; align-items: center; }
+    header h1 { margin: 0; font-size: 14px; color: var(--accent); letter-spacing: 2px; }
     main {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      grid-template-rows: 1fr 1fr;
+      grid-template-rows: auto 1fr 1fr;
       gap: 1px;
       background: var(--border);
       height: calc(100vh - 49px);
     }
-    section {
-      background: var(--panel);
-      padding: 12px 16px;
-      overflow: auto;
-    }
-    section h2 {
-      margin: 0 0 12px 0;
-      font-size: 11px;
-      color: var(--dim);
-      text-transform: uppercase;
-      letter-spacing: 1px;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-    }
-    th, td {
-      text-align: left;
-      padding: 4px 8px;
-      border-bottom: 1px solid var(--border);
-      font-weight: normal;
-    }
+    section { background: var(--panel); padding: 12px 16px; overflow: auto; }
+    section h2 { margin: 0 0 12px 0; font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border); font-weight: normal; }
     th { color: var(--dim); font-size: 11px; }
     .sev-Critical { color: var(--critical); font-weight: bold; }
     .sev-High { color: var(--high); }
     .sev-Medium { color: var(--medium); }
     .sev-Low { color: var(--low); }
-    .log {
-      font-size: 12px;
-      white-space: pre-wrap;
-      color: var(--dim);
-    }
+    .log { font-size: 12px; white-space: pre-wrap; color: var(--dim); }
     .log-line { padding: 1px 0; }
-    .status-pill {
-      display: inline-block;
-      padding: 1px 6px;
-      border-radius: 8px;
-      font-size: 10px;
-      background: var(--border);
-    }
+    .status-pill { display: inline-block; padding: 1px 6px; border-radius: 8px; font-size: 10px; background: var(--border); }
     #status { font-size: 11px; color: var(--dim); }
     #status.connected { color: var(--low); }
+
+    /* MCTS tree pane */
+    #mcts-pane { grid-column: 1 / span 2; min-height: 220px; }
+    #mcts svg { width: 100%; height: 200px; display: block; }
+    .mcts-node circle { stroke: var(--accent); fill: var(--panel); }
+    .mcts-node text { fill: var(--fg); font-size: 10px; }
+    .mcts-edge { stroke: var(--tree-line); fill: none; }
+
+    /* Timeline scrub */
+    #timeline { margin-top: 8px; }
+    #timeline-track {
+      position: relative;
+      height: 24px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+    }
+    .mark { position: absolute; top: 2px; bottom: 2px; width: 2px; cursor: pointer; }
+    .mark.claim { background: var(--accent); }
+    .mark.auth { background: var(--low); }
+    .mark.scope { background: var(--medium); }
+    .mark.complete { background: var(--high); }
+    .mark.pause { background: var(--dim); }
+    #scrub-cursor { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--fg); pointer-events: none; }
+    #scrub-time { margin-top: 4px; color: var(--dim); font-size: 11px; }
   </style>
 </head>
 <body>
   <header>
     <h1>MANTIS</h1>
     <span id="status">connecting…</span>
+    <span style="flex:1"></span>
+    <span id="iterations" style="color:var(--dim);font-size:11px;"></span>
   </header>
   <main>
+    <section id="mcts-pane">
+      <h2>live trace — MCTS tree</h2>
+      <div id="mcts">
+        <svg id="mcts-svg" preserveAspectRatio="none"></svg>
+      </div>
+      <div id="timeline">
+        <div id="timeline-track">
+          <div id="scrub-cursor" style="right:0"></div>
+        </div>
+        <div id="scrub-time">timeline: (no marks yet)</div>
+      </div>
+    </section>
     <section id="engagements-pane">
       <h2>engagements</h2>
       <table>
@@ -110,10 +105,6 @@
         <tbody id="claims-body"></tbody>
       </table>
     </section>
-    <section id="trace-pane">
-      <h2>live trace</h2>
-      <div id="trace" class="log">awaiting events…</div>
-    </section>
     <section id="log-pane">
       <h2>log tail</h2>
       <div id="log" class="log"></div>
@@ -121,29 +112,163 @@
   </main>
   <script>
     const $ = (id) => document.getElementById(id);
-    const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) => ({
+    const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({
       "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;"
     }[c]));
 
-    let state = { engagements: [], claims: [], log_tail: [] };
+    let state = { engagements: [], claims: [], log_tail: [], mcts_tree: null, timeline: [] };
+    let scrubAt = null; // when set, render history up to this unix seconds
+
+    function visibleClaims() {
+      if (scrubAt === null) return state.claims;
+      // Time-travel: we don't carry per-claim timestamps in this
+      // minimal payload, so scrubbing dims claims linearly by index
+      // until per-claim timestamps land.
+      const frac = timelineFraction(scrubAt);
+      const n = Math.max(1, Math.floor(state.claims.length * frac));
+      return state.claims.slice(0, n);
+    }
+
+    function timelineFraction(at) {
+      if (state.timeline.length === 0) return 1;
+      const minT = state.timeline[0].unix_seconds;
+      const maxT = state.timeline[state.timeline.length - 1].unix_seconds;
+      if (maxT === minT) return 1;
+      return Math.max(0, Math.min(1, (at - minT) / (maxT - minT)));
+    }
 
     function renderEngagements() {
       $("engagements-body").innerHTML = state.engagements.map((e) =>
         `<tr><td>${escapeHtml(e.id)}</td><td>${escapeHtml(e.name)}</td><td>${escapeHtml(e.state)}</td><td>${e.events}</td></tr>`
       ).join("") || "<tr><td colspan=4 style='color:var(--dim)'>(no engagements)</td></tr>";
     }
+
     function renderClaims() {
-      $("claims-body").innerHTML = state.claims.slice(-50).reverse().map((c) =>
+      const list = visibleClaims();
+      $("claims-body").innerHTML = list.slice(-50).reverse().map((c) =>
         `<tr><td class="sev-${escapeHtml(c.severity)}">${escapeHtml(c.severity)}</td>` +
         `<td>${escapeHtml(c.vuln_class)}</td>` +
         `<td><span class="status-pill">${escapeHtml(c.status)}</span></td>` +
         `<td>${escapeHtml(c.url)}</td></tr>`
       ).join("") || "<tr><td colspan=4 style='color:var(--dim)'>(no claims)</td></tr>";
     }
+
     function renderLog() {
       $("log").innerHTML = state.log_tail.slice(-200).reverse().map((l) =>
         `<div class="log-line">${escapeHtml(l)}</div>`
       ).join("");
+    }
+
+    function renderMcts() {
+      const svg = $("mcts-svg");
+      svg.innerHTML = "";
+      const tree = state.mcts_tree;
+      if (!tree) {
+        svg.setAttribute("viewBox", "0 0 100 50");
+        const txt = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        txt.setAttribute("x", 4);
+        txt.setAttribute("y", 28);
+        txt.setAttribute("fill", "var(--dim)");
+        txt.setAttribute("font-size", "10");
+        txt.textContent = "(planner not running)";
+        svg.appendChild(txt);
+        $("iterations").textContent = "";
+        return;
+      }
+      $("iterations").textContent = `${tree.iterations.toLocaleString()} iterations`;
+
+      // Compute a quick layered layout.
+      const positions = [];
+      function layout(node, depth, leftRight) {
+        const p = { node, depth, x: leftRight[0], y: depth, width: 1 };
+        if (!node.children || node.children.length === 0) {
+          leftRight[0] += 1;
+          p.x = leftRight[0] - 0.5;
+          positions.push(p);
+          return p;
+        }
+        const childPositions = node.children.map((c) => layout(c, depth + 1, leftRight));
+        p.x = (childPositions[0].x + childPositions[childPositions.length - 1].x) / 2;
+        positions.push(p);
+        return p;
+      }
+      layout(tree.root, 0, [0]);
+
+      const maxDepth = Math.max(1, ...positions.map((p) => p.depth));
+      const maxX = Math.max(1, ...positions.map((p) => p.x));
+      const w = 800;
+      const h = 180;
+      svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+      const scaleX = (x) => 20 + (x / maxX) * (w - 40);
+      const scaleY = (d) => 20 + (d / maxDepth) * (h - 40);
+
+      // Edges first so nodes draw on top
+      function drawEdges(node, parentPos) {
+        const myPos = positions.find((p) => p.node === node);
+        if (parentPos) {
+          const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+          path.setAttribute(
+            "d",
+            `M ${scaleX(parentPos.x)} ${scaleY(parentPos.depth)} L ${scaleX(myPos.x)} ${scaleY(myPos.depth)}`
+          );
+          path.setAttribute("class", "mcts-edge");
+          svg.appendChild(path);
+        }
+        for (const child of node.children || []) {
+          drawEdges(child, myPos);
+        }
+      }
+      drawEdges(tree.root, null);
+
+      for (const p of positions) {
+        const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        g.setAttribute("class", "mcts-node");
+        g.setAttribute("transform", `translate(${scaleX(p.x)} ${scaleY(p.depth)})`);
+        const radius = 4 + Math.min(10, Math.log2(1 + p.node.visits));
+        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        circle.setAttribute("r", radius.toFixed(1));
+        const intensity = Math.min(1, p.node.posterior || 0);
+        circle.setAttribute("fill", `rgba(88,166,255,${(0.2 + intensity * 0.8).toFixed(2)})`);
+        g.appendChild(circle);
+
+        const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        text.setAttribute("x", radius + 4);
+        text.setAttribute("y", 3);
+        text.textContent = `${p.node.label}  n=${p.node.visits}  p=${p.node.posterior.toFixed(2)}`;
+        g.appendChild(text);
+        svg.appendChild(g);
+      }
+    }
+
+    function renderTimeline() {
+      const track = $("timeline-track");
+      [...track.querySelectorAll(".mark")].forEach((n) => n.remove());
+      if (state.timeline.length === 0) {
+        $("scrub-time").textContent = "timeline: (no marks yet)";
+        return;
+      }
+      const minT = state.timeline[0].unix_seconds;
+      const maxT = state.timeline[state.timeline.length - 1].unix_seconds;
+      const span = Math.max(1, maxT - minT);
+      for (const m of state.timeline) {
+        const div = document.createElement("div");
+        div.className = `mark ${m.kind}`;
+        div.style.left = `${((m.unix_seconds - minT) / span) * 100}%`;
+        div.title = `${new Date(m.unix_seconds * 1000).toISOString()}  ${m.label}`;
+        div.onclick = () => {
+          scrubAt = m.unix_seconds;
+          renderClaims();
+          $("scrub-cursor").style.left = `${((m.unix_seconds - minT) / span) * 100}%`;
+          $("scrub-cursor").style.right = "auto";
+          $("scrub-time").textContent = `time-travel: ${new Date(m.unix_seconds * 1000).toISOString()} — click latest to resume live`;
+        };
+        track.appendChild(div);
+      }
+      if (scrubAt === null) {
+        $("scrub-cursor").style.left = "auto";
+        $("scrub-cursor").style.right = "0";
+        $("scrub-time").textContent = `live (${state.timeline.length} timeline marks)`;
+      }
     }
 
     async function fetchState() {
@@ -153,20 +278,19 @@
         renderEngagements();
         renderClaims();
         renderLog();
+        renderMcts();
+        renderTimeline();
       } catch (_) {}
     }
 
     function connectEvents() {
       const es = new EventSource("/api/events");
-      const trace = $("trace");
       const status = $("status");
       es.onopen = () => { status.textContent = "connected"; status.classList.add("connected"); };
       es.onerror = () => { status.textContent = "disconnected"; status.classList.remove("connected"); };
       es.onmessage = (msg) => {
         try {
           const ev = JSON.parse(msg.data);
-          const line = `${new Date().toISOString().slice(11,19)}  ${JSON.stringify(ev)}`;
-          trace.innerHTML = `<div class="log-line">${escapeHtml(line)}</div>` + trace.innerHTML;
           if (ev.type === "EngagementUpserted") {
             const i = state.engagements.findIndex((e) => e.id === ev.id);
             if (i >= 0) state.engagements[i] = ev; else state.engagements.push(ev);
@@ -177,6 +301,12 @@
           } else if (ev.type === "LogLine") {
             state.log_tail.push(ev.line);
             renderLog();
+          } else if (ev.type === "McTreeUpdated") {
+            state.mcts_tree = ev;
+            renderMcts();
+          } else if (ev.type === "TimelineMarkAdded") {
+            state.timeline.push(ev);
+            renderTimeline();
           }
         } catch (_) {}
       };

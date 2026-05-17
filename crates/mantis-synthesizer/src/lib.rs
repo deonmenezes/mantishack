@@ -27,6 +27,7 @@
 pub mod anthropic;
 pub mod openai;
 pub mod retry;
+pub mod symbolic;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -70,6 +71,7 @@ pub struct SynthCandidate {
 pub enum EngineKind {
     Corpus,
     Fuzzer,
+    Symbolic,
     Llm,
 }
 
@@ -264,7 +266,18 @@ pub async fn synthesize(
         }
     }
 
-    // 3. LLM. Gated through the sandbox validator per PRD §6.4.2.
+    // 3. Symbolic constraint solver. Cheapest deterministic engine
+    // after the corpus — no network, no randomness.
+    if let Some(constraints) = symbolic::builtin_constraints(&request.vuln_class) {
+        if let Some(payload) = symbolic::solve(&constraints) {
+            return Ok(SynthCandidate {
+                payload,
+                engine: EngineKind::Symbolic,
+            });
+        }
+    }
+
+    // 4. LLM. Gated through the sandbox validator per PRD §6.4.2.
     let prompt = format!(
         "Generate one minimal {} payload for {}. Reply with only the payload.{}",
         request.vuln_class,
