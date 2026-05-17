@@ -522,13 +522,17 @@ impl MantisMcpServer {
         std::fs::write(dir.join("events.jsonl"), &jsonl)
             .map_err(|e| to_internal("write events.jsonl", e))?;
         let surfaces = parse_surfaces(&jsonl);
-        let report = render_markdown(&info, &surfaces);
+        let waves = load_wave_merges(&dir);
+        let report = render_markdown(&info, &surfaces, &waves);
         std::fs::write(dir.join("report.md"), &report)
             .map_err(|e| to_internal("write report.md", e))?;
+        let findings_total: u32 = waves.iter().map(|w| w.findings_total).sum();
         json_ok(&json!({
             "directory": dir,
             "surfaces": surfaces.len(),
             "events": jsonl.lines().count(),
+            "waves_included": waves.len(),
+            "findings_total": findings_total,
         }))
     }
 }
@@ -608,7 +612,37 @@ fn parse_surfaces(jsonl: &str) -> Vec<Surface> {
     out
 }
 
-fn render_markdown(info: &EngagementSummary, surfaces: &[Surface]) -> String {
+/// Scan `<dir>/waves/<n>/merged.json` files and return one `WaveMerge`
+/// per wave, sorted by wave_number. Missing or unreadable files are
+/// skipped silently — the report still renders without them.
+fn load_wave_merges(dir: &std::path::Path) -> Vec<wave::WaveMerge> {
+    let waves_dir = dir.join("waves");
+    let Ok(entries) = std::fs::read_dir(&waves_dir) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for entry in entries.flatten() {
+        if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        let merged = entry.path().join("merged.json");
+        let Ok(bytes) = std::fs::read(&merged) else {
+            continue;
+        };
+        let Ok(m) = serde_json::from_slice::<wave::WaveMerge>(&bytes) else {
+            continue;
+        };
+        out.push(m);
+    }
+    out.sort_by_key(|w| w.wave_number);
+    out
+}
+
+fn render_markdown(
+    info: &EngagementSummary,
+    surfaces: &[Surface],
+    waves: &[wave::WaveMerge],
+) -> String {
     let mut s = String::new();
     s.push_str("# Mantis Engagement Report\n\n");
     s.push_str(&format!("- **Engagement:** `{}`\n", info.id));
@@ -618,9 +652,35 @@ fn render_markdown(info: &EngagementSummary, surfaces: &[Surface]) -> String {
     if let Some(h) = &info.scope_hash {
         s.push_str(&format!("- **Scope hash:** `{}`\n", h));
     }
+
+    let findings_total: u32 = waves.iter().map(|w| w.findings_total).sum();
+    let mut by_sev: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
+    for w in waves {
+        for (k, v) in &w.findings_by_severity {
+            *by_sev.entry(k.clone()).or_default() += v;
+        }
+    }
+    let dead_ends_total: u32 = waves.iter().map(|w| w.dead_ends_total).sum();
+    let coverage_total: u32 = waves.iter().map(|w| w.coverage_total).sum();
+
     s.push_str("\n## Pipeline summary\n\n");
     s.push_str("| Stage | Count |\n|---|---|\n");
     s.push_str(&format!("| Surfaces discovered | {} |\n", surfaces.len()));
+    s.push_str(&format!("| Waves executed | {} |\n", waves.len()));
+    s.push_str(&format!("| Findings total | {} |\n", findings_total));
+    s.push_str(&format!("| Dead-ends | {} |\n", dead_ends_total));
+    s.push_str(&format!("| Coverage entries | {} |\n", coverage_total));
+
+    if !by_sev.is_empty() {
+        s.push_str("\n## Findings by severity\n\n");
+        s.push_str("| Severity | Count |\n|---|---|\n");
+        for sev in ["critical", "high", "medium", "low", "info"] {
+            if let Some(n) = by_sev.get(sev) {
+                s.push_str(&format!("| {} | {} |\n", sev, n));
+            }
+        }
+    }
+
     s.push_str("\n## Surfaces\n\n");
     if surfaces.is_empty() {
         s.push_str("_No surfaces recorded for this engagement._\n");
@@ -640,6 +700,52 @@ fn render_markdown(info: &EngagementSummary, surfaces: &[Surface]) -> String {
             ));
         }
     }
+
+    if !waves.is_empty() {
+        s.push_str("\n## Findings (from wave handoffs)\n\n");
+        for w in waves {
+            s.push_str(&format!(
+                "### Wave {} — {} findings (received {}/{} handoffs)\n\n",
+                w.wave_number, w.findings_total, w.handoffs_received, w.assignments_total,
+            ));
+            // Render highest-severity first so disclosure-grade items
+            // surface near the top of the section.
+            for sev in ["critical", "high", "medium", "low", "info"] {
+                let group: Vec<&wave::Finding> =
+                    w.findings.iter().filter(|f| f.severity == sev).collect();
+                if group.is_empty() {
+                    continue;
+                }
+                s.push_str(&format!(
+                    "#### {} ({} finding{})\n\n",
+                    sev,
+                    group.len(),
+                    if group.len() == 1 { "" } else { "s" }
+                ));
+                for f in group {
+                    s.push_str(&format!("- **{}** — `{}`\n", f.title, f.surface));
+                    let one_line: String = f
+                        .evidence
+                        .replace('\n', " ")
+                        .chars()
+                        .take(400)
+                        .collect();
+                    s.push_str(&format!("  - _evidence_: {}\n", one_line));
+                }
+                s.push('\n');
+            }
+            if !w.handoffs_missing.is_empty() {
+                s.push_str(&format!(
+                    "_Missing handoffs (still pending):_ `{}`\n\n",
+                    w.handoffs_missing.join("`, `")
+                ));
+            }
+        }
+    } else {
+        s.push_str("\n## Findings (from wave handoffs)\n\n");
+        s.push_str("_No waves merged for this engagement yet._\n");
+    }
+
     s.push_str("\n_Rendered by `mantis_render_report` via the Mantis MCP server._\n");
     s
 }
@@ -685,8 +791,63 @@ mod tests {
             server: Some("nginx".into()),
             tech_hints: vec![],
         }];
-        let md = render_markdown(&info, &surfaces);
+        let md = render_markdown(&info, &surfaces, &[]);
         assert!(md.contains("x.example"));
         assert!(md.contains("Mantis Engagement Report"));
+        assert!(md.contains("Waves executed | 0"));
+    }
+
+    #[test]
+    fn renders_report_with_wave_findings() {
+        let info = EngagementSummary {
+            id: "01HXXX".into(),
+            name: "test".into(),
+            state: "active",
+            created_at_unix: 0,
+            event_count: 10,
+            scope_hash: None,
+        };
+        let mut by_sev = std::collections::BTreeMap::new();
+        by_sev.insert("high".into(), 1u32);
+        by_sev.insert("low".into(), 2u32);
+        let waves = vec![wave::WaveMerge {
+            wave_number: 1,
+            merged_at_unix: 0,
+            assignments_total: 3,
+            handoffs_received: 3,
+            handoffs_missing: vec![],
+            findings_total: 3,
+            findings_by_severity: by_sev,
+            dead_ends_total: 5,
+            coverage_total: 10,
+            findings: vec![
+                wave::Finding {
+                    title: "Source map exposed".into(),
+                    surface: "https://x.example/bundle.js.map".into(),
+                    severity: "high".into(),
+                    evidence: "GET /bundle.js.map -> 200".into(),
+                },
+                wave::Finding {
+                    title: "HSTS preload missing".into(),
+                    surface: "https://x.example/".into(),
+                    severity: "low".into(),
+                    evidence: "max-age=31536000 lacks preload".into(),
+                },
+                wave::Finding {
+                    title: "Server banner disclosed".into(),
+                    surface: "https://x.example/".into(),
+                    severity: "low".into(),
+                    evidence: "server: nginx/1.21".into(),
+                },
+            ],
+        }];
+        let md = render_markdown(&info, &[], &waves);
+        assert!(md.contains("Findings total | 3"));
+        assert!(md.contains("Wave 1 — 3 findings"));
+        assert!(md.contains("Source map exposed"));
+        // High-severity findings precede low-severity in the wave section.
+        let hi = md.find("Source map exposed").unwrap();
+        let lo = md.find("HSTS preload missing").unwrap();
+        assert!(hi < lo, "high-severity finding should appear before low");
     }
 }
