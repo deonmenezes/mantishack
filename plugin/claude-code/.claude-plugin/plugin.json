@@ -15,15 +15,5 @@
     "offensive-security",
     "mantis"
   ],
-  "commands": [
-    "./commands/mantishack.md",
-    "./commands/scan.md",
-    "./commands/status.md",
-    "./commands/claim.md",
-    "./commands/report.md",
-    "./commands/daemon.md",
-    "./commands/resume.md",
-    "./commands/doctor.md",
-    "./commands/wave.md"
-  ]
+  "commands": []
 }

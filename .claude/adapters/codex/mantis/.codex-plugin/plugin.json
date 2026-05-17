@@ -1,0 +1,41 @@
+{
+  "name": "mantis",
+  "version": "1.3.4",
+  "description": "Codex MCP wiring for the Mantis bug bounty hunting runtime.",
+  "author": {
+    "name": "Mantis contributors",
+    "email": "maintainers@example.invalid",
+    "url": "https://github.com/mantishack-daemon/mantis"
+  },
+  "homepage": "https://github.com/mantishack-daemon/mantis#readme",
+  "repository": "https://github.com/mantishack-daemon/mantis",
+  "license": "Apache-2.0",
+  "keywords": [
+    "bug-bounty",
+    "mcp",
+    "security",
+    "codex"
+  ],
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Mantis",
+    "shortDescription": "Autonomous bug bounty hunting through a portable MCP runtime.",
+    "longDescription": "Run Mantis hunts, status checks, debug reviews, and package updates from Codex while durable state remains in the shared MCP runtime.",
+    "developerName": "Mantis contributors",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "MCP",
+      "Security"
+    ],
+    "websiteURL": "https://github.com/mantishack-daemon/mantis",
+    "privacyPolicyURL": "https://github.com/mantishack-daemon/mantis/blob/main/SECURITY.md",
+    "termsOfServiceURL": "https://github.com/mantishack-daemon/mantis/blob/main/DISCLAIMER.md",
+    "defaultPrompt": [
+      "Start a Mantis hunt for example.com",
+      "Show Mantis status for the latest run",
+      "Debug the latest Mantis run"
+    ],
+    "brandColor": "#111827"
+  }
+}
