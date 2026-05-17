@@ -358,8 +358,6 @@ async fn handle_pentest(
     let output_dir =
         output.unwrap_or_else(|| Utf8PathBuf::from(format!("./mantishack-{engagement_id}")));
     std::fs::create_dir_all(&output_dir).context("create output dir")?;
-    let report_path = output_dir.join(format!("report.{}", format_extension(&format)));
-    eprintln!("[mantishack] rendering {format} report -> {report_path}");
 
     let info = client
         .status(StatusRequest {
@@ -367,12 +365,91 @@ async fn handle_pentest(
         })
         .await?
         .into_inner();
+
+    eprintln!("[mantishack] exporting event log -> {output_dir}/events.jsonl");
+    let export = client
+        .export(ExportRequest {
+            id: engagement_id.clone(),
+        })
+        .await?
+        .into_inner();
+    std::fs::write(output_dir.join("events.jsonl"), &export.jsonl).context("write events.jsonl")?;
+
+    let report_path = output_dir.join(format!("report.{}", format_extension(&format)));
+    eprintln!("[mantishack] rendering {format} report -> {report_path}");
+    let report_body = render_minimal_report(
+        &engagement_name,
+        &engagement_id,
+        &target_kind,
+        &info,
+        &export.jsonl,
+    );
+    std::fs::write(&report_path, report_body).context("write report")?;
+
     let summary = build_summary(&engagement_name, &engagement_id, &target_kind, &info);
     std::fs::write(output_dir.join("summary.txt"), &summary).ok();
     eprintln!("\n{summary}");
 
     eprintln!("[mantishack] done. engagement {engagement_id} artifacts under {output_dir}");
+    eprintln!("[mantishack]   - summary.txt    human-readable summary");
+    eprintln!("[mantishack]   - events.jsonl   full append-only event log");
+    eprintln!(
+        "[mantishack]   - {}     engagement report",
+        report_path.file_name().unwrap_or("report")
+    );
     Ok(())
+}
+
+fn render_minimal_report(
+    name: &str,
+    id: &str,
+    target_kind: &TargetKind,
+    info: &EngagementInfo,
+    events_jsonl: &[u8],
+) -> String {
+    let kind_label = match target_kind {
+        TargetKind::WebUrl(u) => format!("web URL `{u}`"),
+        TargetKind::Domain(u) => format!("domain `{u}`"),
+        TargetKind::PackagedApp { path, kind } => format!("{kind} app `{path}`"),
+    };
+    let event_lines: Vec<&str> = std::str::from_utf8(events_jsonl)
+        .unwrap_or("")
+        .lines()
+        .collect();
+    let mut surfaces = 0usize;
+    let mut hypotheses = 0usize;
+    let mut claims_verified = 0usize;
+    for line in &event_lines {
+        if line.contains("\"SurfaceDiscovered\"") {
+            surfaces += 1;
+        } else if line.contains("\"HypothesisGenerated\"") {
+            hypotheses += 1;
+        } else if line.contains("\"ClaimVerified\"") {
+            claims_verified += 1;
+        }
+    }
+    format!(
+        "# Mantis Engagement Report\n\n\
+         - **Name:** `{name}`\n\
+         - **Engagement:** `{id}`\n\
+         - **Target:** {kind_label}\n\
+         - **State:** `{}`\n\
+         - **Events recorded:** {}\n\n\
+         ## Pipeline summary\n\n\
+         | Stage | Count |\n\
+         |---|---|\n\
+         | Surfaces discovered | {surfaces} |\n\
+         | Hypotheses generated | {hypotheses} |\n\
+         | Claims verified | {claims_verified} |\n\n\
+         ## Event log\n\n\
+         {} events appended to the per-engagement Merkle-evidence \
+         log under the workspace. See `events.jsonl` for the raw stream; \
+         every entry is BLAKE3-hashed into the engagement's tree head \
+         and signed by the workspace key.\n",
+        engagement_state_name(info.state),
+        info.event_count,
+        event_lines.len()
+    )
 }
 
 fn engagement_state_name(s: i32) -> &'static str {
