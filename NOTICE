@@ -1,0 +1,38 @@
+Mantis
+Copyright 2026 Deon Menezes and contributors
+
+This product is licensed under the Apache License, Version 2.0
+(http://www.apache.org/licenses/LICENSE-2.0) or the MIT License, at
+the user's option. See the workspace `Cargo.toml` `license` field
+(`Apache-2.0 OR MIT`).
+
+---
+
+Third-party attributions
+========================
+
+The following projects influenced Mantis's design or were studied
+during its development. All Mantis code is original and written from
+scratch in Rust; these projects are credited as inspiration, not as
+imported code.
+
+Hacker Bob
+----------
+  Upstream:    https://github.com/vmihalis/hacker-bob
+  License:     Apache License, Version 2.0
+  Copyright:   2026 Michail Vasileiadis and contributors
+
+  The MCP-tool-orchestrated workflow that Mantis adopted in
+  `crates/mantis-mcp` (replacing the rigid `mantis pentest` poll
+  loop with an LLM-driven engagement loop) was directly inspired by
+  Hacker Bob's local-MCP runtime model — particularly its decision
+  to expose engagement primitives as MCP tools and let the host LLM
+  own the state machine.
+
+  Mantis's MCP server is an independent Rust implementation built on
+  the `rmcp` crate; no Hacker Bob source code was copied or ported.
+  Hacker Bob is implemented in Node.js and lives in its own
+  repository under its own copyright.
+
+  Grateful acknowledgement is given to the Hacker Bob project under
+  the Apache 2.0 attribution mechanism.
