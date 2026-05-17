@@ -21,6 +21,7 @@ mantis-claim = { workspace = true }
 mantis-core = { workspace = true }
 mantis-egress = { workspace = true }
 mantis-event-store = { workspace = true }
+mantis-fsm = { workspace = true }
 mantis-hypothesis = { workspace = true }
 mantis-planner = { workspace = true }
 mantis-posterior = { workspace = true }
@@ -29,6 +30,7 @@ mantis-proto = { workspace = true }
 mantis-report = { workspace = true }
 mantis-scanner-http = { workspace = true }
 mantis-scope = { workspace = true }
+mantis-tiered-exec = { workspace = true }
 mantis-workspace = { workspace = true }
 
 reqwest = { workspace = true }
@@ -46,6 +48,10 @@ tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 ulid = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+mantis-workspace = { workspace = true, features = [] }
 
 [lints]
 workspace = true

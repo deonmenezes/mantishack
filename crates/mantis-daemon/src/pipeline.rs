@@ -6,6 +6,7 @@
 //! Phase 2 will move it behind an `Engagement.Subscribe` streaming
 //! RPC so the operator sees progress live.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use mantis_claim::{verify_claim, Claim, ClaimState, SurfaceSnapshot};
@@ -15,10 +16,15 @@ use mantis_hypothesis::generate_for;
 use mantis_planner::{Planner, SurfaceKey};
 use mantis_posterior::Posteriors;
 use mantis_primitive::{
-    CorsWildcard, Idor, MissingSecurityHeaders, OpenRedirect, Primitive, PrimitiveResult,
-    SqliErrorBased, XssReflected,
+    CachePoisoning, CommandInjection, CorsWildcard, CrlfInjection, FileUploadExtensionBypass,
+    HostHeaderInjection, Idor, LdapInjection, MissingSecurityHeaders, NoSqlInjection, OpenRedirect,
+    PathTraversal, Primitive, PrimitiveResult, SqliErrorBased, SsrfReflection, SstiBasic,
+    SubdomainTakeoverDanglingCname, XssReflected, XxeBasic,
 };
 use mantis_scanner_http::Surface;
+use mantis_tiered_exec::{
+    build_codegen, llm_signal_present, Probe as TieredProbe, SubprocessSandbox, TieredRunner,
+};
 use reqwest::Client;
 use tracing::{info, warn};
 
@@ -26,12 +32,26 @@ use tracing::{info, warn};
 /// planner picks via UCB1.
 pub(crate) fn build_catalog() -> Vec<Box<dyn Primitive>> {
     vec![
+        // Original six.
         Box::new(MissingSecurityHeaders),
         Box::new(OpenRedirect),
         Box::new(CorsWildcard),
         Box::new(Idor),
         Box::new(XssReflected),
         Box::new(SqliErrorBased),
+        // Extended catalog (twelve new vuln-class detectors).
+        Box::new(SsrfReflection),
+        Box::new(SstiBasic),
+        Box::new(NoSqlInjection),
+        Box::new(XxeBasic),
+        Box::new(CrlfInjection),
+        Box::new(HostHeaderInjection),
+        Box::new(PathTraversal),
+        Box::new(LdapInjection),
+        Box::new(CommandInjection),
+        Box::new(FileUploadExtensionBypass),
+        Box::new(CachePoisoning),
+        Box::new(SubdomainTakeoverDanglingCname),
     ]
 }
 
@@ -43,6 +63,12 @@ pub(crate) struct PipelineOutcome {
     pub claims_verified: u32,
     pub claims_rejected: u32,
     pub claims_retained: u32,
+    /// Surfaces escalated to the tiered (LLM-codegen) runner because
+    /// the Rust primitives produced no confirmed claim. One entry per
+    /// surface attempted.
+    pub tiered_attempts: u32,
+    /// Subset of `tiered_attempts` that produced an accepted finding.
+    pub tiered_findings: u32,
 }
 
 /// Run the full pipeline over a list of discovered surfaces. Writes
@@ -61,6 +87,14 @@ pub(crate) async fn run_pipeline(
 ) -> PipelineOutcome {
     let mut outcome = PipelineOutcome::default();
     let mut planner = Planner::new();
+    // Track which surfaces produced at least one verified claim under
+    // the cheap primitive layer; the tiered runner only escalates the
+    // surfaces that didn't.
+    let mut verified_surfaces: HashSet<String> = HashSet::new();
+    // Track per-surface hypothesis summaries so the tiered runner can
+    // build a clear objective string when it escalates.
+    let mut surface_hypotheses: std::collections::HashMap<String, Vec<(String, String, u32)>> =
+        std::collections::HashMap::new();
 
     // Hypothesis generation + planner registration.
     for surface in surfaces {
@@ -83,6 +117,10 @@ pub(crate) async fn run_pipeline(
                 continue;
             }
             outcome.hypotheses_recorded += 1;
+            surface_hypotheses
+                .entry(surface_id.clone())
+                .or_default()
+                .push((h.vuln_class.clone(), h.summary.clone(), prior));
             for primitive in catalog {
                 if primitive.vuln_class() == h.vuln_class && primitive.matches_surface(surface) {
                     planner.register_action(
@@ -167,6 +205,7 @@ pub(crate) async fn run_pipeline(
                 match verify_claim(&claim, client).await {
                     Ok(ClaimState::Verified { verifier_id }) => {
                         outcome.claims_verified += 1;
+                        verified_surfaces.insert(surface_url.clone());
                         let _ = event_store.append(
                             engagement_id,
                             EventKind::ClaimVerified {
@@ -215,12 +254,89 @@ pub(crate) async fn run_pipeline(
         planner.record_outcome(action_id, reward);
     }
 
+    // ---------- Tiered LLM-codegen escalation ----------
+    //
+    // For every surface that produced hypotheses but no verified claim
+    // under the cheap Rust primitives, escalate to the tiered runner
+    // (medium tier: one-shot LLM codegen + sandbox; hard tier: verifier
+    // loop). This is gated on (a) the operator having configured an
+    // LLM provider (env var present) and (b) the per-surface cap.
+    //
+    // The runner produces structured `TieredFinding` events that the
+    // grader phase picks up alongside primitive findings.
+    if llm_signal_present() {
+        let runner = TieredRunner::new(
+            None, // light tier is the primitive layer; we already ran it
+            build_codegen(None),
+            Arc::new(SubprocessSandbox),
+        );
+        let tiered_cap = std::env::var("MANTIS_TIERED_CAP")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(5);
+        let mut tiered_ran: usize = 0;
+        for (surface_id, hypotheses) in surface_hypotheses.iter() {
+            if tiered_ran >= tiered_cap {
+                break;
+            }
+            if verified_surfaces.contains(surface_id) {
+                continue;
+            }
+            // Build the objective: include every hypothesis the
+            // surface had so the LLM can pick the most promising one.
+            let mut objective = String::with_capacity(256);
+            for (vc, summary, prior) in hypotheses {
+                objective.push_str(&format!("[{vc} prior={prior}pp10k] {summary}\n"));
+            }
+            let probe = TieredProbe {
+                target_url: surface_id.clone(),
+                objective,
+                attacker_profile: None,
+                victim_profile: None,
+                budget_seconds: 30,
+            };
+            outcome.tiered_attempts += 1;
+            tiered_ran += 1;
+            let tiered = runner.run(&probe).await;
+            if let Some(f) = tiered.finding {
+                outcome.tiered_findings += 1;
+                verified_surfaces.insert(surface_id.clone());
+                let _ = event_store.append(
+                    engagement_id,
+                    EventKind::TieredFindingProduced {
+                        surface_id: surface_id.clone(),
+                        vuln_class: f.vuln_class,
+                        tier: format!("{:?}", f.tier).to_ascii_lowercase(),
+                        severity: f.severity,
+                        verifier_verdict: f.verifier_verdict.unwrap_or_default(),
+                        hard_iterations: f.hard_iterations,
+                    },
+                    signer.as_ref(),
+                );
+            } else {
+                let _ = event_store.append(
+                    engagement_id,
+                    EventKind::TieredEscalationExhausted {
+                        surface_id: surface_id.clone(),
+                        light_result: tiered.light_result,
+                        medium_result: tiered.medium_result,
+                        hard_result: tiered.hard_result,
+                        notes_joined: tiered.notes.join(" | "),
+                    },
+                    signer.as_ref(),
+                );
+            }
+        }
+    }
+
     info!(
         hypotheses = outcome.hypotheses_recorded,
         primitives = outcome.primitives_executed,
         verified = outcome.claims_verified,
         rejected = outcome.claims_rejected,
         retained = outcome.claims_retained,
+        tiered_attempts = outcome.tiered_attempts,
+        tiered_findings = outcome.tiered_findings,
         "pipeline complete"
     );
     outcome
