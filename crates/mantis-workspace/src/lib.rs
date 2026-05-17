@@ -30,7 +30,7 @@ pub use crate::doctor::{run as run_doctor, DoctorReport};
 pub use crate::error::WorkspaceError;
 pub use crate::key::{verify, Keypair, PublicKey, SIGN_DOMAIN_PREFIX};
 pub use crate::keystore::{InMemoryKeyStore, KeyStore, KeyStoreError, OsKeyStore};
-pub use crate::operator::{OperatorInfo, OperatorProfile};
+pub use crate::operator::{operator_keystore_service, OperatorInfo, OperatorProfile};
 pub use crate::workspace::{workspace_keystore_service, Workspace};
 
 /// Resolve the workspace root: `MANTIS_HOME` env var if set, otherwise

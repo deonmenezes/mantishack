@@ -301,7 +301,8 @@ async fn handle_pentest(
         "[mantishack] auto-authorizing default scope (host-only) — {} target(s)",
         urls.len()
     );
-    let scope_json = build_default_scope_json(&urls, budget_seconds);
+    let scope_json = build_signed_scope_json(&engagement_id, &urls, budget_seconds)
+        .context("build signed scope")?;
     client
         .authorize(AuthorizeRequest {
             id: engagement_id.clone(),
@@ -471,28 +472,103 @@ async fn extract_urls_from_binary(path: &Utf8PathBuf) -> Result<Vec<String>> {
     Ok(urls.into_iter().collect())
 }
 
-fn build_default_scope_json(urls: &[String], budget_seconds: u32) -> String {
+fn build_signed_scope_json(
+    engagement_id: &str,
+    urls: &[String],
+    budget_seconds: u32,
+) -> Result<String> {
+    use mantis_core::{EngagementId, Signer};
+    use mantis_scope::budget::BudgetEnvelope;
+    use mantis_scope::host_pattern::HostPattern;
+    use mantis_scope::manifest::{Protocol, ScopeManifest, ScopeRules};
+    use mantis_scope::port_range::PortMatcher;
+    use mantis_scope::signed::SignedScope;
+    use mantis_workspace::keystore::KeyStore;
+    use mantis_workspace::{
+        default_workspace_root, operator_keystore_service, Keypair, OsKeyStore, Workspace,
+    };
+    use ulid::Ulid;
+
+    let root = default_workspace_root();
+    let keystore = OsKeyStore::new();
+    let workspace = Workspace::open(&root, &keystore)
+        .context("open workspace (run `mantis workspace init` first)")?;
+
+    let operator = workspace
+        .list_operators()
+        .ok()
+        .and_then(|ops| ops.into_iter().next())
+        .ok_or_else(|| {
+            anyhow::anyhow!("no operator yet — run `mantis operator create <name>` first")
+        })?;
+
+    let operator_secret = keystore
+        .get(&operator_keystore_service(operator.id), "signing-key")
+        .context("read operator signing key from OS keystore")?;
+    let secret_arr: [u8; 32] = operator_secret
+        .as_slice()
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("operator key wrong length"))?;
+    let operator_keypair = Keypair::from_secret_bytes(&secret_arr);
+
     let hosts: std::collections::BTreeSet<String> =
         urls.iter().filter_map(|u| url_host(u)).collect();
-    let host_array: Vec<String> = hosts.into_iter().collect();
-    serde_json::json!({
-        "version": 1,
-        "include_hosts": host_array,
-        "include_paths": ["/*"],
-        "include_ports": [80, 443],
-        "include_schemes": ["http", "https"],
-        "budget": {
-            "max_wall_clock_seconds": budget_seconds,
-            "max_requests": 5000,
-            "max_egress_bytes": 50_000_000_u64
+    let host_patterns: Vec<HostPattern> = hosts.into_iter().map(HostPattern::new).collect();
+
+    let ports: std::collections::BTreeSet<u16> = urls.iter().filter_map(|u| url_port(u)).collect();
+    let port_matchers: Vec<PortMatcher> = if ports.is_empty() {
+        vec![PortMatcher::single(80), PortMatcher::single(443)]
+    } else {
+        ports.into_iter().map(PortMatcher::single).collect()
+    };
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let manifest = ScopeManifest {
+        schema_version: 1,
+        engagement_id: EngagementId(
+            Ulid::from_string(engagement_id).context("parse engagement id")?,
+        ),
+        authorized_by: operator.id,
+        expires_at_unix: now + budget_seconds as u64 + 600,
+        budget: BudgetEnvelope {
+            max_requests: 5_000,
+            max_egress_bytes: 50_000_000,
+            max_wall_clock_seconds: budget_seconds as u64,
+            max_requests_per_second: 50,
         },
-        "authorized_by": "mantishack-cli",
-        "expires_at_unix": (std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0) + budget_seconds as u64 + 600)
-    })
-    .to_string()
+        include: ScopeRules {
+            hosts: host_patterns,
+            ports: port_matchers,
+            paths: vec!["/*".into()],
+            protocols: vec![Protocol::Http, Protocol::Https],
+        },
+        exclude: ScopeRules::default(),
+    };
+
+    struct OpSigner<'a>(&'a Keypair);
+    impl<'a> Signer for OpSigner<'a> {
+        fn sign(&self, context: &str, payload: &[u8]) -> [u8; 64] {
+            self.0.sign(context, payload).to_bytes()
+        }
+        fn public_key_bytes(&self) -> [u8; 32] {
+            *self.0.public().as_bytes()
+        }
+    }
+    let _ = workspace; // silence unused warning; workspace open already validated
+    let signed = SignedScope::create(manifest, &OpSigner(&operator_keypair))
+        .context("sign scope manifest")?;
+    Ok(serde_json::to_string(&signed)?)
+}
+
+fn url_port(u: &str) -> Option<u16> {
+    let after_scheme = u.split_once("://")?.1;
+    let authority = after_scheme.split('/').next()?;
+    let (_, port) = authority.rsplit_once(':')?;
+    port.parse::<u16>().ok()
 }
 
 fn url_host(u: &str) -> Option<String> {
