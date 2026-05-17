@@ -29,6 +29,14 @@ Hacker Bob
   to expose engagement primitives as MCP tools and let the host LLM
   own the state machine.
 
+  The wave/handoff pattern for parallel hunter agents in
+  `crates/mantis-mcp/src/wave.rs` and the corresponding
+  `mantis-hunter` sub-agent, `/mantis:wave` slash command, and
+  FAN_OUT phase in `mantis-orchestrator.md` are also inspired by
+  Hacker Bob's `bounty_start_next_wave` / `bounty_write_wave_handoff`
+  / `bounty_merge_wave_handoffs` mechanism for fan-out hunter waves
+  with merged handoff reconciliation.
+
   Mantis's MCP server is an independent Rust implementation built on
   the `rmcp` crate; no Hacker Bob source code was copied or ported.
   Hacker Bob is implemented in Node.js and lives in its own

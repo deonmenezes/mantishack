@@ -31,5 +31,8 @@ tracing-subscriber = { workspace = true }
 ulid = { workspace = true }
 clap = { workspace = true }
 
+[dev-dependencies]
+tempfile = { workspace = true }
+
 [lints]
 workspace = true

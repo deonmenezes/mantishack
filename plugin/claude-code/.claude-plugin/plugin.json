@@ -23,6 +23,7 @@
     "./commands/report.md",
     "./commands/daemon.md",
     "./commands/resume.md",
-    "./commands/doctor.md"
+    "./commands/doctor.md",
+    "./commands/wave.md"
   ]
 }

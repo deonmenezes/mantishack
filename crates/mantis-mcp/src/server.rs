@@ -27,6 +27,7 @@ use mantis_proto::v1::{
 
 use crate::daemon;
 use crate::scope::build_signed_scope_json;
+use crate::wave;
 
 #[derive(Debug, Clone)]
 pub struct MantisMcpServer {
@@ -91,6 +92,53 @@ pub struct RenderReportArgs {
     /// working directory.
     #[serde(default)]
     pub output_dir: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct StartWaveArgs {
+    /// Engagement id this wave belongs to.
+    pub engagement_id: String,
+    /// One entry per parallel hunter. The orchestrator decides the
+    /// split; assignment ids are generated server-side and returned.
+    pub assignments: Vec<StartWaveAssignment>,
+}
+
+/// Wave-start input: surfaces and optional metadata. The server
+/// generates the assignment id (ULID) so two orchestrators can't
+/// race to claim the same id.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct StartWaveAssignment {
+    pub surfaces: Vec<String>,
+    #[serde(default)]
+    pub vuln_classes: Vec<String>,
+    #[serde(default)]
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct WaveIdArgs {
+    pub engagement_id: String,
+    pub wave_number: u32,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct WriteHandoffArgs {
+    pub engagement_id: String,
+    pub wave_number: u32,
+    /// Must match an assignment id returned by `mantis_start_wave`.
+    pub assignment_id: String,
+    /// Free-form display name for the hunter agent (e.g.
+    /// `mantis-hunter`). Stored in the handoff for audit.
+    pub hunter: String,
+    /// Findings the hunter is reporting. May be empty.
+    #[serde(default)]
+    pub findings: Vec<wave::Finding>,
+    /// Techniques the hunter tried that did not pan out.
+    #[serde(default)]
+    pub dead_ends: Vec<wave::DeadEnd>,
+    /// Coverage notes — list of techniques attempted.
+    #[serde(default)]
+    pub coverage: Vec<String>,
 }
 
 // ---------- response shapes (for LLM-friendly JSON) ----------
@@ -320,6 +368,113 @@ impl MantisMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let jsonl = export_events(&self.daemon_endpoint, &args.engagement_id).await?;
         Ok(CallToolResult::success(vec![Content::text(jsonl)]))
+    }
+
+    #[tool(
+        description = "Start a parallel hunter wave. Persists `assignments.json` under \
+                       `./mantishack-<engagement-id>/waves/<n>/` and returns the wave_number \
+                       plus per-assignment ULIDs. The orchestrator then spawns one \
+                       mantis-hunter sub-agent per assignment in a single parallel-tool-call \
+                       message; each hunter probes its surfaces and calls \
+                       `mantis_write_handoff` with the assignment_id when done. After all \
+                       hunters return, call `mantis_merge_wave` to consolidate. \
+                       Inspired by Hacker Bob's wave/handoff pattern (see /NOTICE)."
+    )]
+    async fn mantis_start_wave(
+        &self,
+        Parameters(args): Parameters<StartWaveArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        if args.assignments.is_empty() {
+            return Err(McpError::invalid_request(
+                "assignments must contain at least one entry".to_string(),
+                None,
+            ));
+        }
+        let assignments: Vec<wave::Assignment> = args
+            .assignments
+            .into_iter()
+            .map(|a| wave::Assignment {
+                id: ulid::Ulid::new().to_string(),
+                surfaces: a.surfaces,
+                vuln_classes: a.vuln_classes,
+                notes: a.notes,
+            })
+            .collect();
+        let wave_number = wave::start_wave(&args.engagement_id, &assignments)
+            .map_err(|e| to_internal("start_wave", e))?;
+        json_ok(&json!({
+            "engagement_id": args.engagement_id,
+            "wave_number": wave_number,
+            "assignments": assignments,
+        }))
+    }
+
+    #[tool(
+        description = "Report per-assignment progress for a wave. Returns a list of \
+                       (assignment_id, status, surfaces, hunter, findings_count, \
+                       dead_ends_count). `status` is `pending` until a handoff file \
+                       lands on disk and `received` afterward. The `all_received` flag \
+                       tells the orchestrator when it can safely call `mantis_merge_wave`."
+    )]
+    async fn mantis_wave_status(
+        &self,
+        Parameters(args): Parameters<WaveIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let status = wave::wave_status(&args.engagement_id, args.wave_number)
+            .map_err(|e| to_invalid("wave_status", e))?;
+        json_ok(&status)
+    }
+
+    #[tool(
+        description = "Hunter -> orchestrator handoff. A hunter calls this exactly once at \
+                       the end of its assignment with the structured findings + dead-ends + \
+                       coverage it produced. The server validates that `assignment_id` is \
+                       part of the named wave and writes `handoff-<id>.json` atomically. \
+                       Re-calling this overwrites the previous handoff (useful if a hunter \
+                       was retried)."
+    )]
+    async fn mantis_write_handoff(
+        &self,
+        Parameters(args): Parameters<WriteHandoffArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let handoff = wave::Handoff {
+            assignment_id: args.assignment_id.clone(),
+            hunter: args.hunter,
+            started_at_unix: now, // best-effort; hunters can report better via notes
+            completed_at_unix: now,
+            findings: args.findings,
+            dead_ends: args.dead_ends,
+            coverage: args.coverage,
+        };
+        wave::write_handoff(&args.engagement_id, args.wave_number, &handoff)
+            .map_err(|e| to_invalid("write_handoff", e))?;
+        json_ok(&json!({
+            "engagement_id": args.engagement_id,
+            "wave_number": args.wave_number,
+            "assignment_id": args.assignment_id,
+            "received": true,
+        }))
+    }
+
+    #[tool(
+        description = "Consolidate every handoff that has landed for a wave into one \
+                       merged record. Writes `merged.json` under the wave directory and \
+                       returns the aggregate counts (findings total + by severity, \
+                       dead-end total, coverage total, handoffs received vs missing). \
+                       Safe to call before all hunters have returned: `handoffs_missing` \
+                       lists assignments still pending."
+    )]
+    async fn mantis_merge_wave(
+        &self,
+        Parameters(args): Parameters<WaveIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let merge = wave::merge_wave(&args.engagement_id, args.wave_number)
+            .map_err(|e| to_invalid("merge_wave", e))?;
+        json_ok(&merge)
     }
 
     #[tool(

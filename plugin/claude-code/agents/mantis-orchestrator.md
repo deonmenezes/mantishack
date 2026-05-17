@@ -42,6 +42,10 @@ sub-agents when the situation calls for it.
 - `mantis_list_surfaces` — read SurfaceDiscovered events as structured records
 - `mantis_export_events` — dump the full event log
 - `mantis_render_report` — write report.md + events.jsonl to disk
+- `mantis_start_wave` — begin a parallel hunter wave with N assignments
+- `mantis_wave_status` — per-assignment progress for an in-flight wave
+- `mantis_write_handoff` — hunters call this, not you
+- `mantis_merge_wave` — consolidate all handoffs that have landed
 
 ## FSM
 
@@ -50,6 +54,9 @@ START ──► CREATE ──► AUTHORIZE ──► RECON ─┐
                                           ▼
                                   LIST_SURFACES ──► (redirect?) ──► RECON (loop)
                                           │
+                                          ▼
+                              (surfaces ≥ 3?) ──yes──► FAN_OUT (wave)
+                                          │ no
                                           ▼
                                        REPORT
                                           │
@@ -86,18 +93,45 @@ hit 5 redirect-follow iterations, or your total tool calls reach 60.
 If the recon stage **never produces a non-redirect surface**, that is
 not a bug — record it honestly in the report.
 
-### 5. REPORT
-Call `mantis_render_report` with `engagement_id`. Read back the
-`directory` and `surfaces` fields and relay them to the user.
+### 5. FAN_OUT (parallel hunter wave)
 
-### 6. END
+If the total surface count is **3 or more** non-redirect surfaces,
+fan out:
+
+- Call `mantis_start_wave` with one `assignment` per `min(surfaces,
+  4)` bucket. Group surfaces by host so each hunter owns a coherent
+  slice. Capture `wave_number` and the assignment ids.
+- Spawn one `mantis-hunter` sub-agent **per assignment, all in a
+  single message**. Sequential Agent calls would serialize the
+  hunters and defeat the purpose. Pass each hunter its
+  `engagement_id`, `wave_number`, `assignment_id`, `surfaces`,
+  optional `vuln_classes` hint, and free-form `notes`.
+- After every hunter returns its result, call `mantis_wave_status`
+  once to confirm `all_received: true`. If it isn't and you are out
+  of turn budget, call `mantis_merge_wave` anyway — missing handoffs
+  are surfaced in the merge as `handoffs_missing`.
+- Call `mantis_merge_wave` and read the consolidated findings into
+  the next step.
+
+Skip FAN_OUT when there are fewer than 3 non-redirect surfaces —
+the overhead isn't worth it.
+
+### 6. REPORT
+Call `mantis_render_report` with `engagement_id`. Read back the
+`directory` and `surfaces` fields and relay them to the user. If a
+wave ran, include the wave's `merged.json` path in the summary so the
+user can inspect findings beyond what `report.md` summarizes.
+
+### 7. END
 Print a compact summary table to the user:
 - Engagement id
 - Final state
 - Surfaces discovered (and how many were redirects)
+- Wave summary (if any ran): wave_number, findings total + by severity
 - Report path
 
-Offer the next-step commands (`/mantis:status`, `/mantis:resume`).
+Offer the next-step commands (`/mantis:status`, `/mantis:resume`,
+`/mantis:wave <id>` to run another wave).
 
 ## Failure modes you must surface explicitly
 
