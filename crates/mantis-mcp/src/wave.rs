@@ -92,6 +92,36 @@ pub struct DeadEnd {
     pub reason: String,
 }
 
+/// A chain attempt — a recorded hypothesis that one finding enables
+/// another, with an explicit outcome. Inspired by Hacker Bob's
+/// `bounty_write_chain_attempt`. The severity ladder is enforced:
+/// LOW+LOW = LOW, no hand-wave escalation. See
+/// `plugin/claude-code/playbooks/README.md` for the rules.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ChainAttempt {
+    /// Short ULID-derived id, generated server-side.
+    pub id: String,
+    /// `finding_id`s (titles, in our schema) the chain composes.
+    pub finding_titles: Vec<String>,
+    /// Surface(s) involved.
+    pub surfaces: Vec<String>,
+    /// One-line narrative: "subdomain takeover -> wallet drain".
+    pub hypothesis: String,
+    /// Concise replay/rejection steps, one per line.
+    pub steps: Vec<String>,
+    /// Outcome (enforced server-side):
+    /// `confirmed`, `denied`, `blocked`, `inconclusive`, `not_applicable`.
+    pub outcome: String,
+    /// Severity of the *composed* chain, max per the ladder rules.
+    pub severity: String,
+    /// Short prose: "POST /verify accepted stale token; status 200."
+    pub evidence_summary: String,
+    /// If severity was elevated under a rationale, the operator's
+    /// explanation. Required when crossing a ladder rung.
+    pub severity_elevation_rationale: Option<String>,
+    pub recorded_at_unix: u64,
+}
+
 /// Aggregate written by `mantis_merge_wave`.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct WaveMerge {
@@ -150,6 +180,129 @@ pub fn assignments_path(engagement_id: &str, wave_number: u32) -> PathBuf {
 
 pub fn merged_path(engagement_id: &str, wave_number: u32) -> PathBuf {
     wave_dir(engagement_id, wave_number).join("merged.json")
+}
+
+pub fn chain_attempts_path(engagement_id: &str, wave_number: u32) -> PathBuf {
+    wave_dir(engagement_id, wave_number).join("chain-attempts.jsonl")
+}
+
+const CHAIN_OUTCOMES: &[&str] = &[
+    "confirmed",
+    "denied",
+    "blocked",
+    "inconclusive",
+    "not_applicable",
+];
+
+const SEVERITY_RANK: &[(&str, u8)] = &[
+    ("info", 0),
+    ("low", 1),
+    ("medium", 2),
+    ("high", 3),
+    ("critical", 4),
+];
+
+fn severity_rank(s: &str) -> Option<u8> {
+    SEVERITY_RANK
+        .iter()
+        .find(|(k, _)| *k == s)
+        .map(|(_, v)| *v)
+}
+
+/// Validate the chain-attempt against the severity ladder. Returns
+/// the validated severity string. Rules from
+/// `plugin/claude-code/playbooks/README.md`:
+///
+/// - `severity` must be one of `info/low/medium/high/critical`.
+/// - `severity` cannot exceed `max(input_severities) + 1` unless
+///   `severity_elevation_rationale` is non-empty.
+/// - Even with rationale, `severity` cannot exceed
+///   `max(input_severities) + 2` (no jumping rungs).
+/// - If `severity` exceeds `max(input_severities)`, the rationale
+///   must mention "elevation:" so it is searchable.
+pub fn validate_chain_severity(
+    severity: &str,
+    input_severities: &[String],
+    rationale: Option<&str>,
+) -> Result<()> {
+    let chain_rank = severity_rank(severity)
+        .ok_or_else(|| anyhow!("severity must be one of info/low/medium/high/critical"))?;
+    let max_input = input_severities
+        .iter()
+        .filter_map(|s| severity_rank(s))
+        .max()
+        .unwrap_or(0);
+    if chain_rank <= max_input {
+        return Ok(());
+    }
+    let step = chain_rank - max_input;
+    if step >= 3 {
+        return Err(anyhow!(
+            "chain severity `{severity}` is {step} rungs above input max — \
+             jumping rungs is forbidden under any rationale"
+        ));
+    }
+    let rationale = rationale.unwrap_or("").trim();
+    if rationale.is_empty() {
+        return Err(anyhow!(
+            "chain severity `{severity}` exceeds input max by {step} rung(s); \
+             severity_elevation_rationale is required"
+        ));
+    }
+    if step >= 2 && !rationale.to_lowercase().contains("elevation:") {
+        return Err(anyhow!(
+            "chain severity jumps {step} rungs; rationale must contain the \
+             token `elevation:` describing the multiplier"
+        ));
+    }
+    Ok(())
+}
+
+pub fn validate_chain_outcome(outcome: &str) -> Result<()> {
+    if !CHAIN_OUTCOMES.contains(&outcome) {
+        return Err(anyhow!(
+            "outcome `{outcome}` invalid; must be one of: {}",
+            CHAIN_OUTCOMES.join(", ")
+        ));
+    }
+    Ok(())
+}
+
+/// Append a chain attempt to `waves/<n>/chain-attempts.jsonl`.
+pub fn record_chain_attempt(
+    engagement_id: &str,
+    wave_number: u32,
+    attempt: &ChainAttempt,
+) -> Result<()> {
+    validate_chain_outcome(&attempt.outcome)?;
+    let input_severities: Vec<String> = Vec::new();
+    // Caller supplies the severity directly; we don't reconstruct input
+    // severities from titles. The ladder is enforced at the tool layer
+    // where the caller passes the input severity list explicitly.
+    let _ = input_severities;
+    let path = chain_attempts_path(engagement_id, wave_number);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("create_dir_all {}", parent.display()))?;
+    }
+    let line = serde_json::to_string(attempt).context("serialize chain attempt")?;
+    let mut data = std::fs::read(&path).unwrap_or_default();
+    data.extend_from_slice(line.as_bytes());
+    data.push(b'\n');
+    atomic_write(&path, &data)?;
+    Ok(())
+}
+
+pub fn read_chain_attempts(engagement_id: &str, wave_number: u32) -> Vec<ChainAttempt> {
+    let path = chain_attempts_path(engagement_id, wave_number);
+    let Ok(bytes) = std::fs::read(&path) else {
+        return Vec::new();
+    };
+    let text = String::from_utf8_lossy(&bytes);
+    text.lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| serde_json::from_str::<ChainAttempt>(l).ok())
+        .collect()
 }
 
 /// Find the next wave number for an engagement. Scans `waves/` and
@@ -440,6 +593,119 @@ mod tests {
         let a2 = status.assignments.iter().find(|s| s.assignment_id == "a2").unwrap();
         assert_eq!(a2.status, "pending");
         assert_eq!(a2.findings_count, 0);
+    }
+
+    #[test]
+    fn ladder_allows_chain_at_or_below_max_input() {
+        let inputs = vec!["low".into(), "medium".into()];
+        assert!(validate_chain_severity("info", &inputs, None).is_ok());
+        assert!(validate_chain_severity("low", &inputs, None).is_ok());
+        assert!(validate_chain_severity("medium", &inputs, None).is_ok());
+    }
+
+    #[test]
+    fn ladder_requires_rationale_for_one_rung_jump() {
+        let inputs = vec!["low".into(), "low".into()];
+        // low (max=1) + 1 = medium. No rationale -> reject.
+        let err = validate_chain_severity("medium", &inputs, None)
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(
+            err.contains("severity_elevation_rationale is required"),
+            "msg: {err}"
+        );
+        // With any non-empty rationale -> accept.
+        assert!(
+            validate_chain_severity("medium", &inputs, Some("matters because X")).is_ok()
+        );
+    }
+
+    #[test]
+    fn ladder_requires_elevation_token_for_two_rung_jump() {
+        let inputs = vec!["low".into()];
+        // low (max=1) -> high (rank 3) is +2; needs the literal token "elevation:".
+        let err = validate_chain_severity("high", &inputs, Some("important stuff"))
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(err.contains("elevation:"), "msg: {err}");
+        assert!(validate_chain_severity(
+            "high",
+            &inputs,
+            Some("elevation: combining low XSS with broken cookie auth multiplies impact 100x")
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn ladder_forbids_three_rung_jump_under_any_rationale() {
+        let inputs = vec!["info".into()];
+        // info (0) -> high (3) is 3 rungs; always rejected.
+        let err = validate_chain_severity(
+            "high",
+            &inputs,
+            Some("elevation: this is huge actually"),
+        )
+        .err()
+        .unwrap()
+        .to_string();
+        assert!(err.contains("jumping rungs"), "msg: {err}");
+    }
+
+    #[test]
+    fn ladder_rejects_invalid_severity() {
+        assert!(validate_chain_severity("urgent", &["low".into()], None).is_err());
+    }
+
+    #[test]
+    fn outcome_validator_accepts_terminal_outcomes() {
+        for ok in ["confirmed", "denied", "blocked", "inconclusive", "not_applicable"] {
+            assert!(validate_chain_outcome(ok).is_ok(), "rejected `{ok}`");
+        }
+        assert!(validate_chain_outcome("maybe").is_err());
+    }
+
+    #[test]
+    fn record_chain_attempt_appends_jsonl_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let _g = CwdGuard::new(dir.path());
+        let eng = "01TESTENG0CHAIN000000000";
+        // assignments.json need not exist for chain attempts; they're
+        // per-wave but not gated by assignments.
+        std::fs::create_dir_all(wave_dir(eng, 1)).unwrap();
+
+        let a1 = ChainAttempt {
+            id: "atmpt-1".into(),
+            finding_titles: vec!["F1".into(), "F2".into()],
+            surfaces: vec!["https://x.example/".into()],
+            hypothesis: "info leak -> IDOR".into(),
+            steps: vec!["GET /api/me leaked id 7".into(), "GET /api/user/8 returned other".into()],
+            outcome: "confirmed".into(),
+            severity: "medium".into(),
+            evidence_summary: "two-step replay landed".into(),
+            severity_elevation_rationale: None,
+            recorded_at_unix: 1,
+        };
+        let a2 = ChainAttempt {
+            id: "atmpt-2".into(),
+            finding_titles: vec!["F3".into()],
+            surfaces: vec!["https://x.example/".into()],
+            hypothesis: "no chain".into(),
+            steps: vec!["nothing composes".into()],
+            outcome: "not_applicable".into(),
+            severity: "info".into(),
+            evidence_summary: "single finding".into(),
+            severity_elevation_rationale: None,
+            recorded_at_unix: 2,
+        };
+        record_chain_attempt(eng, 1, &a1).unwrap();
+        record_chain_attempt(eng, 1, &a2).unwrap();
+
+        let read = read_chain_attempts(eng, 1);
+        assert_eq!(read.len(), 2);
+        assert_eq!(read[0].hypothesis, "info leak -> IDOR");
+        assert_eq!(read[1].outcome, "not_applicable");
     }
 
     #[test]

@@ -42,6 +42,51 @@ deduplicates, you do not.
 5. **Use `curl` via Bash.** Cap timeouts: `curl -sS --max-time 10`.
 6. **Self-cap at 40 turns.** Past that, write what you have and exit.
 
+## Hunter discipline — NEVER record as standalone findings
+
+Adapted from Hacker Bob's hunter.md (Apache 2.0, see `/NOTICE`). The
+following defects are **not** reportable on their own — they only
+count if you **prove the chain** via `mantis_record_chain_attempt`:
+
+- Missing security headers (CSP, X-Frame-Options, Referrer-Policy,
+  Permissions-Policy, COOP/COEP/CORP, X-Content-Type-Options)
+- SPF / DKIM / DMARC misconfig (unless the DMARC `rua` target is
+  takeoverable per `cap-dmarc-takeover.md`)
+- GraphQL introspection enabled (unless you weaponize it)
+- Banner / version disclosure (`Server:`, `X-Powered-By:`)
+- Clickjacking without a working PoC
+- Tabnabbing, CSV injection, self-XSS
+- CORS wildcard without credentialed exfil
+- Logout CSRF, password autocomplete, missing cookie flags
+- Open redirect (only count if you prove OAuth token theft or
+  similar)
+- SSRF DNS-only (no internal egress proven)
+- Host header injection without cache-poisoning PoC
+- Rate-limit on non-critical forms
+- Concurrent session / logout-session issues
+- Internal IP disclosure
+- robots.txt / sitemap.xml presence alone
+
+When a hunter wants to record one of these, it MUST also call
+`mantis_record_chain_attempt` with a second finding it composes
+with, and an `outcome: "confirmed"`. The severity ladder applies:
+LOW+LOW = LOW; max chain severity is `max(input_severities)+1`
+without rationale, `+2` only with explicit `elevation:` rationale.
+
+If no chain exists, **omit the finding entirely** (record it in
+`dead_ends` instead).
+
+## When to call capability playbooks
+
+If your assignment's `vuln_classes` or `notes` references a
+capability pack name (e.g., `cap-source-map-exploit`,
+`cap-dmarc-takeover`, `cap-subdomain-takeover`,
+`cap-multi-account-differential`, `cap-vercel-challenge-bypass`),
+read the corresponding markdown file under
+`plugin/claude-code/playbooks/` first and follow its procedure
+verbatim. Each pack is engineered to produce chain-strength
+findings, not standalone-noise findings.
+
 ## Checklists by focus angle
 
 The orchestrator's `vuln_classes` list tells you which checklist to

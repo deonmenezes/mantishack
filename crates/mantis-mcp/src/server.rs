@@ -122,6 +122,36 @@ pub struct WaveIdArgs {
 }
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct RecordChainAttemptArgs {
+    pub engagement_id: String,
+    pub wave_number: u32,
+    /// Titles of the findings the chain composes. Cite each link.
+    pub finding_titles: Vec<String>,
+    /// Surfaces involved (URLs).
+    #[serde(default)]
+    pub surfaces: Vec<String>,
+    /// One-line narrative: "subdomain takeover -> auth cookie theft".
+    pub hypothesis: String,
+    /// Replay or rejection steps, one per item.
+    pub steps: Vec<String>,
+    /// `confirmed` / `denied` / `blocked` / `inconclusive` / `not_applicable`.
+    pub outcome: String,
+    /// Severity of the composed chain.
+    /// Must respect the ladder: LOW+LOW = LOW; chain cannot exceed
+    /// max(input_severities)+1 without rationale; cannot exceed +2 even
+    /// with rationale. See playbooks/README.md.
+    pub severity: String,
+    /// Severities of each cited finding, used to enforce the ladder.
+    pub input_severities: Vec<String>,
+    /// Short prose proof: "POST /verify accepted stale token; 200".
+    pub evidence_summary: String,
+    /// Required when the chain severity exceeds max(input_severities).
+    /// Must contain the token `elevation:` for jumps of 2 rungs.
+    #[serde(default)]
+    pub severity_elevation_rationale: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct WriteHandoffArgs {
     pub engagement_id: String,
     pub wave_number: u32,
@@ -481,6 +511,65 @@ impl MantisMcpServer {
             "assignment_id": args.assignment_id,
             "received": true,
         }))
+    }
+
+    #[tool(
+        description = "Record a chain attempt: a hypothesis that one finding enables \
+                       another, with an explicit outcome. Inspired by Hacker Bob's \
+                       `bounty_write_chain_attempt`. Enforces the severity ladder \
+                       server-side: LOW+LOW yields LOW (no hand-wave to MEDIUM); \
+                       chain severity cannot exceed max(input_severities)+1 without a \
+                       `severity_elevation_rationale`; cannot exceed +2 even with one. \
+                       Outcome must be one of: confirmed, denied, blocked, \
+                       inconclusive, not_applicable. Persisted as JSONL under \
+                       `./mantishack-<engagement-id>/waves/<n>/chain-attempts.jsonl`."
+    )]
+    async fn mantis_record_chain_attempt(
+        &self,
+        Parameters(args): Parameters<RecordChainAttemptArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        wave::validate_chain_outcome(&args.outcome)
+            .map_err(|e| to_invalid("chain outcome", e))?;
+        wave::validate_chain_severity(
+            &args.severity,
+            &args.input_severities,
+            args.severity_elevation_rationale.as_deref(),
+        )
+        .map_err(|e| to_invalid("severity ladder", e))?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let attempt = wave::ChainAttempt {
+            id: ulid::Ulid::new().to_string(),
+            finding_titles: args.finding_titles,
+            surfaces: args.surfaces,
+            hypothesis: args.hypothesis,
+            steps: args.steps,
+            outcome: args.outcome,
+            severity: args.severity,
+            evidence_summary: args.evidence_summary,
+            severity_elevation_rationale: args.severity_elevation_rationale,
+            recorded_at_unix: now,
+        };
+        wave::record_chain_attempt(&args.engagement_id, args.wave_number, &attempt)
+            .map_err(|e| to_internal("record_chain_attempt", e))?;
+        json_ok(&attempt)
+    }
+
+    #[tool(
+        description = "Read every chain attempt recorded for a wave. Returns an array of \
+                       structured records (id, finding_titles, surfaces, hypothesis, \
+                       steps, outcome, severity, evidence_summary, \
+                       severity_elevation_rationale, recorded_at_unix). Empty if no \
+                       chain attempts have been recorded yet."
+    )]
+    async fn mantis_read_chain_attempts(
+        &self,
+        Parameters(args): Parameters<WaveIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let attempts = wave::read_chain_attempts(&args.engagement_id, args.wave_number);
+        json_ok(&attempts)
     }
 
     #[tool(

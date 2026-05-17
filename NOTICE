@@ -37,6 +37,40 @@ Hacker Bob
   / `bounty_merge_wave_handoffs` mechanism for fan-out hunter waves
   with merged handoff reconciliation.
 
+  Specific Hacker Bob files studied for the hack-phase deeper
+  inspiration (no source ported, only architectural ideas):
+    - `prompts/roles/hunter.md` — the "never record as standalone"
+      hunter-discipline list (missing headers, banner disclosure,
+      SPF/DKIM/DMARC, GraphQL introspection, CORS wildcard, open
+      redirect, etc.). This drives the `mantis-hunter.md`
+      "Hunter discipline" section and the chain-attempt requirement
+      for those defect classes.
+    - `prompts/roles/chain.md` — the chain-attempt model with terminal
+      outcomes (confirmed/denied/blocked/inconclusive/not_applicable)
+      and the severity ladder (LOW+LOW=LOW; max input+1 without
+      rationale; max input+2 with `elevation:` rationale; no
+      jump-the-rung). Both the outcome enum and the ladder are
+      ported verbatim into `crates/mantis-mcp/src/wave.rs`.
+    - `prompts/roles/evidence.md` — the evidence-pack model
+      (representative_samples, replay_summary, report_snippet).
+      Not yet ported in this slice but informs the planned
+      `mantis_record_evidence_pack` tool.
+    - `prompts/playbooks/C2_doc_vs_behavior.md` and
+      `C4_multi_account_differential.md` — the capability-playbook
+      shape (one-paragraph differential workflow). The Mantis
+      playbooks under `plugin/claude-code/playbooks/cap-*.md` follow
+      the same convention but are written from scratch.
+    - `mcp/lib/capability-playbooks.js` — the directory layout
+      convention (playbooks live as flat markdown files keyed by
+      capability id). Mantis mirrors this in
+      `plugin/claude-code/playbooks/`.
+    - `mcp/lib/chain-attempts.js` — the JSONL + atomic-append model
+      for chain attempts. Mantis re-implements this in Rust with
+      `record_chain_attempt` writing to
+      `waves/<n>/chain-attempts.jsonl`.
+
+  All Rust code and Mantis playbook markdown is original.
+
   Mantis's MCP server is an independent Rust implementation built on
   the `rmcp` crate; no Hacker Bob source code was copied or ported.
   Hacker Bob is implemented in Node.js and lives in its own
