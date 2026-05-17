@@ -72,6 +72,11 @@ generate `mantis-<ulid>`). Capture `engagement_id`.
 Build a target list with the user's URLs. Call `mantis_authorize_scope`
 with `engagement_id`, `targets`, and `budget_seconds: 1800` (default).
 
+### 2b. START
+Call `mantis_start_engagement` to transition `authorized → active`.
+The daemon will refuse scan traffic on an `authorized` (not yet
+`active`) engagement, so this step is mandatory.
+
 ### 3. RECON
 Call `mantis_run_recon` with `engagement_id` and the original target
 list.
@@ -96,22 +101,28 @@ not a bug — record it honestly in the report.
 ### 5. FAN_OUT (parallel hunter wave) — **never skip**
 
 Always fan out, even when recon discovered only a single non-redirect
-surface. Coverage thoroughness beats efficiency here. The split rule:
+surface. Coverage thoroughness beats efficiency here. Default split
+is **6 hunters by checklist angle**, all probing the same surface(s)
+from independent vectors so fine-grained findings accumulate:
 
-- **Many surfaces (≥ 3):** one assignment per `min(surfaces, 4)`
-  bucket. Group by host so each hunter owns a coherent slice.
-- **Few surfaces (1–2):** still spawn at least **3 hunters** by
-  partitioning the checklist across them. The same surface appears
-  in each assignment, but `vuln_classes` differs:
+| # | Hunter angle             | `vuln_classes` hint                |
+|---|--------------------------|------------------------------------|
+| 1 | Subdomain enum           | `["subdomain-enum"]`               |
+| 2 | Transport / security headers | `["transport-headers"]`        |
+| 3 | TLS / DNS / identity     | `["tls-dns-identity"]`             |
+| 4 | Exposed config + source  | `["exposed-config-source"]`        |
+| 5 | API + reflection + redirect | `["api-reflection-redirect"]`   |
+| 6 | JS bundle fingerprint    | `["js-bundle-fingerprint"]`        |
 
-  | Hunter | `vuln_classes` hint                                    |
-  |--------|--------------------------------------------------------|
-  | A      | `["auth", "exposed-config"]`                           |
-  | B      | `["api-enum", "input-reflection"]`                     |
-  | C      | `["identity-probes", "transport-headers", "robots"]`   |
+The hunter agent reads its assigned `vuln_classes` and runs the
+matching checklist in `mantis-hunter.md`. Each hunter emits **one
+finding per defect** (not grouped): a single response missing four
+security headers produces four findings. That's how we reach 30+
+findings from one engagement.
 
-  This makes the wave probe a single URL from three independent
-  vectors in parallel.
+When recon discovers many surfaces (≥ 6), spawn the same 6 angles
+but pass multiple surfaces to each hunter (still partition by host
+where possible).
 
 Then:
 

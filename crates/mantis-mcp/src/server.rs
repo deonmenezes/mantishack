@@ -22,7 +22,7 @@ use serde_json::json;
 
 use mantis_proto::v1::{
     AuthorizeRequest, CreateRequest, EngagementState as ProtoState, ExportRequest, ListRequest,
-    ScanRequest, StatusRequest,
+    ScanRequest, StartRequest, StatusRequest,
 };
 
 use crate::daemon;
@@ -263,6 +263,29 @@ impl MantisMcpServer {
             })
             .await
             .map_err(|e| to_invalid("authorize rpc", e))?
+            .into_inner();
+        json_ok(&EngagementSummary::from(info))
+    }
+
+    #[tool(
+        description = "Transition an authorized engagement into the `active` state so it can \
+                       receive scan / recon traffic. Required between `mantis_authorize_scope` \
+                       and `mantis_run_recon`. Idempotent: re-calling on an already-active \
+                       engagement is a daemon-side no-op."
+    )]
+    async fn mantis_start_engagement(
+        &self,
+        Parameters(args): Parameters<EngagementIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let mut client = daemon::connect(&self.daemon_endpoint)
+            .await
+            .map_err(|e| to_internal("daemon connect", e))?;
+        let info = client
+            .start(StartRequest {
+                id: args.engagement_id,
+            })
+            .await
+            .map_err(|e| to_invalid("start rpc", e))?
             .into_inner();
         json_ok(&EngagementSummary::from(info))
     }
