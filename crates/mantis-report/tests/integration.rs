@@ -284,6 +284,105 @@ fn sarif_uses_v2_1_0_schema() {
 }
 
 #[test]
+fn default_floor_suppresses_info_tier_noise() {
+    // Mix one Critical (sqli), one Medium (xss-reflected), and one
+    // Informational (api-enumeration). The default floor (Low) must
+    // drop the info-tier finding from the rendered markdown.
+    let claims = vec![
+        sample_claim(
+            "sqli.error-based",
+            "sqli",
+            ClaimState::Verified {
+                verifier_id: "v1".into(),
+            },
+            1,
+        ),
+        sample_claim(
+            "xss.query-mirror",
+            "xss-reflected",
+            ClaimState::Verified {
+                verifier_id: "v1".into(),
+            },
+            1,
+        ),
+        sample_claim(
+            "recon.api",
+            "api-enumeration",
+            ClaimState::Verified {
+                verifier_id: "v1".into(),
+            },
+            1,
+        ),
+    ];
+    let report = Report::new(sample_metadata(), &claims);
+    let md = report.to_markdown();
+    assert!(md.contains("sqli.error-based"));
+    assert!(md.contains("xss.query-mirror"));
+    assert!(
+        !md.contains("recon.api"),
+        "info-tier finding leaked into report:\n{md}"
+    );
+    assert!(
+        md.contains("Suppressed below"),
+        "expected suppressed counter line in:\n{md}"
+    );
+}
+
+#[test]
+fn floor_set_to_informational_renders_everything() {
+    use mantis_report::SeverityFloor;
+    let claims = vec![sample_claim(
+        "recon.api",
+        "api-enumeration",
+        ClaimState::Verified {
+            verifier_id: "v1".into(),
+        },
+        1,
+    )];
+    let report =
+        Report::new(sample_metadata(), &claims).with_severity_floor(SeverityFloor::Informational);
+    let md = report.to_markdown();
+    assert!(md.contains("recon.api"));
+    assert!(!md.contains("Suppressed below"));
+}
+
+#[test]
+fn high_floor_drops_medium_and_low() {
+    use mantis_report::SeverityFloor;
+    let claims = vec![
+        sample_claim(
+            "sqli.error-based",
+            "sqli",
+            ClaimState::Verified {
+                verifier_id: "v1".into(),
+            },
+            1,
+        ),
+        sample_claim(
+            "xss.query-mirror",
+            "xss-reflected",
+            ClaimState::Verified {
+                verifier_id: "v1".into(),
+            },
+            1,
+        ),
+        sample_claim(
+            "info.disclosure",
+            "info-disclosure",
+            ClaimState::Verified {
+                verifier_id: "v1".into(),
+            },
+            1,
+        ),
+    ];
+    let report = Report::new(sample_metadata(), &claims).with_severity_floor(SeverityFloor::High);
+    let md = report.to_markdown();
+    assert!(md.contains("sqli.error-based"), "critical kept");
+    assert!(!md.contains("xss.query-mirror"), "medium dropped");
+    assert!(!md.contains("info.disclosure"), "low dropped");
+}
+
+#[test]
 fn rejected_claims_omitted_from_all_formats() {
     let claims = vec![sample_claim(
         "sqli.error-based",

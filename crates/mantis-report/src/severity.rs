@@ -7,13 +7,50 @@
 
 use std::fmt;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Severity {
     Informational,
     Low,
     Medium,
     High,
     Critical,
+}
+
+/// Severity floor applied at render time. Findings whose severity is
+/// strictly below the floor are dropped from the rendered report.
+/// Default is [`SeverityFloor::Low`], which suppresses the
+/// recon-grade `Informational` tier — the same noise filter
+/// hacker-bob applies through `reportable: true` plus the `info`
+/// disposition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SeverityFloor {
+    Informational,
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+impl Default for SeverityFloor {
+    fn default() -> Self {
+        SeverityFloor::Low
+    }
+}
+
+impl SeverityFloor {
+    pub fn admits(self, sev: Severity) -> bool {
+        sev.rank() >= self.threshold_rank()
+    }
+
+    fn threshold_rank(self) -> u32 {
+        match self {
+            SeverityFloor::Informational => Severity::Informational.rank(),
+            SeverityFloor::Low => Severity::Low.rank(),
+            SeverityFloor::Medium => Severity::Medium.rank(),
+            SeverityFloor::High => Severity::High.rank(),
+            SeverityFloor::Critical => Severity::Critical.rank(),
+        }
+    }
 }
 
 impl Severity {
@@ -84,5 +121,38 @@ mod tests {
     #[test]
     fn display_renders() {
         assert_eq!(format!("{}", Severity::Critical), "Critical");
+    }
+
+    #[test]
+    fn default_floor_drops_informational() {
+        let floor = SeverityFloor::default();
+        assert!(!floor.admits(Severity::Informational));
+        assert!(floor.admits(Severity::Low));
+        assert!(floor.admits(Severity::Medium));
+        assert!(floor.admits(Severity::High));
+        assert!(floor.admits(Severity::Critical));
+    }
+
+    #[test]
+    fn high_floor_drops_low_and_medium() {
+        let floor = SeverityFloor::High;
+        assert!(!floor.admits(Severity::Low));
+        assert!(!floor.admits(Severity::Medium));
+        assert!(floor.admits(Severity::High));
+        assert!(floor.admits(Severity::Critical));
+    }
+
+    #[test]
+    fn info_floor_admits_everything() {
+        let floor = SeverityFloor::Informational;
+        for s in [
+            Severity::Informational,
+            Severity::Low,
+            Severity::Medium,
+            Severity::High,
+            Severity::Critical,
+        ] {
+            assert!(floor.admits(s));
+        }
     }
 }

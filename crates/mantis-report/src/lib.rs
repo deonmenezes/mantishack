@@ -14,7 +14,7 @@ use mantis_claim::{Claim, ClaimState};
 use serde::{Deserialize, Serialize};
 use std::fmt::Write;
 
-pub use crate::severity::{severity_for, Severity};
+pub use crate::severity::{severity_for, Severity, SeverityFloor};
 
 // Helpers used by the alternate-format modules.
 pub(crate) fn pretty_class(class: &str) -> String {
@@ -60,6 +60,14 @@ pub struct Report<'a> {
     pub metadata: ReportMetadata,
     pub claims: &'a [Claim],
     pub proofs: &'a [ProofBundle],
+    /// Severity floor applied at render time. Findings strictly below
+    /// the floor are dropped from the markdown findings section and
+    /// the per-severity counts. Default: drop `Informational` tier.
+    pub severity_floor: SeverityFloor,
+    /// Count of findings filtered out by the floor (verified claims
+    /// whose severity did not meet the floor). Populated during
+    /// rendering.
+    suppressed_below_floor: std::cell::Cell<usize>,
 }
 
 impl<'a> Report<'a> {
@@ -68,11 +76,19 @@ impl<'a> Report<'a> {
             metadata,
             claims,
             proofs: &[],
+            severity_floor: SeverityFloor::default(),
+            suppressed_below_floor: std::cell::Cell::new(0),
         }
     }
 
     pub fn with_proofs(mut self, proofs: &'a [ProofBundle]) -> Self {
         self.proofs = proofs;
+        self
+    }
+
+    /// Override the severity floor (default: drop `Informational`).
+    pub fn with_severity_floor(mut self, floor: SeverityFloor) -> Self {
+        self.severity_floor = floor;
         self
     }
 
@@ -119,14 +135,26 @@ impl<'a> Report<'a> {
         let mut verified = vec![];
         let mut rejected = vec![];
         let mut retained = vec![];
+        let mut suppressed = 0usize;
         for c in self.claims {
             match c.state {
-                ClaimState::Verified { .. } => verified.push(c),
+                ClaimState::Verified { .. } => {
+                    let sev = severity_for(&c.vuln_class);
+                    if self.severity_floor.admits(sev) {
+                        verified.push(c);
+                    } else {
+                        // Drop info/sub-floor noise. Operators who
+                        // want the full inventory can render with a
+                        // lower floor or read events.jsonl.
+                        suppressed += 1;
+                    }
+                }
                 ClaimState::Rejected { .. } => rejected.push(c),
                 ClaimState::Retained { .. } => retained.push(c),
                 ClaimState::Pending => {} // not reported until verified
             }
         }
+        self.suppressed_below_floor.set(suppressed);
         // Sort verified by severity (descending).
         verified.sort_by(|a, b| {
             severity_for(&b.vuln_class)
@@ -161,6 +189,14 @@ impl<'a> Report<'a> {
         let _ = writeln!(out, "- **Verified findings:** {verified}");
         let _ = writeln!(out, "- **Rejected by verifier:** {rejected}");
         let _ = writeln!(out, "- **Retained (verifier inconclusive):** {retained}");
+        let suppressed = self.suppressed_below_floor.get();
+        if suppressed > 0 {
+            let _ = writeln!(
+                out,
+                "- **Suppressed below `{:?}` floor:** {suppressed}",
+                self.severity_floor
+            );
+        }
         let _ = writeln!(out);
     }
 
