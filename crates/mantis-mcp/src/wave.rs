@@ -269,27 +269,35 @@ pub fn validate_chain_outcome(outcome: &str) -> Result<()> {
 }
 
 /// Append a chain attempt to `waves/<n>/chain-attempts.jsonl`.
+///
+/// Uses `O_APPEND` writes so concurrent recorders cannot clobber each
+/// other. On Unix, a single `write(2)` call of bytes <= `PIPE_BUF`
+/// (typically 4096) is atomic on an O_APPEND-opened file, which is
+/// well above the size of a serialized `ChainAttempt`. The earlier
+/// read-then-atomic-rename implementation lost concurrent records
+/// when multiple tool calls raced (the rename target only allows one
+/// winner).
 pub fn record_chain_attempt(
     engagement_id: &str,
     wave_number: u32,
     attempt: &ChainAttempt,
 ) -> Result<()> {
+    use std::io::Write;
     validate_chain_outcome(&attempt.outcome)?;
-    let input_severities: Vec<String> = Vec::new();
-    // Caller supplies the severity directly; we don't reconstruct input
-    // severities from titles. The ladder is enforced at the tool layer
-    // where the caller passes the input severity list explicitly.
-    let _ = input_severities;
     let path = chain_attempts_path(engagement_id, wave_number);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("create_dir_all {}", parent.display()))?;
     }
-    let line = serde_json::to_string(attempt).context("serialize chain attempt")?;
-    let mut data = std::fs::read(&path).unwrap_or_default();
-    data.extend_from_slice(line.as_bytes());
-    data.push(b'\n');
-    atomic_write(&path, &data)?;
+    let mut line = serde_json::to_string(attempt).context("serialize chain attempt")?;
+    line.push('\n');
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .with_context(|| format!("open {} for append", path.display()))?;
+    file.write_all(line.as_bytes())
+        .with_context(|| format!("append to {}", path.display()))?;
     Ok(())
 }
 
@@ -664,6 +672,49 @@ mod tests {
             assert!(validate_chain_outcome(ok).is_ok(), "rejected `{ok}`");
         }
         assert!(validate_chain_outcome("maybe").is_err());
+    }
+
+    #[test]
+    fn concurrent_chain_attempts_all_persist() {
+        // The O_APPEND fix replaced the read-then-atomic-rename impl
+        // that lost concurrent records. This test races 8 writers
+        // against the same wave path and asserts all 8 land.
+        use std::sync::Arc;
+        use std::sync::Barrier;
+        let dir = tempfile::tempdir().unwrap();
+        let _g = CwdGuard::new(dir.path());
+        let eng = "01TESTENG0RACE000000000000";
+        std::fs::create_dir_all(wave_dir(eng, 1)).unwrap();
+        let barrier = Arc::new(Barrier::new(8));
+        let mut handles = Vec::new();
+        for i in 0..8 {
+            let b = barrier.clone();
+            let eng_s = eng.to_string();
+            handles.push(std::thread::spawn(move || {
+                // cwd is process-global on Unix; the CwdGuard above
+                // already set it for the whole process. Threads
+                // inherit. We do NOT touch cwd here.
+                b.wait();
+                let a = ChainAttempt {
+                    id: format!("atmpt-race-{i}"),
+                    finding_titles: vec![format!("F{i}")],
+                    surfaces: vec![format!("https://x.example/{i}")],
+                    hypothesis: format!("race-{i}"),
+                    steps: vec![format!("step {i}")],
+                    outcome: "denied".into(),
+                    severity: "info".into(),
+                    evidence_summary: format!("race {i}"),
+                    severity_elevation_rationale: None,
+                    recorded_at_unix: 0,
+                };
+                record_chain_attempt(&eng_s, 1, &a).unwrap();
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        let read = read_chain_attempts(eng, 1);
+        assert_eq!(read.len(), 8, "expected 8 records to persist; got {}", read.len());
     }
 
     #[test]

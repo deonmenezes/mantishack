@@ -612,16 +612,28 @@ impl MantisMcpServer {
             .map_err(|e| to_internal("write events.jsonl", e))?;
         let surfaces = parse_surfaces(&jsonl);
         let waves = load_wave_merges(&dir);
-        let report = render_markdown(&info, &surfaces, &waves);
+        // Read chain attempts from every wave directory so the report
+        // includes the chain narratives alongside their atomized
+        // findings.
+        let mut chains: Vec<(u32, Vec<wave::ChainAttempt>)> = Vec::new();
+        for w in &waves {
+            let attempts = wave::read_chain_attempts(&info.id, w.wave_number);
+            if !attempts.is_empty() {
+                chains.push((w.wave_number, attempts));
+            }
+        }
+        let report = render_markdown(&info, &surfaces, &waves, &chains);
         std::fs::write(dir.join("report.md"), &report)
             .map_err(|e| to_internal("write report.md", e))?;
         let findings_total: u32 = waves.iter().map(|w| w.findings_total).sum();
+        let chains_total: usize = chains.iter().map(|(_, c)| c.len()).sum();
         json_ok(&json!({
             "directory": dir,
             "surfaces": surfaces.len(),
             "events": jsonl.lines().count(),
             "waves_included": waves.len(),
             "findings_total": findings_total,
+            "chain_attempts_included": chains_total,
         }))
     }
 }
@@ -731,6 +743,7 @@ fn render_markdown(
     info: &EngagementSummary,
     surfaces: &[Surface],
     waves: &[wave::WaveMerge],
+    chains: &[(u32, Vec<wave::ChainAttempt>)],
 ) -> String {
     let mut s = String::new();
     s.push_str("# Mantis Engagement Report\n\n");
@@ -835,6 +848,41 @@ fn render_markdown(
         s.push_str("_No waves merged for this engagement yet._\n");
     }
 
+    if !chains.is_empty() {
+        s.push_str("\n## Chain attempts\n\n");
+        s.push_str("Composed-finding hypotheses with explicit outcomes. The \
+                    severity ladder is enforced server-side: LOW+LOW=LOW; \
+                    chain severity cannot exceed `max(input)+1` without \
+                    `severity_elevation_rationale`; cannot exceed `+2` even \
+                    with one. Inspired by Hacker Bob's \
+                    `bounty_write_chain_attempt`.\n\n");
+        for (wave_n, attempts) in chains {
+            s.push_str(&format!(
+                "### Wave {} — {} chain attempt{}\n\n",
+                wave_n,
+                attempts.len(),
+                if attempts.len() == 1 { "" } else { "s" }
+            ));
+            for c in attempts {
+                s.push_str(&format!(
+                    "- **{}** _(severity: {}, outcome: {})_\n",
+                    c.hypothesis, c.severity, c.outcome
+                ));
+                s.push_str(&format!("  - _evidence_: {}\n", c.evidence_summary));
+                if !c.steps.is_empty() {
+                    s.push_str("  - _steps_:\n");
+                    for step in &c.steps {
+                        s.push_str(&format!("    1. {}\n", step));
+                    }
+                }
+                if let Some(r) = &c.severity_elevation_rationale {
+                    s.push_str(&format!("  - _elevation rationale_: {}\n", r));
+                }
+                s.push('\n');
+            }
+        }
+    }
+
     s.push_str("\n_Rendered by `mantis_render_report` via the Mantis MCP server._\n");
     s
 }
@@ -880,7 +928,7 @@ mod tests {
             server: Some("nginx".into()),
             tech_hints: vec![],
         }];
-        let md = render_markdown(&info, &surfaces, &[]);
+        let md = render_markdown(&info, &surfaces, &[], &[]);
         assert!(md.contains("x.example"));
         assert!(md.contains("Mantis Engagement Report"));
         assert!(md.contains("Waves executed | 0"));
@@ -930,7 +978,7 @@ mod tests {
                 },
             ],
         }];
-        let md = render_markdown(&info, &[], &waves);
+        let md = render_markdown(&info, &[], &waves, &[]);
         assert!(md.contains("Findings total | 3"));
         assert!(md.contains("Wave 1 — 3 findings"));
         assert!(md.contains("Source map exposed"));
