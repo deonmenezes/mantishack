@@ -125,3 +125,118 @@ fn probe_target_rejects_malformed() {
     let r = ProbeTarget::parse("not a url");
     assert!(r.is_err());
 }
+
+/// Capture the first request received and return its bytes via the
+/// channel. The fake server responds with the same hello-world body
+/// as `spawn_fake_http_server` so the scanner is happy.
+async fn spawn_capturing_server() -> (std::net::SocketAddr, tokio::sync::oneshot::Receiver<Vec<u8>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let (tx, rx) = tokio::sync::oneshot::channel::<Vec<u8>>();
+    tokio::spawn(async move {
+        let (mut sock, _) = listener.accept().await.unwrap();
+        let mut buf = vec![0u8; 8192];
+        let n = sock.read(&mut buf).await.unwrap_or(0);
+        buf.truncate(n);
+        let _ = tx.send(buf);
+        let _ = sock.write_all(RESPONSE.as_bytes()).await;
+        let _ = sock.shutdown().await;
+    });
+    (addr, rx)
+}
+
+#[tokio::test]
+async fn auth_profile_injects_cookies_headers_and_query() {
+    use mantis_auth::{AuthCookie, AuthHeader, AuthProfile};
+
+    let (addr, captured) = spawn_capturing_server().await;
+    let (_tmp, store) = temp_event_store();
+    let kp: Arc<dyn Signer> = Arc::new(Keypair::generate());
+    let eng = EngagementId(Ulid::new());
+
+    let profile = AuthProfile {
+        name: "attacker".into(),
+        headers: vec![AuthHeader {
+            name: "X-Test-Token".into(),
+            value: "secret-bearer-1234".into(),
+        }],
+        cookies: vec![
+            AuthCookie {
+                name: "session".into(),
+                value: "abc123".into(),
+                domain: None,
+                path: None,
+                secure: false,
+                http_only: false,
+            },
+            AuthCookie {
+                name: "csrf".into(),
+                value: "tok456".into(),
+                domain: None,
+                path: None,
+                secure: false,
+                http_only: false,
+            },
+        ],
+        query: vec![("api_key".into(), "qkey789".into())],
+        expires_at_unix: None,
+        created_at_unix: 0,
+        origin: "test".into(),
+    };
+
+    let scanner = HttpProbeScanner::new(
+        store,
+        eng,
+        kp,
+        ProbeConfig {
+            timeout: std::time::Duration::from_secs(2),
+            auth_profile: Some(profile),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let target =
+        ProbeTarget::parse(&format!("http://127.0.0.1:{}/v1/users", addr.port())).unwrap();
+    let _ = scanner.probe(&target).await.unwrap();
+
+    let bytes = captured.await.unwrap();
+    let request = String::from_utf8_lossy(&bytes);
+    let request_lower = request.to_ascii_lowercase();
+    assert!(
+        request_lower.contains("cookie: session=abc123; csrf=tok456"),
+        "cookies not injected:\n{request}"
+    );
+    assert!(
+        request_lower.contains("x-test-token: secret-bearer-1234"),
+        "custom header not injected:\n{request}"
+    );
+    assert!(
+        request.contains("GET /v1/users?api_key=qkey789"),
+        "query param not appended:\n{request}"
+    );
+}
+
+#[tokio::test]
+async fn no_auth_profile_means_no_cookie_header() {
+    let (addr, captured) = spawn_capturing_server().await;
+    let (_tmp, store) = temp_event_store();
+    let kp: Arc<dyn Signer> = Arc::new(Keypair::generate());
+    let eng = EngagementId(Ulid::new());
+    let scanner = HttpProbeScanner::new(
+        store,
+        eng,
+        kp,
+        ProbeConfig {
+            timeout: std::time::Duration::from_secs(2),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let target = ProbeTarget::parse(&format!("http://127.0.0.1:{}/", addr.port())).unwrap();
+    let _ = scanner.probe(&target).await.unwrap();
+
+    let bytes = captured.await.unwrap();
+    let request = String::from_utf8_lossy(&bytes);
+    assert!(!request.to_ascii_lowercase().contains("cookie:"));
+    assert!(!request.contains("api_key="));
+}

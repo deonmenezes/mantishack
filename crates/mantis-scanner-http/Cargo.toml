@@ -9,6 +9,7 @@ repository.workspace = true
 description = "HTTP probing and content discovery scanner."
 
 [dependencies]
+mantis-auth = { workspace = true }
 mantis-core = { workspace = true }
 mantis-event-store = { workspace = true }
 

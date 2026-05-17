@@ -15,6 +15,7 @@ use std::time::Duration;
 
 use mantis_core::{EngagementId, Signer};
 use mantis_event_store::{EventKind, EventStore};
+use mantis_auth::AuthProfile;
 use reqwest::Client;
 use tracing::{debug, warn};
 
@@ -78,6 +79,11 @@ pub struct ProbeConfig {
     pub timeout: Duration,
     /// User-Agent header value.
     pub user_agent: String,
+    /// Optional auth profile. When set, every probe injects the
+    /// profile's cookies, headers, and query parameters into the
+    /// outbound request. Mirrors hacker-bob's `auth_profile` arg on
+    /// `bounty_http_scan`.
+    pub auth_profile: Option<AuthProfile>,
 }
 
 impl Default for ProbeConfig {
@@ -86,6 +92,7 @@ impl Default for ProbeConfig {
             proxy: None,
             timeout: Duration::from_secs(10),
             user_agent: format!("mantis/{}", env!("CARGO_PKG_VERSION")),
+            auth_profile: None,
         }
     }
 }
@@ -96,6 +103,11 @@ pub struct HttpProbeScanner {
     event_store: Arc<EventStore>,
     engagement_id: EngagementId,
     signer: Arc<dyn Signer>,
+    /// Auth profile to inject into every probe. Cookies are
+    /// concatenated into a single `Cookie:` header; declared headers
+    /// override the default `User-Agent`; query parameters are
+    /// appended to the URL.
+    auth_profile: Option<AuthProfile>,
 }
 
 impl std::fmt::Debug for HttpProbeScanner {
@@ -131,13 +143,62 @@ impl HttpProbeScanner {
             event_store,
             engagement_id,
             signer,
+            auth_profile: config.auth_profile,
         })
+    }
+
+    /// Replace this scanner's auth profile at runtime. Useful when
+    /// the orchestrator captures fresh credentials mid-engagement
+    /// (e.g. after token refresh).
+    pub fn set_auth_profile(&mut self, profile: Option<AuthProfile>) {
+        self.auth_profile = profile;
+    }
+
+    /// Build a request builder for `target` with the configured auth
+    /// profile applied. Cookies join into one header; named headers
+    /// from the profile override scanner defaults.
+    fn request_with_auth(&self, target: &ProbeTarget) -> reqwest::RequestBuilder {
+        let mut url = target.url();
+        // Append query parameters from the auth profile.
+        if let Some(profile) = &self.auth_profile {
+            if !profile.query.is_empty() {
+                let separator = if url.contains('?') { '&' } else { '?' };
+                let pairs: Vec<String> = profile
+                    .query
+                    .iter()
+                    .map(|(k, v)| {
+                        format!(
+                            "{}={}",
+                            urlencode(k.as_str()),
+                            urlencode(v.as_str())
+                        )
+                    })
+                    .collect();
+                url = format!("{url}{separator}{}", pairs.join("&"));
+            }
+        }
+        let mut req = self.client.get(url);
+        if let Some(profile) = &self.auth_profile {
+            for h in &profile.headers {
+                req = req.header(h.name.as_str(), h.value.as_str());
+            }
+            if !profile.cookies.is_empty() {
+                let cookie_header = profile
+                    .cookies
+                    .iter()
+                    .map(|c| format!("{}={}", c.name, c.value))
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                req = req.header(reqwest::header::COOKIE, cookie_header);
+            }
+        }
+        req
     }
 
     /// Probe one target, return the parsed [`Surface`] without writing
     /// to the event store. Used by tests.
     pub async fn probe_no_log(&self, target: &ProbeTarget) -> Result<Surface, ScannerError> {
-        let response = self.client.get(target.url()).send().await?;
+        let response = self.request_with_auth(target).send().await?;
         let status = response.status().as_u16();
         let server = response
             .headers()
@@ -189,6 +250,25 @@ impl HttpProbeScanner {
         }
         out
     }
+}
+
+/// Minimal URL-component encoder for the auth-query injection path.
+/// We do NOT pull a full URL crate just for this; `%`, space, and
+/// the standard reserved set are escaped.
+fn urlencode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char);
+            }
+            _ => {
+                out.push('%');
+                out.push_str(&format!("{:02X}", b));
+            }
+        }
+    }
+    out
 }
 
 /// Best-effort technology fingerprint based on response headers and
