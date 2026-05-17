@@ -37,8 +37,27 @@ fi
 if ! command -v cargo >/dev/null 2>&1 && [ -x "$HOME/.cargo/bin/cargo" ]; then
     export PATH="$HOME/.cargo/bin:$PATH"
 fi
+# Auto-install Rust toolchain via rustup if cargo is still missing.
+# Honors MANTIS_SKIP_RUSTUP=1 to opt out.
 if ! command -v cargo >/dev/null 2>&1; then
-    die "cargo not found. Install Rust from https://rustup.rs (then run 'source \$HOME/.cargo/env' or open a new shell) and rerun."
+    if [ "${MANTIS_SKIP_RUSTUP:-0}" = "1" ]; then
+        die "cargo not found and MANTIS_SKIP_RUSTUP=1. Install Rust from https://rustup.rs and rerun."
+    fi
+    log "cargo not found — installing Rust toolchain via rustup (non-interactive, minimal profile)"
+    if ! command -v curl >/dev/null 2>&1; then
+        die "curl not found. Install curl (or set MANTIS_SKIP_RUSTUP=1 and install Rust manually) and rerun."
+    fi
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+        sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path
+    if [ -f "$HOME/.cargo/env" ]; then
+        # shellcheck disable=SC1091
+        . "$HOME/.cargo/env"
+    fi
+    if ! command -v cargo >/dev/null 2>&1 && [ -x "$HOME/.cargo/bin/cargo" ]; then
+        export PATH="$HOME/.cargo/bin:$PATH"
+    fi
+    command -v cargo >/dev/null 2>&1 || die "rustup install ran but cargo is still not on PATH."
+    log "rustup installed: $(cargo --version)"
 fi
 if ! command -v git >/dev/null 2>&1; then
     die "git not found. Install git and rerun."
@@ -109,17 +128,67 @@ install_for_claude || true
 install_for_codex || true
 install_for_opencode || true
 
-# 5. PATH hint ---------------------------------------------------------------
+# 5. PATH wiring -------------------------------------------------------------
+# Make sure $BIN_DIR is on PATH for future shells by appending an export to
+# the user's shell rc, idempotently. Honors MANTIS_SKIP_PATH=1 to opt out.
+PATH_LINE="export PATH=\"$BIN_DIR:\$PATH\""
+PATH_MARKER="# added by mantis installer"
+PATH_UPDATED_FILES=()
+
+append_path_to() {
+    local rc="$1"
+    [ -z "$rc" ] && return 0
+    # Already exports BIN_DIR? skip.
+    if [ -f "$rc" ] && grep -Fq "$BIN_DIR" "$rc"; then
+        return 0
+    fi
+    mkdir -p "$(dirname "$rc")"
+    {
+        printf '\n%s\n%s\n' "$PATH_MARKER" "$PATH_LINE"
+    } >> "$rc"
+    PATH_UPDATED_FILES+=("$rc")
+}
+
+case ":$PATH:" in
+    *":$BIN_DIR:"*)
+        : # already on PATH for this shell, but still ensure rc has it for future shells
+        ;;
+esac
+
+if [ "${MANTIS_SKIP_PATH:-0}" != "1" ]; then
+    # Pick rc files based on $SHELL, but also cover both common shells so users
+    # who switch between bash and zsh don't get surprised.
+    case "${SHELL:-}" in
+        */zsh)  append_path_to "$HOME/.zshrc" ;;
+        */bash)
+            if [ "$(uname -s)" = "Darwin" ]; then
+                append_path_to "$HOME/.bash_profile"
+            else
+                append_path_to "$HOME/.bashrc"
+            fi
+            ;;
+        *)
+            # Unknown login shell — cover the common ones.
+            [ -f "$HOME/.zshrc" ] && append_path_to "$HOME/.zshrc"
+            [ -f "$HOME/.bashrc" ] && append_path_to "$HOME/.bashrc"
+            [ -f "$HOME/.bash_profile" ] && append_path_to "$HOME/.bash_profile"
+            ;;
+    esac
+fi
+
+# Make the binaries usable in the *current* shell too (helps when the script
+# is sourced; for the typical `curl | bash` case it's harmless).
 case ":$PATH:" in
     *":$BIN_DIR:"*) ;;
-    *)
-        warn "add $BIN_DIR to your PATH:"
-        warn "    echo 'export PATH=\"$BIN_DIR:\$PATH\"' >> ~/.zshrc  # or ~/.bashrc"
-        ;;
+    *) export PATH="$BIN_DIR:$PATH" ;;
 esac
 
 # 6. Summary ------------------------------------------------------------------
 log "done."
+if [ "${#PATH_UPDATED_FILES[@]}" -gt 0 ]; then
+    log "added $BIN_DIR to PATH in: ${PATH_UPDATED_FILES[*]}"
+    log "open a new terminal, or run:  source ${PATH_UPDATED_FILES[0]}"
+fi
 if [ "${#INSTALLED_FOR[@]}" -gt 0 ]; then
     log "AI CLIs configured: ${INSTALLED_FOR[*]}"
     log "try:    mantis daemon   # start the daemon"
