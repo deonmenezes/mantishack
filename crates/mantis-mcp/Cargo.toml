@@ -14,10 +14,16 @@ path = "src/main.rs"
 
 [dependencies]
 mantis-core = { workspace = true }
+mantis-pack = { workspace = true }
 mantis-proto = { workspace = true }
 mantis-scope = { workspace = true }
+mantis-auth = { workspace = true }
+mantis-auth-differential = { workspace = true }
+mantis-recon-tools = { workspace = true }
+mantis-tiered-exec = { workspace = true }
 mantis-workspace = { workspace = true }
 
+reqwest = { workspace = true }
 rmcp = { workspace = true }
 schemars = { workspace = true }
 
