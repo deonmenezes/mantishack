@@ -28,12 +28,25 @@ The installer:
 After install you can drive Mantis from any of those CLIs:
 
 ```
+/mantishack <target>       one-shot end-to-end pentest (every step in one command)
 /mantis-scan <target>      kick off an authorized engagement
 /mantis-status [id]        engagement status
 /mantis-claim <id>         inspect a verified finding
 /mantis-report <id>        render a disclosure-ready report
 /mantis-daemon             start/stop the daemon
 ```
+
+`/mantishack` accepts:
+- web URL: `https://example.com`
+- domain: `example.com`
+- Android: `app.apk`
+- iOS: `app.ipa`
+- Windows: `app.exe`
+- macOS: `app.dmg` / `app.app`
+- API: any URL pointing at an OpenAPI spec or REST endpoint
+
+Embedded URLs are extracted from packaged-app binaries via
+`strings` and pentest-routed through the same web pipeline.
 
 ### Don't have an AI CLI yet?
 

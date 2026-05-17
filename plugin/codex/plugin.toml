@@ -5,6 +5,11 @@ description = "Mantis offensive-security daemon — slash commands for authorize
 homepage = "https://github.com/deonmenezes/mantishack"
 
 [[commands]]
+name = "mantishack"
+description = "One-shot end-to-end pentest. Drives every Mantis step against a URL, domain, or packaged app."
+prompt_file = "prompts/mantishack.md"
+
+[[commands]]
 name = "mantis-scan"
 description = "Kick off a Mantis engagement against an authorized target."
 prompt_file = "prompts/scan.md"

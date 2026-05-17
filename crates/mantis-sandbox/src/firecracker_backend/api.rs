@@ -175,15 +175,23 @@ mod tests {
         captured: Arc<Mutex<Vec<(String, String)>>>,
         status: u16,
     ) -> PathBuf {
+        // Unique-per-test temp dir: pid + nanos + counter avoids
+        // collisions even when multiple tests run in the same
+        // tokio runtime tick.
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let dir = std::env::temp_dir().join(format!(
-            "mantis-fc-test-{}",
+            "mantis-fc-test-{}-{}-{}",
+            std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_nanos())
-                .unwrap_or(0)
+                .unwrap_or(0),
+            n
         ));
         tokio::fs::create_dir_all(&dir).await.unwrap();
         let sock = dir.join("api.sock");
+        let _ = tokio::fs::remove_file(&sock).await;
         let listener = UnixListener::bind(&sock).unwrap();
         tokio::spawn(async move {
             loop {

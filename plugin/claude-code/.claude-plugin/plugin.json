@@ -4,6 +4,7 @@
   "description": "Mantis offensive-security daemon — slash commands for engagement lifecycle, scans, claims, and reporting.",
   "homepage": "https://github.com/deonmenezes/mantishack",
   "skills": [
+    {"name": "mantishack", "path": "skills/mantishack.md"},
     {"name": "mantis-scan", "path": "skills/scan.md"},
     {"name": "mantis-status", "path": "skills/status.md"},
     {"name": "mantis-claim", "path": "skills/claim.md"},

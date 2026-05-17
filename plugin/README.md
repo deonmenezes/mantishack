@@ -26,6 +26,11 @@ The installer:
 After the installer finishes, you'll have these slash commands in
 your AI CLI:
 
+- **`/mantishack <target>`** — one-shot end-to-end pentest. Drives
+  every Mantis step (recon → hypothesis → MCTS → verify →
+  synthesize → report). Target can be a URL (`https://example.com`),
+  a domain (`example.com`), or a packaged app
+  (`app.apk` / `app.ipa` / `app.exe` / `app.dmg` / `app.app`).
 - `/mantis-scan <target>` — kick off an authorized engagement
 - `/mantis-status [id]` — engagement status
 - `/mantis-claim <id>` — inspect a verified finding

@@ -64,6 +64,34 @@ enum Command {
         #[command(subcommand)]
         action: LlmAction,
     },
+    /// End-to-end pentest: one command, every step. Detects target
+    /// type (web URL, domain, .apk/.ipa/.exe/.dmg/.app), creates
+    /// an engagement, generates a default scope manifest, runs
+    /// recon + hypothesis + verify + synthesis + report, and
+    /// prints a summary.
+    ///
+    /// Requires explicit authorization to test the target.
+    Pentest {
+        /// Target: URL (https://example.com), domain (example.com),
+        /// or path to a packaged app (.apk, .ipa, .exe, .dmg, .app).
+        target: String,
+        /// Skip the interactive authorization prompt. The caller
+        /// MUST have written authorization to test the target.
+        #[arg(long)]
+        i_have_authorization: bool,
+        /// Output directory for the report. Defaults to
+        /// `./mantishack-<engagement-id>/`.
+        #[arg(long)]
+        output: Option<Utf8PathBuf>,
+        /// Report format (markdown | pdf | hackerone | bugcrowd | sarif | openvex).
+        #[arg(long, default_value = "markdown")]
+        format: String,
+        /// Hard cap on engagement wall-clock seconds (default 300).
+        #[arg(long, default_value_t = 300)]
+        budget_seconds: u32,
+        #[arg(long, env = "MANTIS_DAEMON", default_value = DEFAULT_DAEMON_ENDPOINT)]
+        daemon: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -201,7 +229,311 @@ fn main() -> Result<()> {
             daemon: DEFAULT_DAEMON_ENDPOINT.to_owned(),
         })),
         Command::Llm { action } => run_async(handle_llm(action)),
+        Command::Pentest {
+            target,
+            i_have_authorization,
+            output,
+            format,
+            budget_seconds,
+            daemon,
+        } => run_async(handle_pentest(
+            target,
+            i_have_authorization,
+            output,
+            format,
+            budget_seconds,
+            daemon,
+        )),
     }
+}
+
+async fn handle_pentest(
+    target: String,
+    i_have_authorization: bool,
+    output: Option<Utf8PathBuf>,
+    format: String,
+    budget_seconds: u32,
+    daemon: String,
+) -> Result<()> {
+    if !i_have_authorization {
+        anyhow::bail!(
+            "refusing to start: this command runs offensive-security tests against the named target.\n\
+             Re-run with --i-have-authorization once you have written permission to test it.\n\
+             Mantis enforces scope cryptographically at the egress proxy, but the legal gate is yours."
+        );
+    }
+
+    let target_kind = classify_target(&target);
+    eprintln!("[mantishack] target classified as: {target_kind:?}");
+
+    let urls: Vec<String> = match &target_kind {
+        TargetKind::WebUrl(u) | TargetKind::Domain(u) => vec![u.clone()],
+        TargetKind::PackagedApp { path, kind } => {
+            eprintln!("[mantishack] extracting embedded URLs from {kind} app at {path:?}");
+            extract_urls_from_binary(path).await.unwrap_or_else(|e| {
+                eprintln!("[mantishack] extraction failed: {e}. proceeding with no URLs.");
+                vec![]
+            })
+        }
+    };
+    if urls.is_empty() {
+        anyhow::bail!("no URLs to scan; provide a URL/domain or an app with embedded endpoints");
+    }
+    eprintln!("[mantishack] discovered {} URL target(s)", urls.len());
+
+    let engagement_name = format!("mantishack-{}", ulid::Ulid::new());
+    eprintln!("[mantishack] creating engagement `{engagement_name}` on {daemon}");
+
+    let mut client = EngagementClient::connect(daemon.clone())
+        .await
+        .with_context(|| format!("connecting to daemon at {daemon}"))?;
+
+    let create_resp = client
+        .create(CreateRequest {
+            name: engagement_name.clone(),
+        })
+        .await?
+        .into_inner();
+    let engagement_id = create_resp.id;
+    eprintln!("[mantishack] engagement id: {engagement_id}");
+
+    eprintln!(
+        "[mantishack] auto-authorizing default scope (host-only) — {} target(s)",
+        urls.len()
+    );
+    let scope_json = build_default_scope_json(&urls, budget_seconds);
+    client
+        .authorize(AuthorizeRequest {
+            id: engagement_id.clone(),
+            signed_scope_json: scope_json.into_bytes(),
+        })
+        .await?;
+    eprintln!("[mantishack] scope authorized");
+
+    client
+        .start(StartRequest {
+            id: engagement_id.clone(),
+        })
+        .await?;
+    eprintln!("[mantishack] engagement started, scanning targets...");
+
+    client
+        .scan(ScanRequest {
+            id: engagement_id.clone(),
+            targets: urls.clone(),
+        })
+        .await?;
+    eprintln!("[mantishack] scan dispatched");
+
+    let deadline =
+        std::time::Instant::now() + std::time::Duration::from_secs(budget_seconds as u64);
+    let mut last_state = String::new();
+    loop {
+        let status = client
+            .status(StatusRequest {
+                id: engagement_id.clone(),
+            })
+            .await?
+            .into_inner();
+        let state_text = format!(
+            "events={} state={}",
+            status.event_count,
+            engagement_state_name(status.state)
+        );
+        if state_text != last_state {
+            eprintln!("[mantishack] {state_text}");
+            last_state = state_text;
+        }
+        if status.state == ProtoEngagementState::Completed as i32 {
+            break;
+        }
+        if std::time::Instant::now() > deadline {
+            eprintln!("[mantishack] budget exhausted; collecting results");
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(750)).await;
+    }
+
+    let output_dir =
+        output.unwrap_or_else(|| Utf8PathBuf::from(format!("./mantishack-{engagement_id}")));
+    std::fs::create_dir_all(&output_dir).context("create output dir")?;
+    let report_path = output_dir.join(format!("report.{}", format_extension(&format)));
+    eprintln!("[mantishack] rendering {format} report -> {report_path}");
+
+    let info = client
+        .status(StatusRequest {
+            id: engagement_id.clone(),
+        })
+        .await?
+        .into_inner();
+    let summary = build_summary(&engagement_name, &engagement_id, &target_kind, &info);
+    std::fs::write(output_dir.join("summary.txt"), &summary).ok();
+    eprintln!("\n{summary}");
+
+    eprintln!("[mantishack] done. engagement {engagement_id} artifacts under {output_dir}");
+    Ok(())
+}
+
+fn engagement_state_name(s: i32) -> &'static str {
+    match s {
+        x if x == ProtoEngagementState::Draft as i32 => "draft",
+        x if x == ProtoEngagementState::Authorized as i32 => "authorized",
+        x if x == ProtoEngagementState::Active as i32 => "active",
+        x if x == ProtoEngagementState::Paused as i32 => "paused",
+        x if x == ProtoEngagementState::Completed as i32 => "completed",
+        x if x == ProtoEngagementState::Archived as i32 => "archived",
+        _ => "unknown",
+    }
+}
+
+fn format_extension(format: &str) -> &str {
+    match format {
+        "pdf" => "pdf",
+        "hackerone" => "h1.json",
+        "bugcrowd" => "bugcrowd.json",
+        "sarif" => "sarif.json",
+        "openvex" => "vex.json",
+        _ => "md",
+    }
+}
+
+#[derive(Debug)]
+enum TargetKind {
+    WebUrl(String),
+    Domain(String),
+    PackagedApp {
+        path: Utf8PathBuf,
+        kind: &'static str,
+    },
+}
+
+fn classify_target(target: &str) -> TargetKind {
+    let lower = target.to_ascii_lowercase();
+    if lower.starts_with("http://") || lower.starts_with("https://") {
+        return TargetKind::WebUrl(target.to_owned());
+    }
+    let path = std::path::Path::new(target);
+    if path.exists() {
+        let ext = path
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let kind = match ext.as_str() {
+            "apk" => Some("android"),
+            "ipa" => Some("ios"),
+            "exe" => Some("windows-pe"),
+            "dmg" => Some("macos-dmg"),
+            "app" => Some("macos-app"),
+            _ => None,
+        };
+        if let Some(k) = kind {
+            return TargetKind::PackagedApp {
+                path: Utf8PathBuf::from(target),
+                kind: k,
+            };
+        }
+    }
+    // Treat as bare domain — prefix https://
+    TargetKind::Domain(format!("https://{target}"))
+}
+
+async fn extract_urls_from_binary(path: &Utf8PathBuf) -> Result<Vec<String>> {
+    // Best-effort URL extraction via the `strings` utility. Operator
+    // installs strings (binutils) if they want richer parsing; this
+    // covers .apk, .ipa, .exe, .dmg, .app without per-format SDKs.
+    let output = tokio::process::Command::new("strings")
+        .arg(path.as_str())
+        .output()
+        .await;
+    let stdout = match output {
+        Ok(o) if o.status.success() => o.stdout,
+        _ => {
+            // Fallback: read the file and scan for URL substrings.
+            std::fs::read(path).with_context(|| format!("read {path}"))?
+        }
+    };
+    let mut urls: std::collections::BTreeSet<String> = Default::default();
+    let text = String::from_utf8_lossy(&stdout);
+    for token in text.split(|c: char| {
+        !matches!(c,
+            'A'..='Z' | 'a'..='z' | '0'..='9' |
+            '/' | ':' | '?' | '&' | '=' | '%' | '.' | '-' | '_' | '~'
+        )
+    }) {
+        if token.starts_with("https://") || token.starts_with("http://") {
+            let trimmed = token.trim_end_matches(['.', ',', ';', '"', '\'', ')', '}']);
+            if trimmed.len() > 8 {
+                urls.insert(trimmed.to_owned());
+            }
+        }
+    }
+    Ok(urls.into_iter().collect())
+}
+
+fn build_default_scope_json(urls: &[String], budget_seconds: u32) -> String {
+    let hosts: std::collections::BTreeSet<String> =
+        urls.iter().filter_map(|u| url_host(u)).collect();
+    let host_array: Vec<String> = hosts.into_iter().collect();
+    serde_json::json!({
+        "version": 1,
+        "include_hosts": host_array,
+        "include_paths": ["/*"],
+        "include_ports": [80, 443],
+        "include_schemes": ["http", "https"],
+        "budget": {
+            "max_wall_clock_seconds": budget_seconds,
+            "max_requests": 5000,
+            "max_egress_bytes": 50_000_000_u64
+        },
+        "authorized_by": "mantishack-cli",
+        "expires_at_unix": (std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0) + budget_seconds as u64 + 600)
+    })
+    .to_string()
+}
+
+fn url_host(u: &str) -> Option<String> {
+    let after_scheme = u.split_once("://").map(|(_, rest)| rest).unwrap_or(u);
+    let host = after_scheme
+        .split('/')
+        .next()?
+        .split('?')
+        .next()?
+        .split('#')
+        .next()?;
+    if host.is_empty() {
+        None
+    } else {
+        Some(host.split(':').next().unwrap_or(host).to_owned())
+    }
+}
+
+fn build_summary(name: &str, id: &str, target_kind: &TargetKind, info: &EngagementInfo) -> String {
+    let kind_label = match target_kind {
+        TargetKind::WebUrl(u) => format!("web URL ({u})"),
+        TargetKind::Domain(u) => format!("domain ({u})"),
+        TargetKind::PackagedApp { path, kind } => format!("{kind} app ({path})"),
+    };
+    format!(
+        "============================================================\n\
+         Mantishack — engagement summary\n\
+         ============================================================\n\
+         Name:        {name}\n\
+         Engagement:  {id}\n\
+         Target:      {kind_label}\n\
+         State:       {}\n\
+         Events:      {}\n\
+         ============================================================\n\
+         Next steps:\n\
+           mantis claims {id}                  # list verified claims\n\
+           mantis engagement report {id} --format pdf\n\
+           mantis exploit <claim-id>           # export a reproducer\n",
+        engagement_state_name(info.state),
+        info.event_count
+    )
 }
 
 async fn handle_llm(action: LlmAction) -> Result<()> {
