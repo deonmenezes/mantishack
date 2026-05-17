@@ -1,0 +1,1 @@
+/users.json, /admin.json, /config.json, ?auth=null, Firestore rules, /_ah/api/explorer

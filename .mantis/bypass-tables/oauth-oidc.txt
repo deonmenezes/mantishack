@@ -1,0 +1,1 @@
+redirect_uri manipulation, state CSRF, token in Referer, scope escalation, PKCE bypass

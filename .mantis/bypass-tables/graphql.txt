@@ -1,0 +1,1 @@
+Introspection, __type fallback, batched queries, alias-based enum, mutation discovery, deep nesting

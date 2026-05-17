@@ -1,0 +1,108 @@
+# Benchmark target definitions
+#
+# All targets are intentionally vulnerable Docker applications meant for local,
+# operator-controlled testing. Do NOT point this benchmark at public services.
+# Operators are responsible for keeping these containers off untrusted networks.
+#
+# Fields:
+#   id                   - short identifier used by harness.sh and score.py
+#   label                - human-readable name
+#   host_url             - URL the tool under test should probe (localhost only)
+#   docker_image         - Docker image to pull and run
+#   docker_port_map      - host:container port mapping
+#   scope_hash_seed      - deterministic seed for the ScopeManifest BLAKE3 hash
+#   expected_finding_classes - vuln classes a good tool should find on this target
+#   notes                - operator notes on consent and configuration
+
+targets:
+  - id: juiceshop
+    label: "OWASP Juice Shop"
+    host_url: "http://localhost:3000"
+    docker_image: "bkimminich/juice-shop"
+    docker_port_map: "3000:3000"
+    scope_hash_seed: "juiceshop-local-bench-v1"
+    expected_finding_classes:
+      - sql_injection
+      - xss_reflected
+      - xss_stored
+      - broken_authentication
+      - idor
+      - insecure_direct_object_reference
+      - sensitive_data_exposure
+      - insecure_deserialization
+      - xxe
+      - security_misconfiguration
+    notes: >
+      OWASP Juice Shop is a purpose-built CTF/training application maintained by the
+      OWASP Foundation. It is designed to be attacked locally. Run with
+      `docker run --rm -p 3000:3000 bkimminich/juice-shop`.
+      No public service is involved; the operator controls the container.
+
+  - id: dvwa
+    label: "Damn Vulnerable Web Application (DVWA)"
+    host_url: "http://localhost:8080"
+    docker_image: "vulnerables/web-dvwa"
+    docker_port_map: "8080:80"
+    scope_hash_seed: "dvwa-local-bench-v1"
+    expected_finding_classes:
+      - sql_injection
+      - blind_sql_injection
+      - xss_reflected
+      - xss_stored
+      - xss_dom
+      - csrf
+      - command_injection
+      - file_inclusion_local
+      - file_inclusion_remote
+      - insecure_file_upload
+      - brute_force
+    notes: >
+      DVWA is a classic intentionally-vulnerable PHP/MySQL application distributed
+      specifically for security training. Run with
+      `docker run --rm -p 8080:80 vulnerables/web-dvwa`.
+      Default credentials: admin / password. Set security level to "Low" for
+      broadest finding coverage in the benchmark.
+
+  - id: vampi
+    label: "VAmPI — Vulnerable REST API"
+    host_url: "http://localhost:5000"
+    docker_image: "erev0s/vampi:latest"
+    docker_port_map: "5000:5000"
+    scope_hash_seed: "vampi-local-bench-v1"
+    expected_finding_classes:
+      - bola
+      - broken_object_level_authorization
+      - broken_authentication
+      - excessive_data_exposure
+      - lack_of_resources_and_rate_limiting
+      - broken_function_level_authorization
+      - mass_assignment
+      - security_misconfiguration
+      - injection
+    notes: >
+      VAmPI implements all OWASP API Top 10 vulnerability classes deliberately.
+      Run with `docker run --rm -p 5000:5000 erev0s/vampi:latest`.
+      The OpenAPI spec ships at /openapi3.yml — pass it to the tool under test as
+      an API spec hint for richer surface enumeration.
+
+  - id: crapi
+    label: "OWASP crAPI — Completely Ridiculous API"
+    host_url: "http://localhost:8888"
+    docker_image: "owasp/crapi"
+    docker_port_map: "8888:8888"
+    scope_hash_seed: "crapi-local-bench-v1"
+    expected_finding_classes:
+      - bola
+      - broken_user_authentication
+      - excessive_data_exposure
+      - lack_of_resources_and_rate_limiting
+      - broken_function_level_authorization
+      - mass_assignment
+      - ssrf
+      - jwt_weakness
+      - improper_assets_management
+    notes: >
+      OWASP crAPI is the reference application for the OWASP API Security Top 10.
+      Deploy with docker compose from https://github.com/OWASP/crAPI, or use the
+      all-in-one image with `docker run --rm -p 8888:8888 owasp/crapi`.
+      Allow ~60 seconds for full startup before running the benchmark.

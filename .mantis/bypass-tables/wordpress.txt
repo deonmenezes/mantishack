@@ -1,0 +1,1 @@
+/wp-json/wp/v2/users, /?_fields=id,slug, /wp-json/wp/v2/posts?status=draft, /?author=1..20, /wp-content/debug.log, /wp-config.php.bak|.old|.save|~, /wp-content/uploads/, /?rest_route=/wp/v2/users, xmlrpc.php system.multicall, /wp-admin/admin-ajax.php action enum

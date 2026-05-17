@@ -1,0 +1,182 @@
+{
+  "version": 1,
+  "description": "Curated read-only hunter guidance distilled from claude-bug-bounty methodology, web2 bug classes, advanced techniques, payload notes, and selected wordlist patterns. This file is reference material only; execution remains in hacker-bob MCP tools and agents.",
+  "entries": [
+    {
+      "id": "generic-rest-api",
+      "title": "REST/API authorization and parser differentials",
+      "match": {
+        "tech": ["api", "rest", "json", "openapi", "swagger", "http"],
+        "endpoints": ["/api", "/v1", "/v2", "/users", "/accounts", "/admin", "/graphql", "swagger", "openapi"],
+        "params": ["id", "user_id", "account_id", "tenant_id", "org_id", "role", "redirect", "url", "next", "limit", "page", "sort"],
+        "hints": ["idor", "authz", "authorization", "access control", "object access", "api", "export"]
+      },
+      "techniques": [
+        "Use two accounts for object access checks: replay attacker requests with victim IDs, tenant IDs, UUIDs, slugs, and indirect report/export IDs.",
+        "Compare sibling routes and methods. If GET is guarded, test PATCH/PUT/DELETE, batch endpoints, old API versions, and mobile/API variants for inconsistent auth.",
+        "Probe parser differentials with JSON vs form vs XML, duplicate JSON keys, repeated query params, and X-HTTP-Method-Override only where the endpoint already accepts writes.",
+        "Prioritize high-impact objects: billing, exports, invitations, admin actions, documents, messages, tokens, and organization membership."
+      ],
+      "payload_hints": [
+        "PATCH profile with hidden fields: role, is_admin, verified, credits, permissions",
+        "Try version downgrade patterns: /api/v3/... -> /api/v2/... -> /api/v1/... -> /api/...",
+        "Try pagination abuse only when list endpoints expose sensitive objects: limit=999999, per_page=100000, count=-1",
+        "Check common discovery paths: swagger.json, openapi.json, api-docs, api/graphql, api/config, api/admin"
+      ]
+    },
+    {
+      "id": "graphql",
+      "title": "GraphQL field-level authorization",
+      "match": {
+        "tech": ["graphql", "apollo", "relay", "hasura"],
+        "endpoints": ["/graphql", "/graphiql", "__graphql", "api/graphql"],
+        "params": ["query", "operationName", "variables", "node", "id"],
+        "hints": ["graphql", "field-level auth", "node id"]
+      },
+      "techniques": [
+        "Treat introspection as mapping, not a finding. Hunt for missing field-level auth, node/global ID object access, and mutation authorization gaps.",
+        "If introspection is blocked, use type suggestions, aliases, GET-vs-POST, content-type changes, and partial schema errors to discover fields.",
+        "Use aliases to test multiple object IDs in one request and compare attacker vs victim visibility with the same auth profile.",
+        "Check batching only where rate limits or OTP/login flows exist; record only if it enables practical bypass or account takeover."
+      ],
+      "payload_hints": [
+        "{ __schema { types { name fields { name type { name } } } } }",
+        "{ a1: user(id: 1) { id email } a2: user(id: 2) { id email } }",
+        "mutation { updateUserRole(userId: \"VICTIM_ID\", role: ADMIN) { id role } }",
+        "GET /graphql?query={__schema{types{name}}}"
+      ]
+    },
+    {
+      "id": "wordpress",
+      "title": "WordPress REST, XML-RPC, and plugin action review",
+      "match": {
+        "tech": ["wordpress", "wp"],
+        "endpoints": ["/wp-json", "/wp-admin", "/wp-content", "/xmlrpc.php", "admin-ajax.php", "wp-login.php"],
+        "params": ["author", "rest_route", "action", "nonce", "post", "user_id"],
+        "hints": ["cms", "wordpress", "plugin", "theme"]
+      },
+      "techniques": [
+        "Enumerate REST users, author redirects, plugins, themes, uploads, debug logs, and backup config files, but only record when sensitive data or a real exploit path exists.",
+        "For authenticated testing, use the lowest role available and test plugin admin-ajax actions for nonce-only auth, role confusion, upload, export, and privilege changes.",
+        "Treat xmlrpc.php as a signal for brute-force or pingback SSRF only when you can show bypassed controls or meaningful internal interaction.",
+        "Use plugin/theme names and versions as leads for exploit research; banner disclosure alone is not reportable."
+      ],
+      "payload_hints": [
+        "/wp-json/wp/v2/users and /?author=1",
+        "/wp-content/debug.log, /wp-config.php.bak, /wp-content/uploads/",
+        "POST /wp-admin/admin-ajax.php with action=PLUGIN_ACTION as subscriber",
+        "POST /xmlrpc.php system.listMethods"
+      ]
+    },
+    {
+      "id": "nextjs",
+      "title": "Next.js data, middleware, and image optimizer checks",
+      "match": {
+        "tech": ["next.js", "nextjs", "vercel"],
+        "endpoints": ["/_next", "__next_data__", "/api/", "/_next/image", "/_next/data"],
+        "params": ["url", "next", "redirect", "image"],
+        "hints": ["js_endpoint", "__next_data__", "middleware", "server action"]
+      },
+      "techniques": [
+        "Inspect __NEXT_DATA__ and /_next/data JSON for authenticated props, user data, feature flags, internal URLs, and stale admin data.",
+        "Test middleware bypass with /_next/data route equivalents for sensitive pages and compare auth behavior with the page route.",
+        "For /_next/image or rewrite-backed proxy endpoints, test only bounded SSRF paths that can prove internal fetch or cloud metadata access.",
+        "Server Actions and API routes often have inconsistent CSRF/origin checks; prioritize destructive or account-changing actions."
+      ],
+      "payload_hints": [
+        "/_next/data/BUILD_ID/admin/dashboard.json",
+        "/_next/image?url=https://attacker.example/redirect-to-internal&w=128&q=75",
+        "Origin: null on Server Action POSTs",
+        "Search JS/config for rewrites to internal destinations"
+      ]
+    },
+    {
+      "id": "jwt-oauth",
+      "title": "JWT, OAuth, and OIDC token trust boundaries",
+      "match": {
+        "tech": ["jwt", "oauth", "oidc", "sso", "openid", "saml"],
+        "endpoints": ["/oauth", "/oidc", "/authorize", "/token", "/callback", "/.well-known", "/jwks"],
+        "params": ["redirect_uri", "client_id", "state", "code", "scope", "kid", "jku", "x5u", "alg"],
+        "hints": ["jwt_oauth", "auth", "login", "password reset", "token", "jwks"]
+      },
+      "techniques": [
+        "For JWT, test claim trust only when the app accepts tampered tokens: alg none, RS256-to-HS256 confusion, kid path tricks, attacker JWKS, role/sub/email edits.",
+        "For OAuth/OIDC, chain open redirects into redirect_uri validation, state/nonce weakness, missing PKCE, token leakage in Referer, and scope escalation.",
+        "Confirm impact by reaching protected data or impersonating a role. A weak token shape without accepted forgery is not enough.",
+        "Check .well-known metadata and JWKS for algorithm/key confusion leads before attempting token attacks."
+      ],
+      "payload_hints": [
+        "/.well-known/openid-configuration and /.well-known/jwks.json",
+        "redirect_uri=https://attacker.example/callback or encoded/scheme-relative variants",
+        "JWT header tests: alg=none, HS256 with public key, kid=../../../../dev/null",
+        "Scope expansion: scope=openid profile email admin offline_access"
+      ]
+    },
+    {
+      "id": "ssrf-url-fetch",
+      "title": "SSRF and server-side URL fetch impact",
+      "match": {
+        "tech": ["ssrf", "proxy", "webhook", "image", "pdf", "url fetch"],
+        "endpoints": ["/proxy", "/fetch", "/webhook", "/callback", "/preview", "/image", "/avatar", "/import", "/pdf"],
+        "params": ["url", "uri", "src", "dest", "redirect", "callback", "webhook", "image", "avatar", "file"],
+        "hints": ["ssrf", "url fetch", "webhook", "import", "preview"]
+      },
+      "techniques": [
+        "DNS-only callbacks are lead data. Escalate to internal service access, cloud metadata, credential exfiltration, or internal admin reachability before recording.",
+        "Test redirect handling, parser confusion, IPv6/decimal/octal/hex loopback forms, and metadata hostnames only after confirming a server-side fetch.",
+        "Check second-order SSRF where a URL is saved first, then fetched by preview, import, PDF, avatar, or webhook processors.",
+        "Record exact request, callback evidence, and internal response evidence. Avoid high-volume port scans."
+      ],
+      "payload_hints": [
+        "http://169.254.169.254/latest/meta-data/iam/security-credentials/",
+        "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
+        "http://2130706433/, http://0x7f000001/, http://0177.0.0.1/, http://127.1/, http://[::1]/",
+        "External URL that 302 redirects to an internal URL"
+      ]
+    },
+    {
+      "id": "upload-xss-file",
+      "title": "Upload, file handling, and stored client-side execution",
+      "match": {
+        "tech": ["upload", "s3", "cdn", "storage"],
+        "endpoints": ["/upload", "/attachments", "/files", "/avatar", "/import", "/media", "/documents"],
+        "params": ["file", "filename", "content_type", "mime", "avatar", "attachment", "path"],
+        "hints": ["upload", "file handling", "stored xss", "uploads", "signed url"]
+      },
+      "techniques": [
+        "Check extension, MIME, magic-byte, path, and processing differentials. Look for stored XSS, parser bugs, overwrite, traversal, public object ACLs, and unsafe transforms.",
+        "For images/documents, test where uploaded content is rendered: user profile, admin moderation, PDF preview, email templates, and shared documents.",
+        "Do not report upload of inert files. Prove script execution, sensitive read/write, overwrite, or server-side processing impact.",
+        "If storage is cloud-backed, test signed URL scope, bucket listing, cross-tenant object access, and predictable object keys."
+      ],
+      "payload_hints": [
+        "polyglot names: file.php.jpg, file.svg, file.html, file..jpg, file.jpg%00.php",
+        "SVG with harmless script proof for same-origin render checks",
+        "Content-Type mismatch: image/jpeg body with HTML/SVG, or form MIME vs file magic",
+        "Object key traversal/predictability: ../, tenant_id changes, sequential IDs"
+      ]
+    },
+    {
+      "id": "business-logic-race",
+      "title": "Business logic and race-condition targets",
+      "match": {
+        "tech": ["payments", "billing", "checkout", "credits", "wallet", "coupon", "promo", "subscription"],
+        "endpoints": ["/billing", "/checkout", "/cart", "/coupon", "/promo", "/wallet", "/transfer", "/refund", "/subscription", "/invite"],
+        "params": ["amount", "price", "quantity", "coupon", "credit", "balance", "plan", "role", "invite"],
+        "hints": ["business_logic", "billing", "checkout", "refund", "payments", "money movement", "invites"]
+      },
+      "techniques": [
+        "Hunt workflow skips, negative/zero values, stale state, privilege-changing invitation flows, plan upgrades, refunds, and credit transfers.",
+        "Race only critical state transitions: coupon redemption, credit spend, password reset, MFA verify, invite accept, checkout, refund, and file processing.",
+        "Compare UI-enforced constraints with direct API requests. The best bugs live where client steps imply server trust.",
+        "Record only if money, credits, access, inventory, or account state changes in a way a real attacker can use."
+      ],
+      "payload_hints": [
+        "amount=-100, quantity=0, price=0, plan=premium with skipped payment step",
+        "20 parallel identical redemption or transfer requests against one balance/coupon",
+        "Replay invite or reset token after use; accept invite while changing role/org params",
+        "Switch attacker/victim IDs in checkout, subscription, refund, invoice, or export routes"
+      ]
+    }
+  ]
+}

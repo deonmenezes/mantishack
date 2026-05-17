@@ -1,5 +1,17 @@
 # Mantis
 
+```
+███╗   ███╗ █████╗ ███╗   ██╗████████╗██╗███████╗
+████╗ ████║██╔══██╗████╗  ██║╚══██╔══╝██║██╔════╝
+██╔████╔██║███████║██╔██╗ ██║   ██║   ██║███████╗
+██║╚██╔╝██║██╔══██║██║╚██╗██║   ██║   ██║╚════██║
+██║ ╚═╝ ██║██║  ██║██║ ╚████║   ██║   ██║███████║
+╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝   ╚═╝   ╚═╝╚══════╝
+
+    stalk · wait · strike · hold
+    ethically hack any website with the power of AI
+```
+
 Daemon-driven, evidence-grade automated security research platform.
 
 Mantis plans, executes, verifies, and reports authorized offensive-security
@@ -72,6 +84,31 @@ mantis engagement start "demo"                     # begin scanning
 mantis engagement status "demo" --watch            # live status
 mantis engagement report "demo" --format pdf       # render report
 ```
+
+## Requirements
+
+- A working Rust toolchain (only for source builds — the prebuilt binary has no deps)
+- `curl` and `python3` (for some optional recon paths)
+- One supported host CLI: Claude Code, Codex, or another MCP-capable host (only if you want the slash-command surface — the standalone CLI has none of these deps)
+
+Optional recon tools improve coverage when they are installed. Mantis detects them at engagement start (also via `mantis doctor`) and folds their output into the surface set when present. **Mantis runs without any of them.**
+
+```bash
+go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
+go install github.com/projectdiscovery/httpx/cmd/httpx@latest
+go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
+go install github.com/owasp-amass/amass/v4/...@latest
+go install github.com/tomnomnom/assetfinder@latest
+go install github.com/projectdiscovery/chaos-client/cmd/chaos@latest
+go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest
+go install github.com/projectdiscovery/tlsx/cmd/tlsx@latest
+go install github.com/projectdiscovery/katana/cmd/katana@latest
+go install -v github.com/PentestPad/subzy@latest
+git clone https://github.com/ticarpi/jwt_tool ~/jwt_tool
+python3 -m pip install -r ~/jwt_tool/requirements.txt
+```
+
+Run `mantis doctor` to see which tools are installed and which install hints apply. The detection + invocation layer is `crates/mantis-recon-tools`; the runners return owned Rust types and surface `ToolError::NotInstalled` to the orchestrator so it can fall back silently.
 
 ## Workspace layout
 

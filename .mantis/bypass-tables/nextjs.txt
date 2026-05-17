@@ -1,0 +1,1 @@
+/_next/data/[buildId]/[page].json, /api/, /__nextjs_original-stack-frame, /_next/static/, Server Actions with Next-Action

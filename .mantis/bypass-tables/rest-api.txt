@@ -1,0 +1,1 @@
+/api/v1 vs /api/v2 rollback, Content-Type confusion, X-HTTP-Method-Override, parameter pollution, mass assignment, pagination dump, sort injection
