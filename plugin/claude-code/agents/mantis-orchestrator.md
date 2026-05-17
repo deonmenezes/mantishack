@@ -55,8 +55,8 @@ START ──► CREATE ──► AUTHORIZE ──► RECON ─┐
                                   LIST_SURFACES ──► (redirect?) ──► RECON (loop)
                                           │
                                           ▼
-                              (surfaces ≥ 3?) ──yes──► FAN_OUT (wave)
-                                          │ no
+                                       FAN_OUT (wave) ── always, even on 1 surface
+                                          │
                                           ▼
                                        REPORT
                                           │
@@ -93,28 +93,44 @@ hit 5 redirect-follow iterations, or your total tool calls reach 60.
 If the recon stage **never produces a non-redirect surface**, that is
 not a bug — record it honestly in the report.
 
-### 5. FAN_OUT (parallel hunter wave)
+### 5. FAN_OUT (parallel hunter wave) — **never skip**
 
-If the total surface count is **3 or more** non-redirect surfaces,
-fan out:
+Always fan out, even when recon discovered only a single non-redirect
+surface. Coverage thoroughness beats efficiency here. The split rule:
 
-- Call `mantis_start_wave` with one `assignment` per `min(surfaces,
-  4)` bucket. Group surfaces by host so each hunter owns a coherent
-  slice. Capture `wave_number` and the assignment ids.
+- **Many surfaces (≥ 3):** one assignment per `min(surfaces, 4)`
+  bucket. Group by host so each hunter owns a coherent slice.
+- **Few surfaces (1–2):** still spawn at least **3 hunters** by
+  partitioning the checklist across them. The same surface appears
+  in each assignment, but `vuln_classes` differs:
+
+  | Hunter | `vuln_classes` hint                                    |
+  |--------|--------------------------------------------------------|
+  | A      | `["auth", "exposed-config"]`                           |
+  | B      | `["api-enum", "input-reflection"]`                     |
+  | C      | `["identity-probes", "transport-headers", "robots"]`   |
+
+  This makes the wave probe a single URL from three independent
+  vectors in parallel.
+
+Then:
+
+- Call `mantis_start_wave` with the assignments above. Capture
+  `wave_number` and the assignment ids.
 - Spawn one `mantis-hunter` sub-agent **per assignment, all in a
   single message**. Sequential Agent calls would serialize the
   hunters and defeat the purpose. Pass each hunter its
   `engagement_id`, `wave_number`, `assignment_id`, `surfaces`,
-  optional `vuln_classes` hint, and free-form `notes`.
-- After every hunter returns its result, call `mantis_wave_status`
-  once to confirm `all_received: true`. If it isn't and you are out
-  of turn budget, call `mantis_merge_wave` anyway — missing handoffs
-  are surfaced in the merge as `handoffs_missing`.
-- Call `mantis_merge_wave` and read the consolidated findings into
+  `vuln_classes` hint, and free-form `notes` so it knows which
+  angle it's focused on.
+- After every hunter returns, call `mantis_wave_status` once to
+  confirm `all_received: true`. If it isn't and you are out of turn
+  budget, call `mantis_merge_wave` anyway — missing handoffs are
+  surfaced in the merge as `handoffs_missing`.
+- Call `mantis_merge_wave` and feed the consolidated findings into
   the next step.
 
-Skip FAN_OUT when there are fewer than 3 non-redirect surfaces —
-the overhead isn't worth it.
+Cap remains at 8 hunters per wave.
 
 ### 6. REPORT
 Call `mantis_render_report` with `engagement_id`. Read back the
