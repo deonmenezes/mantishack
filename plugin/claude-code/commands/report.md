@@ -1,7 +1,5 @@
 ---
-name: mantis-report
 description: Generate a disclosure-ready report for a Mantis engagement. Supports Markdown, PDF, HackerOne JSON, Bugcrowd JSON, SARIF, and OpenVEX.
-trigger: "/mantis-report"
 ---
 
 Render an engagement's verified findings as a structured report.

@@ -1,7 +1,5 @@
 ---
-name: mantis-claim
 description: Inspect a specific verified claim — its evidence chain, reproducer scripts, CVSS, and Merkle inclusion proof.
-trigger: "/mantis-claim"
 ---
 
 Pull details for a single claim discovered by Mantis.

@@ -1,7 +1,5 @@
 ---
-name: mantishack
 description: One-shot end-to-end pentest. Drives every Mantis pipeline step (recon → hypothesis → MCTS → verify → synthesize → report) against a URL, domain, or packaged app (.apk, .ipa, .exe, .dmg, .app). Use when the user says `/mantishack <target>`.
-trigger: "/mantishack"
 ---
 
 You are invoking Mantis end-to-end against the target the user

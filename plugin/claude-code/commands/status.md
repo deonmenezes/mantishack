@@ -1,7 +1,5 @@
 ---
-name: mantis-status
 description: Show the current state of one or all Mantis engagements — claims found, request budget, scope, active experiments.
-trigger: "/mantis-status"
 ---
 
 Show engagement status from the local Mantis daemon.

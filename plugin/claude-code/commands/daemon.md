@@ -1,7 +1,5 @@
 ---
-name: mantis-daemon
 description: Start, stop, or check the Mantis daemon.
-trigger: "/mantis-daemon"
 ---
 
 Manage the local Mantis daemon process.

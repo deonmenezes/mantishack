@@ -1,14 +1,26 @@
 {
   "name": "mantis",
   "version": "0.1.0",
-  "description": "Mantis offensive-security daemon — slash commands for engagement lifecycle, scans, claims, and reporting.",
-  "homepage": "https://github.com/deonmenezes/mantishack",
-  "skills": [
-    {"name": "mantishack", "path": "skills/mantishack.md"},
-    {"name": "mantis-scan", "path": "skills/scan.md"},
-    {"name": "mantis-status", "path": "skills/status.md"},
-    {"name": "mantis-claim", "path": "skills/claim.md"},
-    {"name": "mantis-report", "path": "skills/report.md"},
-    {"name": "mantis-daemon", "path": "skills/daemon.md"}
+  "description": "Mantis offensive-security daemon — slash commands for the engagement lifecycle, scans, claims, and reporting.",
+  "author": {
+    "name": "Deon Menezes",
+    "url": "https://github.com/deonmenezes"
+  },
+  "repository": "https://github.com/deonmenezes/mantishack",
+  "license": "Apache-2.0 OR MIT",
+  "keywords": [
+    "security",
+    "pentest",
+    "bug-bounty",
+    "offensive-security",
+    "mantis"
+  ],
+  "commands": [
+    "./commands/mantishack.md",
+    "./commands/scan.md",
+    "./commands/status.md",
+    "./commands/claim.md",
+    "./commands/report.md",
+    "./commands/daemon.md"
   ]
 }

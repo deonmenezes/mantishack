@@ -1,7 +1,5 @@
 ---
-name: mantis-scan
 description: Kick off a Mantis engagement against a target. Use when the user wants to scan a website, API endpoint, or asset they're authorized to test.
-trigger: "/mantis-scan"
 ---
 
 You are invoking the Mantis offensive-security daemon to start an
