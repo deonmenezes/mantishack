@@ -41,6 +41,7 @@ members = [
     "crates/mantis-crawler",
     "crates/mantis-video",
     "crates/mantis-crawler-dynamic",
+    "crates/mantis-mcp",
 ]
 
 [workspace.package]
@@ -90,6 +91,7 @@ mantis-chain = { path = "crates/mantis-chain" }
 mantis-crawler = { path = "crates/mantis-crawler" }
 mantis-video = { path = "crates/mantis-video" }
 mantis-crawler-dynamic = { path = "crates/mantis-crawler-dynamic" }
+mantis-mcp = { path = "crates/mantis-mcp" }
 core_affinity = "0.8"
 num_cpus = "1.16"
 criterion = { version = "0.5", default-features = false, features = ["plotters", "cargo_bench_support"] }
@@ -134,6 +136,9 @@ tonic-build = "0.12"
 prost = "0.13"
 
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "gzip"] }
+
+rmcp = { version = "1.7", features = ["server", "macros", "transport-io", "schemars"] }
+schemars = "1"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

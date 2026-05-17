@@ -1,77 +1,86 @@
 ---
-description: One-shot end-to-end pentest. Drives every Mantis pipeline step (recon → hypothesis → MCTS → verify → synthesize → report) against a URL, domain, or packaged app (.apk, .ipa, .exe, .dmg, .app). Use when the user says `/mantishack <target>`.
+description: One-shot end-to-end Mantis pentest, driven by the LLM through the mantis MCP server. Use when the user says `/mantishack <target>`. Inspired by hacker-bob's MCP-tool-orchestrated model; the host LLM owns the FSM and the wall-clock budget, replacing the rigid `mantis pentest` poll loop.
 ---
 
-You are invoking Mantis end-to-end against the target the user
-named. This single command runs every step of the platform.
+You are kicking off an authorized Mantis engagement against the target
+the user named. **You do not call `mantis pentest` anymore.** That
+command's poll loop has no client-side budget enforcement and hangs on
+recon dead-ends (see the `app.tenkara.ai` regression). Instead, drive
+the engagement through the `mantis` MCP server's tools, with the
+`mantis-orchestrator` sub-agent owning the FSM.
 
-**Before running, do these two things in order:**
+## Before any tool call — two gates, in order
 
-1. **Authorization check.** Ask the user:
+1. **Authorization gate (legal).** Ask the user:
    > Do you have **explicit written authorization** to run
    > offensive-security tests against `<target>`?
-   If the answer is anything other than a clear yes, refuse and
-   stop. Do not proceed.
 
-2. **Scope confirmation.** Print the target and ask the user to
-   confirm. For a packaged app, mention that Mantis will extract
-   embedded URLs from the binary and pentest those URLs.
+   If the answer is anything other than a clear yes, refuse and stop.
+   Mantis enforces scope cryptographically at the egress proxy, but
+   the legal gate is yours.
 
-Once authorization is confirmed, run:
+2. **Scope gate (technical).** Print the target the user wants to test
+   and ask them to confirm. For a packaged app (`.apk`, `.ipa`, `.exe`,
+   `.dmg`, `.app`), mention that Mantis will extract embedded URLs and
+   include those.
+
+## Preflight
+
+Verify the local setup is healthy before delegating to the
+orchestrator:
 
 ```sh
-# Start the daemon if it isn't already running:
+# Daemon must be running so the MCP server can reach it.
 pgrep -x mantis-daemon >/dev/null || (mantis-daemon &)
 sleep 1
-
-# One-shot pentest:
-mantis pentest "$TARGET" --i-have-authorization
 ```
 
-The command:
-- detects target type (web URL / domain / Android APK / iOS IPA /
-  Windows exe / macOS dmg/app)
-- creates an engagement with a unique ID
-- auto-generates and authorizes a default scope manifest
-- runs recon → hypothesis → MCTS planner → verifier →
-  synthesizer (corpus + fuzzer + symbolic + LLM) →
-  report rendering
-- prints a summary table and writes artifacts under
-  `./mantishack-<engagement-id>/`
+If the user has never run `/mantis:doctor`, suggest they do so once to
+confirm `mantis-mcp` is on PATH and the operator key is present.
 
-**Stream the output as it runs.** Mantis emits `[mantishack]`
-progress lines; relay each one to the user.
+## Delegation
 
-When the engagement completes, the daemon prints a summary table.
-Offer to:
-- render the report in PDF, HackerOne, Bugcrowd, SARIF, or OpenVEX:
-  `mantis engagement report <id> --format pdf`
-- export a reproducer:
-  `mantis exploit <claim-id> --format python`
+Once both gates pass, **spawn the `mantis-orchestrator` sub-agent**
+with the user's target as input. The orchestrator owns the full FSM:
 
-**Budget.** Default budget is 300 seconds wall-clock. Larger
-targets need `--budget-seconds 900`. Warn the user before running
-budgets over 30 minutes.
+```
+CREATE → AUTHORIZE → RECON → LIST_SURFACES (redirect loop) → REPORT
+```
 
-**LLM provider — no API key needed inside Claude Code.** The
-pentest pipeline's corpus / fuzzer / symbolic engines do not
-require any LLM credentials, so basic runs work out of the box.
-The synthesizer's LLM path uses the `claude-cli` provider by
-default when invoked from this plugin: it shells out to the local
-`claude` CLI and reuses whatever Claude Code authentication the
-user already has — there is no need to export
-`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`. The user can confirm the
-provider is reachable with:
+The orchestrator enforces a tool-call budget (60 MCP calls per
+engagement) so we do not relive the 46-minute `app.tenkara.ai` hang.
+Stream every progress line the orchestrator emits back to the user.
+
+## When the orchestrator finishes
+
+The orchestrator's final message includes the engagement id, surfaces
+discovered, redirect-followed count, and the path to `report.md`.
+Offer the user follow-ups:
+
+- `/mantis:status <id>` — re-inspect engagement state
+- `/mantis:resume <id>` — continue if recon stopped early
+- Re-rendering the report with `mantis-reporter` if they want a fresh
+  copy
+
+## LLM credentials — no API key needed
+
+Mantis's recon, hypothesis, verifier, and report stages run without an
+LLM. The synthesizer's LLM payload path uses the `claude-cli` provider
+by default (shells out to the local `claude` CLI; reuses Claude Code's
+own auth). The user can confirm reachability with:
 
 ```sh
 mantis llm probe --provider claude-cli
 ```
 
-If the user wants a different provider, set
-`MANTIS_CLAUDE_CLI_BIN`, `MANTIS_CLAUDE_CLI_MODEL`, or pass
-`--provider anthropic|openai` (which do require their respective
-env-var keys).
+Other providers (`anthropic`, `openai`) require their respective env
+keys; the default does not.
 
-**Refuse to run** if the user can't confirm authorization. Mantis
-enforces scope cryptographically at the egress proxy, but the
-legal gate is yours.
+## Hard rules
+
+- **Refuse to run** if the user cannot confirm authorization.
+- **Do not call `mantis pentest` from this command.** That path is the
+  bug we're working around.
+- **Do not authorize scope** beyond what the user explicitly named.
+  The orchestrator will follow same-host redirects; cross-host
+  redirects need a fresh user confirmation before re-authorizing.

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "mantis": {
+      "command": "mantis-mcp",
+      "args": [],
+      "env": {}
+    }
+  }
+}

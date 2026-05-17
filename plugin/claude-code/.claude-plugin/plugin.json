@@ -21,6 +21,8 @@
     "./commands/status.md",
     "./commands/claim.md",
     "./commands/report.md",
-    "./commands/daemon.md"
+    "./commands/daemon.md",
+    "./commands/resume.md",
+    "./commands/doctor.md"
   ]
 }
