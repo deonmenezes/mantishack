@@ -1,0 +1,16 @@
+[package]
+name = "mantis-crawler"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Static HTML+JS analyzer extracting endpoints, script srcs, fetch/XHR/import URLs (PRD §5.3.5)."
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

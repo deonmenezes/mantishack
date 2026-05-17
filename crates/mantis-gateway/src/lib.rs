@@ -11,20 +11,26 @@
 //! so each adapter can be reviewed independently.
 
 pub mod discord;
+pub mod email;
 pub mod identity;
 pub mod inbound;
+pub mod matrix;
 pub mod platform;
 pub mod platforms;
 pub mod registry;
+pub mod signal;
 pub mod slack;
 pub mod telegram;
+pub mod whatsapp;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub use crate::discord::DiscordWebhookPlatform;
+pub use crate::email::EmailHttpPlatform;
 pub use crate::identity::{IdentityBinding, IdentityStore};
 pub use crate::inbound::{Command, InboundMessage};
+pub use crate::matrix::MatrixClientPlatform;
 pub use crate::platform::{
     MessagingPlatform, Notification, NotificationKind, PlatformId, Severity,
 };
@@ -32,10 +38,12 @@ pub use crate::platforms::{
     DiscordPlatform, EmailPlatform, MatrixPlatform, SignalPlatform, SlackPlatform, WhatsAppPlatform,
 };
 pub use crate::registry::GatewayRegistry;
+pub use crate::signal::SignalCliPlatform;
 pub use crate::slack::SlackWebhookPlatform;
 pub use crate::telegram::{
     InboundMessage as TelegramInboundMessage, TelegramPlatform, UpdateBatch,
 };
+pub use crate::whatsapp::WhatsAppCloudPlatform;
 
 #[derive(Debug, Error)]
 pub enum GatewayError {

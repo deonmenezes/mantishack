@@ -2067,6 +2067,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "mantis-crawler"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "mantis-daemon"
 version = "0.0.1"
 dependencies = [
@@ -2131,6 +2139,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 1.0.69",
+ "tokio",
  "tracing",
  "ulid",
 ]
