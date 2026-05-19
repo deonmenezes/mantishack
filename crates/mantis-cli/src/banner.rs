@@ -28,7 +28,8 @@ const BANNER_LINES: &[&str] = &[
 ];
 
 const TAGLINE_VERBS: &str = "stalk · wait · strike · hold";
-const TAGLINE_BODY: &str = "ethically hack any website with the power of AI";
+const TAGLINE_BODY: &str =
+    "ethically hack and discover vulnerabilities in any software with the power of AI";
 
 /// Print the banner to stderr. Stderr because mantis subcommands
 /// emit JSON / structured data on stdout, and we don't want to
@@ -107,7 +108,7 @@ mod tests {
         let t = plain_text();
         assert!(t.contains("MANTIS") || t.contains("█"));
         assert!(t.contains("stalk"));
-        assert!(t.contains("ethically hack any website"));
+        assert!(t.contains("ethically hack and discover vulnerabilities"));
     }
 
     #[test]

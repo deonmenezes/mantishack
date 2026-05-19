@@ -145,6 +145,24 @@ enum Command {
         /// `claude` is on `PATH`.
         #[arg(long, env = "MANTIS_CLAUDE_BIN")]
         claude_bin: Option<Utf8PathBuf>,
+        /// "Turbo" preset — equivalent to `--deep` plus forcing the
+        /// Opus model (`claude-opus-4-7`) when no model preference is
+        /// set via `mantis model` or `-- --model …`. Use this when
+        /// you want the most thorough engagement and don't care about
+        /// token cost.
+        #[arg(long)]
+        turbo: bool,
+        /// Dump the assembled orchestrator prompt + system prompt to
+        /// stdout and exit without launching `claude`. Useful for
+        /// debugging prompt changes without spending tokens.
+        #[arg(long)]
+        print_prompt: bool,
+        /// Run all pre-flight checks (daemon up, `claude` on PATH,
+        /// `mantis` MCP server registered, model picked) and exit
+        /// without launching `claude`. Useful for CI smoke tests and
+        /// for verifying setup after `mantis init`.
+        #[arg(long)]
+        dry_run: bool,
         /// Extra args appended to the `claude` invocation after `--`.
         /// Useful for `--model claude-opus-4-7` or similar provider
         /// overrides. Example:
@@ -557,6 +575,9 @@ fn main() -> Result<()> {
             egress,
             daemon,
             claude_bin,
+            turbo,
+            print_prompt,
+            dry_run,
             claude_extra_args,
             cookie,
             supabase_signup,
@@ -574,6 +595,9 @@ fn main() -> Result<()> {
             egress,
             daemon,
             claude_bin,
+            turbo,
+            print_prompt,
+            dry_run,
             claude_extra_args,
             HackLegacyFlags {
                 cookie,
@@ -1229,6 +1253,9 @@ async fn handle_hack(
     egress: String,
     daemon: String,
     claude_bin: Option<Utf8PathBuf>,
+    turbo: bool,
+    print_prompt: bool,
+    dry_run: bool,
     claude_extra_args: Vec<String>,
     legacy: HackLegacyFlags,
 ) -> Result<()> {
@@ -1250,23 +1277,59 @@ async fn handle_hack(
         );
     }
 
+    // `--turbo` is a preset: deep recon + Opus model when no other
+    // preference exists. Resolved here so the rest of the function
+    // sees the post-preset values.
+    let deep = deep || turbo;
+    if turbo {
+        eprintln!("[mantishack] turbo: deep recon + Opus model preset");
+    }
+
     let target_url = normalize_target_url(&target);
     eprintln!("[mantishack] target: {target_url}");
     eprintln!("[mantishack] daemon: {daemon}");
 
-    // 1. Daemon must be reachable so the MCP server can talk to it.
-    ensure_daemon_for_hack(&daemon)?;
-
-    // 2. Locate the local `claude` CLI; this is the LLM orchestrator
-    //    that drives the /mantishack slash command. Fail loud with an
-    //    install hint if it's missing.
-    let claude_path = resolve_claude_binary(claude_bin.as_deref())?;
+    // Run the three sync pre-flight checks concurrently. Each is
+    // network or subprocess-bound, so doing them in parallel cuts
+    // startup latency by ~2x in the common cached-claude / running-
+    // daemon path.
+    //
+    //   - ensure_daemon_for_hack: gRPC-pings the daemon, spawning
+    //     one if down.
+    //   - resolve_claude_binary: walks PATH (filesystem stats).
+    //   - mantis-mcp-on-PATH precheck: walks PATH to fail fast
+    //     before we try to register.
+    //
+    // The actual `claude mcp get` / `claude mcp add` register step
+    // depends on `claude_path` and must run after — but the cheap
+    // `which mantis-mcp` precheck can ride along in parallel.
+    let daemon_for_task = daemon.clone();
+    let claude_bin_for_task = claude_bin.clone();
+    let (daemon_res, claude_res, mcp_bin_res) = tokio::join!(
+        tokio::task::spawn_blocking(move || ensure_daemon_for_hack(&daemon_for_task)),
+        tokio::task::spawn_blocking(move || resolve_claude_binary(claude_bin_for_task.as_deref())),
+        tokio::task::spawn_blocking(|| which_bin("mantis-mcp")),
+    );
+    daemon_res.context("spawn_blocking(daemon-check)")??;
+    let claude_path = claude_res.context("spawn_blocking(claude-resolve)")??;
+    let mcp_bin = mcp_bin_res.context("spawn_blocking(mantis-mcp lookup)")?;
     eprintln!("[mantishack] claude: {}", claude_path.display());
 
-    // 3. Verify the `mantis` MCP server is registered with claude.
-    //    If not, register it now (idempotent — same code path as
-    //    `mantis init --no-plugin --no-daemon`).
-    ensure_mantis_mcp_registered(&claude_path, &daemon)?;
+    // MCP registration depends on `claude_path`; do it sequentially
+    // but use the prefetched `mantis-mcp` lookup so we fail fast on
+    // a missing helper before doing the more expensive `claude mcp
+    // add` subprocess.
+    let claude_path_for_task = claude_path.clone();
+    let daemon_for_mcp = daemon.clone();
+    tokio::task::spawn_blocking(move || {
+        ensure_mantis_mcp_registered_with_prefetched_helper(
+            &claude_path_for_task,
+            &daemon_for_mcp,
+            mcp_bin,
+        )
+    })
+    .await
+    .context("spawn_blocking(mcp-register)")??;
 
     // 4. Build the orchestrator system prompt and shell out.
     //
@@ -1323,7 +1386,27 @@ async fn handle_hack(
     // Apply the saved-model preference unless the user already passed
     // `--model …` themselves (or via `-m`). `mantis model` writes the
     // chosen id to `~/.Mantis/model`; reading it here is the bridge.
-    let claude_extra_args = apply_saved_model(claude_extra_args);
+    // `--turbo` upgrades the default to Opus when nothing else is set.
+    let claude_extra_args = apply_model_preference(claude_extra_args, turbo);
+
+    if print_prompt {
+        eprintln!("[mantishack] --print-prompt: dumping assembled prompt and exiting (no `claude` exec)");
+        eprintln!();
+        println!("=== SYSTEM PROMPT (append-system-prompt) ===\n");
+        println!("{preauth_system_prompt}");
+        println!("\n=== USER PROMPT ===\n");
+        println!("{prompt}");
+        println!("\n=== FORWARDED CLAUDE ARGS ===\n");
+        for a in &claude_extra_args {
+            println!("  {a}");
+        }
+        return Ok(());
+    }
+
+    if dry_run {
+        eprintln!("[mantishack] --dry-run: pre-flight checks passed; skipping `claude` exec");
+        return Ok(());
+    }
 
     eprintln!(
         "[mantishack] handing off to the orchestrator — RECON → AUTH → HUNT → CHAIN → VERIFY → GRADE → REPORT"
@@ -1352,10 +1435,12 @@ async fn handle_hack(
     Ok(())
 }
 
-/// Prepend `--model <id>` to the args forwarded to `claude --print`
-/// if the user has a saved preference and didn't already pass
-/// `--model …` (or `-m …`) themselves.
-fn apply_saved_model(claude_extra_args: Vec<String>) -> Vec<String> {
+/// Prepend `--model <id>` to the args forwarded to `claude --print`,
+/// honoring (in priority order):
+///   1. user-supplied `-- --model …` / `-m …` (wins — leave untouched)
+///   2. `~/.Mantis/model` (set via `mantis model`)
+///   3. `--turbo` default (Opus)
+fn apply_model_preference(claude_extra_args: Vec<String>, turbo: bool) -> Vec<String> {
     if claude_extra_args
         .iter()
         .any(|a| a == "--model" || a == "-m" || a.starts_with("--model="))
@@ -1363,13 +1448,15 @@ fn apply_saved_model(claude_extra_args: Vec<String>) -> Vec<String> {
         // User overrode; don't touch.
         return claude_extra_args;
     }
-    let Some(saved) = model_picker::load_saved() else {
-        return claude_extra_args;
+    let (model_id, source) = match model_picker::load_saved() {
+        Some(saved) => (saved, "from `mantis model`"),
+        None if turbo => ("claude-opus-4-7".to_string(), "from --turbo preset"),
+        None => return claude_extra_args,
     };
-    eprintln!("[mantishack] model: {saved}  (from `mantis model`; override via `-- --model …`)");
+    eprintln!("[mantishack] model: {model_id}  ({source}; override via `-- --model …`)");
     let mut out = Vec::with_capacity(claude_extra_args.len() + 2);
     out.push("--model".to_string());
-    out.push(saved);
+    out.push(model_id);
     out.extend(claude_extra_args);
     out
 }
@@ -1475,6 +1562,18 @@ fn resolve_claude_binary(override_path: Option<&camino::Utf8Path>) -> Result<std
 /// `mantis-mcp` as a user-scope MCP server pointing at the daemon
 /// endpoint we'll be using.
 fn ensure_mantis_mcp_registered(claude_path: &std::path::Path, daemon_endpoint: &str) -> Result<()> {
+    let mcp_bin_prefetched = which_bin("mantis-mcp");
+    ensure_mantis_mcp_registered_with_prefetched_helper(claude_path, daemon_endpoint, mcp_bin_prefetched)
+}
+
+/// Same as [`ensure_mantis_mcp_registered`] but takes the
+/// `mantis-mcp` binary path as a prefetched lookup so we don't
+/// re-walk `PATH` after a parallel pre-flight already did the walk.
+fn ensure_mantis_mcp_registered_with_prefetched_helper(
+    claude_path: &std::path::Path,
+    daemon_endpoint: &str,
+    mcp_bin_prefetched: Option<std::path::PathBuf>,
+) -> Result<()> {
     let probe = std::process::Command::new(claude_path)
         .args(["mcp", "get", "mantis"])
         .stdout(std::process::Stdio::null())
@@ -1485,7 +1584,7 @@ fn ensure_mantis_mcp_registered(claude_path: &std::path::Path, daemon_endpoint: 
         return Ok(());
     }
     eprintln!("[mantishack] mcp:    registering `mantis` MCP server with claude");
-    let mcp_bin = which_bin("mantis-mcp").ok_or_else(|| {
+    let mcp_bin = mcp_bin_prefetched.ok_or_else(|| {
         anyhow::anyhow!(
             "`mantis-mcp` is not on PATH. Install Mantis (`mantis` setup screen, \
              `cargo install --path crates/mantis-mcp`, or `npm i -g mantishack`), \
