@@ -364,6 +364,12 @@ enum Command {
         /// Daemon endpoint baked into the MCP registration.
         #[arg(long, default_value = DEFAULT_DAEMON_ENDPOINT)]
         daemon_endpoint: String,
+        /// Also scaffold per-repo project files in the current
+        /// directory: `.mantis.json` template + `MANTIS.md`
+        /// guidance file. Idempotent — existing files are skipped.
+        /// Mirrors `claude init` / `claw init`.
+        #[arg(long)]
+        project: bool,
     },
     /// Interactive TUI — Claude-Code-style prompt box. Type a request
     /// (e.g. "hack example.com") and Mantis routes it to your chosen
@@ -594,7 +600,8 @@ fn main() -> Result<()> {
             no_mcp,
             no_plugin,
             daemon_endpoint,
-        } => handle_init(plugin_src, no_daemon, no_mcp, no_plugin, daemon_endpoint),
+            project,
+        } => handle_init(plugin_src, no_daemon, no_mcp, no_plugin, daemon_endpoint, project),
         Command::Setup => {
             setup::run();
             Ok(())
@@ -2048,6 +2055,7 @@ fn handle_init(
     no_mcp: bool,
     no_plugin: bool,
     daemon_endpoint: String,
+    project: bool,
 ) -> Result<()> {
     println!("Mantis init — wiring plugin + MCP + daemon");
 
@@ -2086,13 +2094,112 @@ fn handle_init(
         println!("  daemon:  skipped (--no-daemon)");
     }
 
+    if project {
+        scaffold_project_files()?;
+    }
+
     println!();
     println!("Ready.");
     println!("  In Claude Code:   /mantishack <target>");
     println!("  From the shell:   mantis hack <target> --i-have-authorization");
     println!("  Re-run anytime:   mantis init");
+    if !project {
+        println!("  Per-repo setup:   mantis init --project   (creates .mantis.json + MANTIS.md)");
+    }
     Ok(())
 }
+
+/// Scaffold `.mantis.json` + `MANTIS.md` in the current directory.
+/// Both writes are idempotent — existing files are skipped with a
+/// log line, never overwritten.
+fn scaffold_project_files() -> Result<()> {
+    println!();
+    println!("Scaffolding per-repo files:");
+    let cwd = std::env::current_dir().context("get cwd")?;
+    write_if_missing(
+        &cwd.join(".mantis.json"),
+        MANTIS_JSON_TEMPLATE,
+        "  .mantis.json",
+    )?;
+    write_if_missing(
+        &cwd.join("MANTIS.md"),
+        MANTIS_MD_TEMPLATE,
+        "  MANTIS.md",
+    )?;
+    Ok(())
+}
+
+fn write_if_missing(path: &std::path::Path, contents: &str, label: &str) -> Result<()> {
+    if path.exists() {
+        println!("{label}:  skipped (already exists)");
+        return Ok(());
+    }
+    std::fs::write(path, contents)
+        .with_context(|| format!("write {}", path.display()))?;
+    println!("{label}:  created");
+    Ok(())
+}
+
+const MANTIS_JSON_TEMPLATE: &str = r#"{
+  "$schema": "https://github.com/deonmenezes/mantishack/blob/main/docs/site/cli/model.md",
+  "_comment": "Per-repo Mantis defaults. Every key is optional; missing keys fall through to env / global. See https://github.com/deonmenezes/mantishack/blob/main/docs/site/cli/model.md",
+
+  "model": null,
+  "deep": false,
+  "no_auth": false,
+  "egress": "default",
+  "daemon": null
+}
+"#;
+
+const MANTIS_MD_TEMPLATE: &str = r#"# Mantis project notes
+
+> Repo-level guidance for `mantis hack`, `mantis prompt`, and other Mantis subcommands when run in this directory. Loaded automatically alongside `.mantis.json`.
+
+## Scope
+
+<!-- Document the in-scope and out-of-scope hosts / paths / accounts for engagements run from this repo. -->
+
+- **In scope:**  _e.g. `https://app.example.com/`, subdomains of `*.api.example.com`._
+- **Out of scope:**  _e.g. shared SaaS, identity providers, third-party CDNs._
+
+## Authorization
+
+<!-- Who signed off, when, for how long. Mantis enforces the technical scope at the egress proxy but the legal gate is yours. -->
+
+- **Authorized by:**  _name / contact_
+- **Window:**  _start → end_
+- **Disclosure path:**  _where to send confirmed findings_
+
+## Test posture
+
+<!-- Conventions and constraints specific to this engagement. -->
+
+- Preferred severity floor for rendered reports: `low`
+- Hunters should NOT touch: _e.g. `/admin/reset-all`, `/api/v1/billing/refund`_
+- Auth profiles available: _e.g. `attacker`, `victim`, `admin`_
+
+## Local config
+
+`.mantis.json` in this repo pins per-engagement defaults (model, deep mode, no-auth, egress profile). The model-resolution chain is:
+
+1. CLI flag    `-- --model …`
+2. Env         `MANTIS_MODEL=…`
+3. `.mantis.json` `"model"` key   ← this file's sibling
+4. `~/.Mantis/model`              (set via `mantis model`)
+5. Claude default
+
+## Quick commands
+
+```sh
+mantis status                          # show current daemon / model / config
+mantis model                           # pick a model interactively (Tab / Shift+Tab)
+mantis hack <target> --i-have-authorization
+mantis hack --print-prompt <target>    # debug the orchestrator prompt without running
+mantis prompt "summarize the recent findings"
+```
+"#;
+
 
 /// Resolve the plugin source dir: env override → ./plugin → error.
 fn resolve_plugin_src(override_path: Option<&Utf8PathBuf>) -> Result<Utf8PathBuf> {
