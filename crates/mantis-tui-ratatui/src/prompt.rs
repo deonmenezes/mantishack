@@ -54,13 +54,18 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::Mutex;
 
-// 2-line mantis pixel-art mascot (mint-green). Matches the compact
-// footprint of Claude Code's robot icon — two rows × ~9 cols. The
-// first row is the raised antennae; the second is the armored head
-// silhouette with two glowing eye dots.
+// 4-line mantis silhouette mascot (mint-green). Tiny version of the
+// detailed shaded-block mantis art — captures the four iconic
+// elements in a tight ~4 rows × ~9 cols footprint:
+//   row 1: two curved antennae crossing at the top (╲╳╱)
+//   row 2: faceted armored head with central eye-band (▟◣▼◢▙)
+//   row 3: raised "praying" forearms with body cavity (▝▆   ▆▘)
+//   row 4: tapered abdomen tip (▜▛)
 const MASCOT: &[&str] = &[
-    " \\\\,,//",
-    " (◣▼◢)",
+    "   ╲╳╱  ",
+    "  ▟◣▼◢▙ ",
+    " ▝▆   ▆▘",
+    "    ▜▛  ",
 ];
 
 const PROVIDERS: &[&str] = &["claude", "codex", "opencode", "gemini"];
@@ -349,7 +354,7 @@ fn draw(f: &mut Frame<'_>, app: &App) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // header (mascot + 3 info lines)
+            Constraint::Length(4), // header (4-row mascot + 3 info rows)
             Constraint::Length(1), // divider
             Constraint::Length(1), // input row
             Constraint::Length(1), // divider
@@ -371,33 +376,38 @@ fn draw_header(f: &mut Frame<'_>, area: Rect, app: &App) {
     let mint = Style::default().fg(MINT);
     let dim = Style::default().fg(DIM);
 
-    // Mascot on the left (2 rows), info on the right (3 rows).
-    // We render row-by-row so the mascot and info align horizontally.
-    // Mascot column width is fixed; info lines start at a fixed
-    // x-offset that always clears the mascot.
+    // 4 rows total. Mascot on the left in mint green, info text on
+    // the right of the first 3 rows. Row 4 is mascot tail only.
+    // The {m:<N} formatter pads to a fixed column so the info
+    // x-offset is stable even on rows where the mascot is shorter.
     let m0 = MASCOT.first().copied().unwrap_or("");
     let m1 = MASCOT.get(1).copied().unwrap_or("");
+    let m2 = MASCOT.get(2).copied().unwrap_or("");
+    let m3 = MASCOT.get(3).copied().unwrap_or("");
 
-    let title_line = Line::from(vec![
-        Span::styled(format!("{m0:<9}  "), mint_b),
+    let row1 = Line::from(vec![
+        Span::styled(format!("{m0:<10}"), mint_b),
         Span::styled("Mantis ", mint_b),
         Span::styled(env!("CARGO_PKG_VERSION"), dim),
     ]);
-    let provider_line = Line::from(vec![
-        Span::styled(format!("{m1:<9}  "), mint),
+    let row2 = Line::from(vec![
+        Span::styled(format!("{m1:<10}"), mint_b),
         Span::styled(app.active_provider().to_string(), mint),
         Span::styled("  ·  ", dim),
-        Span::styled(format!("{} CLI{}", app.providers.len(), if app.providers.len() == 1 { "" } else { "s" }), dim),
+        Span::styled(
+            format!("{} CLI{}", app.providers.len(), if app.providers.len() == 1 { "" } else { "s" }),
+            dim,
+        ),
         Span::styled("  ·  ", dim),
         Span::styled("offensive-security agent runner", dim),
     ]);
-    let cwd_line = Line::from(vec![
-        Span::styled(format!("{:<11}", ""), dim),
+    let row3 = Line::from(vec![
+        Span::styled(format!("{m2:<10}"), mint),
         Span::styled(format!("~/{}", app.cwd_label), dim),
     ]);
+    let row4 = Line::from(Span::styled(format!("{m3:<10}"), mint));
 
-    let p = Paragraph::new(vec![title_line, provider_line, cwd_line])
-        .wrap(Wrap { trim: false });
+    let p = Paragraph::new(vec![row1, row2, row3, row4]).wrap(Wrap { trim: false });
     f.render_widget(p, area);
 }
 
