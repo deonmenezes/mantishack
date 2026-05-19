@@ -367,6 +367,50 @@ enum Command {
         #[command(subcommand)]
         action: Option<ModelAction>,
     },
+    /// One-shot Claude-Code-style prompt. Wires the `mantis` MCP
+    /// server and applies the saved model preference, then runs
+    /// `claude --print` so you can ask anything — no engagement,
+    /// no scope manifest, no FSM. For full pentests use
+    /// `mantis hack`; for ad-hoc questions or quick automation,
+    /// use this.
+    ///
+    /// Examples:
+    ///   mantis prompt "summarize the recent recon notes"
+    ///   mantis prompt "what does the auth-diff classifier do"
+    ///   mantis prompt -- --model claude-haiku-4-5-20251001  "ping"
+    Prompt {
+        /// The prompt text. Anything you'd otherwise pipe into
+        /// `claude --print`.
+        text: String,
+        /// Daemon gRPC endpoint (used only to wire MCP).
+        #[arg(long, env = "MANTIS_DAEMON", default_value = DEFAULT_DAEMON_ENDPOINT)]
+        daemon: String,
+        /// Override the `claude` binary path.
+        #[arg(long, env = "MANTIS_CLAUDE_BIN")]
+        claude_bin: Option<Utf8PathBuf>,
+        /// Output format: `text` (default, streams pretty events
+        /// to stderr) or `json` (streams raw `stream-json` events
+        /// to stdout, for scripting).
+        #[arg(long, default_value = "text", value_parser = ["text", "json"])]
+        output_format: String,
+        /// Extra args forwarded to `claude --print` after `--`.
+        #[arg(last = true)]
+        claude_extra_args: Vec<String>,
+    },
+    /// Show the current Mantis session state in one place: which
+    /// model is active, daemon up/down, MCP registered, most-recent
+    /// engagement, and `~/.Mantis/` artifacts.
+    ///
+    /// Use `--output-format json` for scripting.
+    Status {
+        /// Output format: `text` (default, human-readable) or
+        /// `json` (machine-readable).
+        #[arg(long, default_value = "text", value_parser = ["text", "json"])]
+        output_format: String,
+        /// Daemon gRPC endpoint.
+        #[arg(long, env = "MANTIS_DAEMON", default_value = DEFAULT_DAEMON_ENDPOINT)]
+        daemon: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -517,6 +561,17 @@ fn main() -> Result<()> {
     match command {
         Command::Tui => mantis_tui_ratatui::prompt::run(),
         Command::Model { action } => handle_model(action),
+        Command::Prompt {
+            text,
+            daemon,
+            claude_bin,
+            output_format,
+            claude_extra_args,
+        } => run_async(handle_prompt(text, daemon, claude_bin, output_format, claude_extra_args)),
+        Command::Status {
+            output_format,
+            daemon,
+        } => handle_status(output_format, daemon),
         Command::Init {
             plugin_src,
             no_daemon,
@@ -1503,6 +1558,255 @@ fn handle_model(action: Option<ModelAction>) -> Result<()> {
             }
         },
     }
+}
+
+/// `mantis prompt "..."` — claude-code-style one-shot. No
+/// engagement, no scope manifest, no FSM. Wires the `mantis` MCP
+/// server so the spawned `claude` has the same tool surface as
+/// `mantis hack`, applies the saved-model preference, and streams
+/// the response.
+async fn handle_prompt(
+    text: String,
+    daemon: String,
+    claude_bin: Option<Utf8PathBuf>,
+    output_format: String,
+    claude_extra_args: Vec<String>,
+) -> Result<()> {
+    let json_mode = output_format == "json";
+    // Resolve claude + register MCP in parallel — same parallelism
+    // win as `mantis hack`'s pre-flight.
+    let daemon_for_task = daemon.clone();
+    let claude_bin_for_task = claude_bin.clone();
+    let (claude_res, mcp_bin_res) = tokio::join!(
+        tokio::task::spawn_blocking(move || resolve_claude_binary(claude_bin_for_task.as_deref())),
+        tokio::task::spawn_blocking(|| which_bin("mantis-mcp")),
+    );
+    let claude_path = claude_res.context("spawn_blocking(claude-resolve)")??;
+    let mcp_bin = mcp_bin_res.context("spawn_blocking(mantis-mcp lookup)")?;
+
+    // MCP registration is best-effort here — `mantis prompt` is the
+    // ad-hoc path. If the helper is missing we still let the user's
+    // prompt through; they just won't have mantis_* tools.
+    if mcp_bin.is_some() {
+        let claude_path_for_task = claude_path.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            ensure_mantis_mcp_registered_with_prefetched_helper(
+                &claude_path_for_task,
+                &daemon_for_task,
+                mcp_bin,
+            )
+        })
+        .await
+        .context("spawn_blocking(mcp-register)")?;
+    } else if !json_mode {
+        eprintln!(
+            "[mantis prompt] note: `mantis-mcp` is not on PATH — \
+             continuing without mantis_* tools."
+        );
+    }
+
+    let claude_extra_args = apply_model_preference(claude_extra_args, false);
+
+    // The system prompt is intentionally short: this is an ad-hoc
+    // surface, not an FSM run. The only invariant is "do not start
+    // an engagement without explicit authorization".
+    let system_prompt = "You are running under `mantis prompt` — a one-shot Claude-Code-style \
+                         assistant invocation. The `mantis` MCP server is wired so you have \
+                         access to mantis_* tools, but no engagement has been authorized. \
+                         If the user asks you to start an engagement or run offensive-security \
+                         tests against any target, refuse and direct them to `mantis hack \
+                         <target> --i-have-authorization`. For everything else (questions \
+                         about the codebase, summarizing recon notes, ad-hoc analysis), \
+                         answer directly.";
+
+    if !json_mode {
+        eprintln!("[mantis prompt] claude: {}", claude_path.display());
+        eprintln!();
+    }
+    let status = run_claude_one_shot(
+        &claude_path,
+        &text,
+        system_prompt,
+        &claude_extra_args,
+        json_mode,
+    )
+    .await?;
+
+    if !status.success() {
+        anyhow::bail!("`claude` exited with status {status}");
+    }
+    Ok(())
+}
+
+/// Like [`run_claude_slash_command`] but for the `mantis prompt`
+/// surface: skips `--disallowed-tools Skill` (the prompt path
+/// doesn't have an orchestrator that could be derailed by it), and
+/// optionally streams raw `stream-json` events to stdout when the
+/// caller asked for `--output-format json`.
+async fn run_claude_one_shot(
+    claude_path: &std::path::Path,
+    prompt: &str,
+    append_system_prompt: &str,
+    extra_args: &[String],
+    json_mode: bool,
+) -> Result<std::process::ExitStatus> {
+    use tokio::io::AsyncBufReadExt;
+
+    let cwd = std::env::current_dir().context("get cwd")?;
+    let mut cmd = tokio::process::Command::new(claude_path);
+    cmd.arg("--print")
+        .arg("--dangerously-skip-permissions")
+        .arg("--output-format")
+        .arg("stream-json")
+        .arg("--verbose")
+        .arg("--add-dir")
+        .arg(&cwd)
+        .arg("--append-system-prompt")
+        .arg(append_system_prompt)
+        .arg(prompt);
+    for a in extra_args {
+        cmd.arg(a);
+    }
+    cmd.stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::inherit());
+
+    let mut child = cmd
+        .spawn()
+        .with_context(|| format!("exec `{}`", claude_path.display()))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("claude child has no stdout pipe"))?;
+    let mut lines = tokio::io::BufReader::new(stdout).lines();
+
+    while let Some(line) = lines.next_line().await? {
+        if line.trim().is_empty() {
+            continue;
+        }
+        if json_mode {
+            // Pass through raw stream-json — that's the contract for
+            // `--output-format json` scripting.
+            println!("{line}");
+            continue;
+        }
+        match serde_json::from_str::<serde_json::Value>(&line) {
+            Ok(event) => {
+                if let Some(pretty) = format_stream_event(&event) {
+                    eprintln!("{pretty}");
+                }
+            }
+            Err(_) => eprintln!("{line}"),
+        }
+    }
+    let status = child.wait().await?;
+    Ok(status)
+}
+
+/// `mantis status` — one-shot snapshot of the local Mantis setup.
+fn handle_status(output_format: String, daemon: String) -> Result<()> {
+    let json_mode = output_format == "json";
+    let saved_model = model_picker::load_saved();
+    let claude_path = which_bin("claude");
+    let mcp_bin = which_bin("mantis-mcp");
+    let daemon_bin = which_bin("mantis-daemon");
+    let daemon_up = daemon_is_up(&daemon);
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    let mantis_home = home.as_ref().map(|h| h.join(".Mantis"));
+    let pid_file = mantis_home.as_ref().map(|d| d.join("daemon.pid"));
+    let log_file = mantis_home.as_ref().map(|d| d.join("daemon.log"));
+    let daemon_pid = pid_file
+        .as_ref()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| s.trim().parse::<u32>().ok());
+
+    let mcp_registered = match &claude_path {
+        Some(c) => std::process::Command::new(c)
+            .args(["mcp", "get", "mantis"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false),
+        None => false,
+    };
+
+    if json_mode {
+        let v = serde_json::json!({
+            "daemon": {
+                "endpoint": daemon,
+                "up": daemon_up,
+                "binary_on_path": daemon_bin.as_ref().map(|p| p.display().to_string()),
+                "pid": daemon_pid,
+                "pid_file": pid_file.as_ref().map(|p| p.display().to_string()),
+                "log_file": log_file.as_ref().map(|p| p.display().to_string()),
+            },
+            "claude": {
+                "binary_on_path": claude_path.as_ref().map(|p| p.display().to_string()),
+                "mantis_mcp_registered": mcp_registered,
+            },
+            "mcp": {
+                "binary_on_path": mcp_bin.as_ref().map(|p| p.display().to_string()),
+            },
+            "model": {
+                "saved": saved_model,
+                "source": if saved_model.is_some() { "mantis-model-file" } else { "claude-default" },
+                "file": mantis_home.as_ref().map(|d| d.join("model").display().to_string()),
+            },
+            "mantis_home": mantis_home.as_ref().map(|p| p.display().to_string()),
+        });
+        println!("{}", serde_json::to_string_pretty(&v)?);
+        return Ok(());
+    }
+
+    println!("Mantis session status");
+    println!();
+    println!("  daemon:");
+    println!("    endpoint:        {daemon}");
+    println!("    up:              {}", if daemon_up { "yes" } else { "no" });
+    if let Some(p) = &daemon_bin {
+        println!("    binary:          {}", p.display());
+    } else {
+        println!("    binary:          (not on PATH)");
+    }
+    if let Some(pid) = daemon_pid {
+        println!("    pid:             {pid}");
+    }
+    println!();
+    println!("  claude:");
+    if let Some(p) = &claude_path {
+        println!("    binary:          {}", p.display());
+        println!(
+            "    mantis MCP:      {}",
+            if mcp_registered { "registered" } else { "not registered (run `mantis init`)" }
+        );
+    } else {
+        println!("    binary:          (not on PATH — install from https://claude.com/claude-code)");
+    }
+    println!();
+    println!("  mantis-mcp:");
+    println!(
+        "    binary:          {}",
+        mcp_bin.map(|p| p.display().to_string()).unwrap_or_else(|| "(not on PATH)".into())
+    );
+    println!();
+    println!("  model:");
+    match &saved_model {
+        Some(id) => {
+            let label = model_picker::find_by_id(id).map(|m| m.label).unwrap_or("custom");
+            println!("    saved:           {id} ({label})");
+            println!("    source:          ~/.Mantis/model (via `mantis model`)");
+        }
+        None => {
+            println!("    saved:           (none)");
+            println!("    source:          claude default applies");
+        }
+    }
+    if let Some(h) = &mantis_home {
+        println!();
+        println!("  ~/.Mantis:       {}", h.display());
+    }
+    Ok(())
 }
 
 fn normalize_target_url(target: &str) -> String {
