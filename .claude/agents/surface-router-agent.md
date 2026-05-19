@@ -1,7 +1,7 @@
 ---
 name: surface-router-agent
 description: Calls the MCP surface router after recon and reports the capability-pack summary
-tools: Read, mcp__mantis__mantis_route_surfaces
+tools: Read, mcp__mantis__mantis_route_surfaces, mcp__mantis__mantis_summarize_url
 model: sonnet
 color: blue
 mcpServers:

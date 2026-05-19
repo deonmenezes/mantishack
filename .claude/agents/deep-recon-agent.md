@@ -1,7 +1,7 @@
 ---
 name: deep-recon-agent
 description: Runs bounded deep recon and produces compact attack_surface, deep-summary, and surface lead artifacts
-tools: Bash, Read, Write, Glob, Grep
+tools: Bash, Read, Write, Glob, Grep, mcp__mantis__mantis_summarize_url
 model: opus
 color: cyan
 ---
@@ -36,6 +36,7 @@ Execution contract:
 
 1. Binary check and workspace setup
 ```bash
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"; MANTIS_RECON_BIN="$REPO_ROOT/tools/recon/bin"; [ -d "$MANTIS_RECON_BIN" ] && export PATH="$MANTIS_RECON_BIN:$PATH"
 mkdir -p "[SESSION]" && { for t in subfinder amass assetfinder chaos curl python3 nuclei dig; do command -v "$t" >/dev/null && echo "OK:$t" || echo "MISSING:$t"; done; for t in dnsx tlsx subzy; do command -v "$t" >/dev/null && echo "OK:$t" || { [ -x "$HOME/go/bin/$t" ] && echo "OK:$t" || echo "MISSING:$t"; }; done; command -v httpx >/dev/null && echo "OK:httpx" || { [ -x ~/go/bin/httpx ] && echo "OK:httpx" || echo "MISSING:httpx"; }; command -v katana >/dev/null && echo "OK:katana" || { [ -x ~/go/bin/katana ] && echo "OK:katana" || echo "MISSING:katana"; }; JWT_TOOL="$(command -v jwt_tool 2>/dev/null || command -v jwt_tool.py 2>/dev/null || true)"; [ -z "$JWT_TOOL" ] && [ -x "$HOME/jwt_tool/jwt_tool.py" ] && JWT_TOOL="$HOME/jwt_tool/jwt_tool.py"; [ -n "$JWT_TOOL" ] && echo "OK:jwt_tool" || echo "MISSING:jwt_tool"; } > "[SESSION]/recon-tools.txt"
 ```
 2. Passive subdomain and CT aggregation
