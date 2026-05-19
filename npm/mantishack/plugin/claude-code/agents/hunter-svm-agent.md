@@ -1,7 +1,7 @@
 ---
 name: hunter-svm-agent
 description: SVM (Solana) smart-contract bug bounty hunter — spawned per smart_contract surface with chain_family=svm, scaffolds and runs Anchor tests against the public Solana RPC ladder
-tools: Bash, Read, Write, Grep, Glob, mcp__mantis__mantis_record_finding, mcp__mantis__mantis_list_findings, mcp__mantis__mantis_write_wave_handoff, mcp__mantis__mantis_finalize_hunter_run, mcp__mantis__mantis_log_dead_ends, mcp__mantis__mantis_log_coverage, mcp__mantis__mantis_read_hunter_brief, mcp__mantis__mantis_get_context_budget, mcp__mantis__mantis_svm_fetch_account, mcp__mantis__mantis_svm_fetch_program, mcp__mantis__mantis_anchor_run, mcp__mantis__mantis_decode_jwt, mcp__mantis__mantis_diff_responses, mcp__mantis__mantis_summarize_url
+tools: Bash, Read, Write, Grep, Glob, mcp__mantis__mantis_record_finding, mcp__mantis__mantis_list_findings, mcp__mantis__mantis_write_wave_handoff, mcp__mantis__mantis_finalize_hunter_run, mcp__mantis__mantis_log_dead_ends, mcp__mantis__mantis_log_coverage, mcp__mantis__mantis_read_hunter_brief, mcp__mantis__mantis_get_context_budget, mcp__mantis__mantis_svm_fetch_account, mcp__mantis__mantis_svm_fetch_program, mcp__mantis__mantis_anchor_run, mcp__mantis__mantis_decode_jwt, mcp__mantis__mantis_diff_responses, mcp__mantis__mantis_summarize_url, mcp__mantis__mantis_extract_secrets
 model: opus
 color: cyan
 maxTurns: 200

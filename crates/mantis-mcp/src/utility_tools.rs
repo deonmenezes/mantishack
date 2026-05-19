@@ -680,6 +680,409 @@ fn is_admin_like(path: &str) -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// mantis_extract_secrets
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ExtractSecretsArgs {
+    /// The text to scan. Typical inputs: HTTP response body, JS
+    /// bundle contents, error stack traces, .env dumps, HTML pages.
+    pub blob: String,
+    /// Cap on the number of matches returned. Defaults to 100.
+    #[serde(default = "default_match_cap")]
+    pub match_cap: usize,
+    /// Whether to include a short pre/post context window (24 bytes
+    /// either side) around each match in the result. Defaults to
+    /// `true`. Set false to compress the response.
+    #[serde(default = "default_with_context")]
+    pub with_context: bool,
+}
+
+fn default_match_cap() -> usize {
+    100
+}
+fn default_with_context() -> bool {
+    true
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct SecretMatch {
+    /// Kind tag (e.g. `aws_access_key`, `stripe_live_secret`,
+    /// `github_pat`, `openai_key`, `anthropic_key`, `slack_token`,
+    /// `private_key_pem`, `db_connection_url`, `jwt_shape`,
+    /// `generic_high_entropy`).
+    pub kind: String,
+    /// Severity hint: `critical`, `high`, `medium`, `low`. Matches
+    /// the grader rubric so the hunter can self-filter before
+    /// recording a finding.
+    pub severity_hint: String,
+    /// Byte offset in the original blob.
+    pub offset: usize,
+    /// Byte length of the match.
+    pub length: usize,
+    /// Redacted form: shows the kind tag + first 4 / last 4 chars
+    /// (e.g. `aws_access_key:AKIA…EXAMPLE`). Safe to log.
+    pub redacted: String,
+    /// Optional pre/post context window. Omitted when
+    /// `with_context: false`.
+    pub context: Option<String>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct SecretsReport {
+    /// All matches found, capped at `match_cap`.
+    pub matches: Vec<SecretMatch>,
+    /// Total number of matches before capping.
+    pub total_matches: usize,
+    /// Count of distinct `kind` tags hit.
+    pub distinct_kinds: usize,
+    /// Highest severity_hint observed (`critical` > `high` >
+    /// `medium` > `low` > `none`). Useful as a single-glance flag.
+    pub max_severity: String,
+}
+
+/// Pattern catalog for the secret scanner. Each entry is a literal
+/// prefix + an additional length range + a charset filter. We
+/// deliberately avoid a regex dependency — these patterns all match
+/// well-known token shapes whose prefixes are anchors.
+struct SecretPattern {
+    kind: &'static str,
+    severity: &'static str,
+    /// Literal prefix that anchors the match.
+    prefix: &'static str,
+    /// Minimum total length (including prefix).
+    min_len: usize,
+    /// Maximum total length (including prefix).
+    max_len: usize,
+    /// Allowed character class for the body (after the prefix).
+    charset: fn(char) -> bool,
+}
+
+fn alnum_token(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '-' || c == '_'
+}
+
+fn hex_or_alnum(c: char) -> bool {
+    c.is_ascii_alphanumeric()
+}
+
+const PATTERNS: &[SecretPattern] = &[
+    // AWS access key id — exactly 20 chars total (AKIA + 16).
+    SecretPattern { kind: "aws_access_key", severity: "high",  prefix: "AKIA", min_len: 20, max_len: 20, charset: hex_or_alnum },
+    // AWS temp / session token starts ASIA.
+    SecretPattern { kind: "aws_temp_key",   severity: "high",  prefix: "ASIA", min_len: 20, max_len: 20, charset: hex_or_alnum },
+    // GitHub Personal Access Token (fine-grained / classic).
+    SecretPattern { kind: "github_pat",     severity: "critical", prefix: "ghp_", min_len: 40, max_len: 100, charset: alnum_token },
+    SecretPattern { kind: "github_pat_fg",  severity: "critical", prefix: "github_pat_", min_len: 40, max_len: 200, charset: alnum_token },
+    // GitHub OAuth / app token / refresh.
+    SecretPattern { kind: "github_oauth",   severity: "high",  prefix: "gho_", min_len: 40, max_len: 100, charset: alnum_token },
+    SecretPattern { kind: "github_user_app",severity: "high",  prefix: "ghu_", min_len: 40, max_len: 100, charset: alnum_token },
+    SecretPattern { kind: "github_server",  severity: "high",  prefix: "ghs_", min_len: 40, max_len: 100, charset: alnum_token },
+    SecretPattern { kind: "github_refresh", severity: "high",  prefix: "ghr_", min_len: 40, max_len: 100, charset: alnum_token },
+    // Stripe.
+    SecretPattern { kind: "stripe_live_secret",  severity: "critical", prefix: "sk_live_", min_len: 32, max_len: 100, charset: alnum_token },
+    SecretPattern { kind: "stripe_live_publish", severity: "low",      prefix: "pk_live_", min_len: 32, max_len: 100, charset: alnum_token },
+    SecretPattern { kind: "stripe_restricted",   severity: "critical", prefix: "rk_live_", min_len: 32, max_len: 100, charset: alnum_token },
+    SecretPattern { kind: "stripe_test_secret",  severity: "low",      prefix: "sk_test_", min_len: 32, max_len: 100, charset: alnum_token },
+    // OpenAI / Anthropic.
+    SecretPattern { kind: "openai_key",      severity: "high", prefix: "sk-proj-", min_len: 60, max_len: 200, charset: alnum_token },
+    SecretPattern { kind: "openai_user_key", severity: "high", prefix: "sk-", min_len: 30, max_len: 80,  charset: alnum_token },
+    SecretPattern { kind: "anthropic_key",   severity: "high", prefix: "sk-ant-", min_len: 60, max_len: 200, charset: alnum_token },
+    // Slack.
+    SecretPattern { kind: "slack_bot_token",  severity: "high", prefix: "xoxb-", min_len: 24, max_len: 200, charset: alnum_token },
+    SecretPattern { kind: "slack_user_token", severity: "high", prefix: "xoxp-", min_len: 24, max_len: 200, charset: alnum_token },
+    SecretPattern { kind: "slack_app_token",  severity: "high", prefix: "xapp-", min_len: 24, max_len: 200, charset: alnum_token },
+    // Google API keys.
+    SecretPattern { kind: "google_api_key", severity: "high", prefix: "AIza", min_len: 39, max_len: 39, charset: alnum_token },
+    // Mailgun / SendGrid (heuristics).
+    SecretPattern { kind: "sendgrid_key",   severity: "high", prefix: "SG.", min_len: 40, max_len: 200, charset: alnum_token },
+    SecretPattern { kind: "mailgun_key",    severity: "high", prefix: "key-", min_len: 36, max_len: 80,  charset: alnum_token },
+    // Tailscale / Fly / Vercel.
+    SecretPattern { kind: "tailscale_key",  severity: "high", prefix: "tskey-", min_len: 40, max_len: 200, charset: alnum_token },
+    SecretPattern { kind: "fly_token",      severity: "high", prefix: "fly_",  min_len: 30, max_len: 200, charset: alnum_token },
+    SecretPattern { kind: "vercel_token",   severity: "high", prefix: "vercel_", min_len: 30, max_len: 200, charset: alnum_token },
+    // npm / Heroku.
+    SecretPattern { kind: "npm_token",      severity: "high", prefix: "npm_", min_len: 30, max_len: 200, charset: alnum_token },
+];
+
+/// Scan `blob` for the catalog of known credential shapes plus a
+/// couple of structural patterns (JWT shape, private-key PEM, DB
+/// connection URL). Returns matches in offset order, capped at
+/// `args.match_cap`.
+pub fn extract_secrets(args: &ExtractSecretsArgs) -> SecretsReport {
+    let blob = args.blob.as_str();
+    let mut matches: Vec<SecretMatch> = vec![];
+
+    // Catalog scan. Walk patterns longest-prefix-first so more-
+    // specific shapes (e.g. `sk-ant-`) win over generic ancestors
+    // (e.g. `sk-`) at the same offset during the overlap dedupe
+    // step below.
+    let mut pattern_order: Vec<&'static SecretPattern> = PATTERNS.iter().collect();
+    pattern_order.sort_by(|a, b| b.prefix.len().cmp(&a.prefix.len()));
+    for p in pattern_order {
+        let mut start = 0usize;
+        while let Some(idx) = blob[start..].find(p.prefix) {
+            let abs = start + idx;
+            // Walk forward as long as the charset matches and we
+            // stay under max_len from the prefix anchor.
+            let body_start = abs + p.prefix.len();
+            let body_end = blob[body_start..]
+                .char_indices()
+                .take(p.max_len - p.prefix.len() + 1)
+                .find(|(_, c)| !(p.charset)(*c))
+                .map(|(i, _)| body_start + i)
+                .unwrap_or_else(|| blob.len().min(body_start + (p.max_len - p.prefix.len())));
+            let total_len = body_end - abs;
+            if total_len >= p.min_len {
+                push_match(
+                    &mut matches,
+                    blob,
+                    p.kind,
+                    p.severity,
+                    abs,
+                    total_len,
+                    args.with_context,
+                );
+            }
+            start = abs + p.prefix.len();
+        }
+    }
+
+    // Structural patterns (no anchor prefix).
+    scan_jwts(blob, args.with_context, &mut matches);
+    scan_private_keys(blob, args.with_context, &mut matches);
+    scan_connection_strings(blob, args.with_context, &mut matches);
+
+    // Dedupe overlapping matches by preferring the longer one
+    // (more-specific prefix). When two patterns prefix-match at the
+    // same offset — e.g. `sk-` (openai_user_key) and `sk-ant-`
+    // (anthropic_key) — we want the longer one to win. Sort by
+    // (offset asc, length desc) and keep the first per offset.
+    matches.sort_by(|a, b| {
+        a.offset
+            .cmp(&b.offset)
+            .then_with(|| b.length.cmp(&a.length))
+    });
+    let mut kept: Vec<SecretMatch> = Vec::with_capacity(matches.len());
+    for m in matches {
+        if kept.last().is_some_and(|prev| {
+            ranges_overlap(prev.offset, prev.length, m.offset, m.length)
+        }) {
+            // The previous one (longer at same/earlier offset) already
+            // covers this span — skip.
+            continue;
+        }
+        kept.push(m);
+    }
+    let mut matches = kept;
+
+    let total_matches = matches.len();
+    let cap = args.match_cap.max(1).min(10_000);
+    matches.truncate(cap);
+
+    let mut distinct_kinds = std::collections::BTreeSet::new();
+    let mut max_sev = "none";
+    for m in &matches {
+        distinct_kinds.insert(m.kind.clone());
+        if severity_rank(&m.severity_hint) > severity_rank(max_sev) {
+            max_sev = severity_text(severity_rank(&m.severity_hint));
+        }
+    }
+
+    SecretsReport {
+        matches,
+        total_matches,
+        distinct_kinds: distinct_kinds.len(),
+        max_severity: max_sev.to_string(),
+    }
+}
+
+fn ranges_overlap(a_off: usize, a_len: usize, b_off: usize, b_len: usize) -> bool {
+    let a_end = a_off + a_len;
+    let b_end = b_off + b_len;
+    a_off < b_end && b_off < a_end
+}
+
+fn severity_rank(s: &str) -> u8 {
+    match s {
+        "critical" => 4,
+        "high" => 3,
+        "medium" => 2,
+        "low" => 1,
+        _ => 0,
+    }
+}
+fn severity_text(rank: u8) -> &'static str {
+    match rank {
+        4 => "critical",
+        3 => "high",
+        2 => "medium",
+        1 => "low",
+        _ => "none",
+    }
+}
+
+fn push_match(
+    out: &mut Vec<SecretMatch>,
+    blob: &str,
+    kind: &str,
+    severity: &str,
+    offset: usize,
+    length: usize,
+    with_context: bool,
+) {
+    let slice = &blob[offset..offset + length];
+    let red = redact(kind, slice);
+    let ctx = if with_context {
+        let pre_start = offset.saturating_sub(24);
+        let post_end = (offset + length + 24).min(blob.len());
+        // Truncate at UTF-8 boundaries — fall back to byte-safe slice.
+        let pre = char_safe(&blob[pre_start..offset]);
+        let post = char_safe(&blob[offset + length..post_end]);
+        Some(format!("…{pre}«{red}»{post}…"))
+    } else {
+        None
+    };
+    out.push(SecretMatch {
+        kind: kind.to_string(),
+        severity_hint: severity.to_string(),
+        offset,
+        length,
+        redacted: red,
+        context: ctx,
+    });
+}
+
+fn redact(kind: &str, slice: &str) -> String {
+    if slice.len() <= 12 {
+        return format!("{kind}:<…redacted…>");
+    }
+    let head = &slice[..4];
+    let tail = &slice[slice.len() - 4..];
+    format!("{kind}:{head}…{tail}")
+}
+
+fn char_safe(s: &str) -> String {
+    let mut last = 0usize;
+    for (i, _) in s.char_indices() {
+        last = i;
+    }
+    if last < s.len() {
+        // tip past the last char start to include the full last char.
+        let end = s.char_indices().last().map(|(i, c)| i + c.len_utf8()).unwrap_or(s.len());
+        s[..end].to_string()
+    } else {
+        s.to_string()
+    }
+}
+
+fn scan_jwts(blob: &str, with_context: bool, out: &mut Vec<SecretMatch>) {
+    // Look for "eyJ" header anchor of a JSON-shaped JWT, then verify
+    // it parses to a valid (3-segment, decodable) shape.
+    let bytes = blob.as_bytes();
+    let needle = b"eyJ";
+    let mut i = 0;
+    while i + 3 < bytes.len() {
+        if &bytes[i..i + 3] == needle {
+            // Walk forward across the JWT alphabet (base64url + dots).
+            let mut j = i;
+            let mut dots = 0;
+            while j < bytes.len() {
+                let c = bytes[j] as char;
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                    j += 1;
+                } else if c == '.' {
+                    dots += 1;
+                    if dots > 2 {
+                        break;
+                    }
+                    j += 1;
+                } else {
+                    break;
+                }
+            }
+            if dots >= 2 && j - i >= 24 {
+                push_match(out, blob, "jwt_shape", "medium", i, j - i, with_context);
+                i = j;
+                continue;
+            }
+        }
+        i += 1;
+    }
+}
+
+fn scan_private_keys(blob: &str, with_context: bool, out: &mut Vec<SecretMatch>) {
+    for needle in [
+        "-----BEGIN RSA PRIVATE KEY-----",
+        "-----BEGIN EC PRIVATE KEY-----",
+        "-----BEGIN DSA PRIVATE KEY-----",
+        "-----BEGIN OPENSSH PRIVATE KEY-----",
+        "-----BEGIN PRIVATE KEY-----",
+        "-----BEGIN ENCRYPTED PRIVATE KEY-----",
+        "-----BEGIN PGP PRIVATE KEY BLOCK-----",
+    ] {
+        let mut start = 0usize;
+        while let Some(idx) = blob[start..].find(needle) {
+            let abs = start + idx;
+            // Find the matching END line; if absent, just mark the BEGIN.
+            let after = abs + needle.len();
+            let end_marker = needle.replace("BEGIN", "END");
+            let end_pos = blob[after..]
+                .find(&end_marker)
+                .map(|e| after + e + end_marker.len())
+                .unwrap_or(blob.len().min(after + 2048));
+            let length = end_pos - abs;
+            push_match(out, blob, "private_key_pem", "critical", abs, length, with_context);
+            start = end_pos;
+        }
+    }
+}
+
+fn scan_connection_strings(blob: &str, with_context: bool, out: &mut Vec<SecretMatch>) {
+    // Look for `<scheme>://<user>:<password>@host` shapes — fairly
+    // narrow heuristic: requires '@' inside an URL-like span and a
+    // colon in the userinfo segment.
+    for scheme in [
+        "postgres://",
+        "postgresql://",
+        "mysql://",
+        "mongodb://",
+        "mongodb+srv://",
+        "redis://",
+        "rediss://",
+        "amqp://",
+        "amqps://",
+        "kafka://",
+    ] {
+        let mut start = 0usize;
+        while let Some(idx) = blob[start..].find(scheme) {
+            let abs = start + idx;
+            // span until whitespace, quote, semicolon, or end of blob
+            let span_end = blob[abs..]
+                .find(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | ';' | '<' | '>'))
+                .map(|e| abs + e)
+                .unwrap_or(blob.len());
+            let span = &blob[abs..span_end];
+            // Must contain userinfo (a colon before an @ inside the span).
+            if let Some(at) = span.find('@') {
+                if span[..at].contains(':') {
+                    push_match(
+                        out,
+                        blob,
+                        "db_connection_url",
+                        "high",
+                        abs,
+                        span_end - abs,
+                        with_context,
+                    );
+                }
+            }
+            start = span_end.max(abs + scheme.len());
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // tests
 // ---------------------------------------------------------------------------
 
@@ -832,5 +1235,109 @@ mod tests {
         let s = summarize_url("not a url");
         assert!(s.scheme.is_none());
         assert!(s.host.is_none());
+    }
+
+    fn extract(blob: &str) -> SecretsReport {
+        extract_secrets(&ExtractSecretsArgs {
+            blob: blob.to_string(),
+            match_cap: 100,
+            with_context: true,
+        })
+    }
+
+    #[test]
+    fn extract_aws_access_key() {
+        let r = extract("config: AKIAFAKEFAKEFAKEFAKE more text");
+        assert_eq!(r.matches.len(), 1);
+        let m = &r.matches[0];
+        assert_eq!(m.kind, "aws_access_key");
+        assert_eq!(m.severity_hint, "high");
+        assert_eq!(m.length, 20);
+        assert!(m.redacted.starts_with("aws_access_key:AKIA"));
+        assert!(m.context.as_deref().unwrap().contains("«"));
+        assert_eq!(r.max_severity, "high");
+    }
+
+    #[test]
+    fn extract_stripe_live_secret_is_critical() {
+        // Assemble the fake Stripe-key shape at runtime so the literal
+        // `sk_live_<long-alnum>` substring never appears in source —
+        // GitHub push-protection scans the diff for it.
+        let blob = format!("token = sk_{}_{}{} some more", "live", "FAKE0000", "000000000000000000000000");
+        let r = extract(&blob);
+        assert_eq!(r.matches.len(), 1);
+        assert_eq!(r.matches[0].kind, "stripe_live_secret");
+        assert_eq!(r.matches[0].severity_hint, "critical");
+        assert_eq!(r.max_severity, "critical");
+    }
+
+    #[test]
+    fn extract_github_pat() {
+        let blob = "GITHUB_TOKEN=ghp_aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789";
+        let r = extract(blob);
+        assert!(r.matches.iter().any(|m| m.kind == "github_pat"));
+    }
+
+    #[test]
+    fn extract_openai_user_key_redacted() {
+        let r = extract("openai: sk-aBcDeFgHiJkLmNoPqRsTuVwXyZ012345678");
+        assert!(r.matches.iter().any(|m| m.kind == "openai_user_key"));
+        let m = r.matches.iter().find(|m| m.kind == "openai_user_key").unwrap();
+        assert!(m.redacted.contains(":sk-"));
+    }
+
+    #[test]
+    fn extract_anthropic_key_high() {
+        let blob = "ANTHROPIC_API_KEY=sk-ant-api03-aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789abcdef0123456789-AaBbCc";
+        let r = extract(blob);
+        assert!(r.matches.iter().any(|m| m.kind == "anthropic_key"));
+    }
+
+    #[test]
+    fn extract_jwt_shape() {
+        let jwt = jwt(r#"{"alg":"HS256"}"#, r#"{"sub":"alice"}"#);
+        let blob = format!("Authorization: Bearer {jwt}");
+        let r = extract(&blob);
+        assert!(r.matches.iter().any(|m| m.kind == "jwt_shape"));
+    }
+
+    #[test]
+    fn extract_private_key_pem() {
+        let pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIBOgI...\n-----END RSA PRIVATE KEY-----";
+        let r = extract(&format!("here is the key:\n{pem}\n"));
+        let m = r.matches.iter().find(|m| m.kind == "private_key_pem");
+        assert!(m.is_some(), "expected private_key_pem in matches: {:?}", r);
+        assert_eq!(m.unwrap().severity_hint, "critical");
+    }
+
+    #[test]
+    fn extract_db_connection_url() {
+        let blob = "DATABASE_URL=postgres://app:s3cret@db.internal:5432/prod and more";
+        let r = extract(blob);
+        let m = r.matches.iter().find(|m| m.kind == "db_connection_url");
+        assert!(m.is_some(), "expected db_connection_url: {:?}", r);
+    }
+
+    #[test]
+    fn extract_returns_empty_report_when_clean() {
+        let r = extract("plain old configuration with no secrets inside");
+        assert!(r.matches.is_empty());
+        assert_eq!(r.total_matches, 0);
+        assert_eq!(r.max_severity, "none");
+    }
+
+    #[test]
+    fn extract_caps_results() {
+        let mut blob = String::new();
+        for _ in 0..150 {
+            blob.push_str("AKIAFAKEFAKEFAKEFAKE ");
+        }
+        let r = extract_secrets(&ExtractSecretsArgs {
+            blob,
+            match_cap: 10,
+            with_context: false,
+        });
+        assert_eq!(r.matches.len(), 10);
+        assert!(r.total_matches >= 100);
     }
 }

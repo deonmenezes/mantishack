@@ -641,6 +641,28 @@ impl MantisMcpServer {
     }
 
     #[tool(
+        description = "Scan a blob of text for leaked credentials and high-signal secret shapes. \
+                       Detects AWS access keys (AKIA / ASIA), GitHub PATs (ghp_ / gho_ / ghu_ / \
+                       ghs_ / ghr_ / github_pat_), Stripe live + restricted + test keys, OpenAI / \
+                       Anthropic keys (sk- / sk-proj- / sk-ant-), Slack tokens (xoxb / xoxp / \
+                       xapp), Google API keys (AIza…), SendGrid / Mailgun, Tailscale / Fly / \
+                       Vercel / npm tokens, JWT shapes (eyJ…), PEM private keys, and DB \
+                       connection URLs (postgres / mysql / mongodb / redis / amqp / kafka with \
+                       embedded credentials). Returns each match with `kind`, `severity_hint` \
+                       (mapped to the grader rubric: critical / high / medium / low), byte \
+                       offset / length, a safely-redacted form (kind:HEAD…TAIL), and an optional \
+                       ±24-byte context window. Use on any response body, JS bundle, error \
+                       trace, .env-style dump, or HTML page suspected of leaking secrets — and \
+                       check `max_severity` to self-filter before recording a finding."
+    )]
+    async fn mantis_extract_secrets(
+        &self,
+        Parameters(args): Parameters<crate::utility_tools::ExtractSecretsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&crate::utility_tools::extract_secrets(&args))
+    }
+
+    #[tool(
         description = "Advance the engagement's FSM by one phase. \
                        Pipeline order: RECON -> AUTH -> HUNT -> CHAIN -> VERIFY -> GRADE -> REPORT. \
                        The daemon validates the transition against the persisted session state, \

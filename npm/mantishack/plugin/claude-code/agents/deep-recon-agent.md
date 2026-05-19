@@ -1,7 +1,7 @@
 ---
 name: deep-recon-agent
 description: Runs bounded deep recon and produces compact attack_surface, deep-summary, and surface lead artifacts
-tools: Bash, Read, Write, Glob, Grep, mcp__mantis__mantis_summarize_url
+tools: Bash, Read, Write, Glob, Grep, mcp__mantis__mantis_summarize_url, mcp__mantis__mantis_extract_secrets
 model: opus
 color: cyan
 ---
