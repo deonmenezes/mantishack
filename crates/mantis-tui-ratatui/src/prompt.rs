@@ -529,14 +529,23 @@ fn draw_output(f: &mut Frame<'_>, area: Rect, app: &App) {
         Ok(g) => g.clone(),
         Err(_) => return,
     };
-    // Tail-trim to fit. No border — output reads as plain terminal
-    // text below the chrome, the way Claude Code's conversation does.
+    // Tail-trim to fit, then bottom-anchor by padding with blank
+    // lines on top. This mirrors Claude Code's conversation pane:
+    // the newest line always sits right above the input divider;
+    // history flows upward from there. When the buffer is short,
+    // there's no awkward gap between the content and the input —
+    // the content just hugs the bottom.
     let inner_h = area.height as usize;
     let start = snapshot.len().saturating_sub(inner_h);
-    let lines: Vec<Line<'_>> = snapshot[start..]
-        .iter()
-        .map(|s| Line::from(Span::styled(s.clone(), Style::default().fg(WHITE))))
-        .collect();
+    let tail = &snapshot[start..];
+    let pad = inner_h.saturating_sub(tail.len());
+    let mut lines: Vec<Line<'_>> = Vec::with_capacity(inner_h);
+    for _ in 0..pad {
+        lines.push(Line::from(""));
+    }
+    for s in tail {
+        lines.push(Line::from(Span::styled(s.clone(), Style::default().fg(WHITE))));
+    }
     let p = Paragraph::new(lines).wrap(Wrap { trim: false });
     f.render_widget(p, area);
 }
