@@ -663,6 +663,23 @@ impl MantisMcpServer {
     }
 
     #[tool(
+        description = "Pre-grade a finding using the same 5-axis rubric the post-VERIFY `grader` \
+                       sub-agent uses (impact / proof_quality / severity_accuracy / chain_potential / \
+                       report_quality). Returns a `SUBMIT` / `HOLD` / `SKIP` verdict plus the per-axis \
+                       scores, a short `feedback` line, and concrete `elevate_hints` describing what \
+                       would push a HOLD/SKIP into SUBMIT. Use as a self-filter immediately before \
+                       `mantis_record_finding`: if the verdict is `SKIP`, don't waste the wave \
+                       budget recording the finding (unless `chain_confirmed`). Pure function — no \
+                       daemon round-trip, no engagement state."
+    )]
+    async fn mantis_score_finding(
+        &self,
+        Parameters(args): Parameters<crate::utility_tools::ScoreFindingArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&crate::utility_tools::score_finding(&args))
+    }
+
+    #[tool(
         description = "Advance the engagement's FSM by one phase. \
                        Pipeline order: RECON -> AUTH -> HUNT -> CHAIN -> VERIFY -> GRADE -> REPORT. \
                        The daemon validates the transition against the persisted session state, \

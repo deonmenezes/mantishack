@@ -1083,6 +1083,228 @@ fn scan_connection_strings(blob: &str, with_context: bool, out: &mut Vec<SecretM
 }
 
 // ---------------------------------------------------------------------------
+// mantis_score_finding
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ScoreFindingArgs {
+    /// Claimed severity, one of `critical | high | medium | low | info`.
+    pub severity: String,
+    /// Vulnerability class (e.g. `idor`, `ssrf`, `auth_bypass`,
+    /// `xss_stored`, `rce`, `info_disclosure`). Used by the
+    /// severity-accuracy axis to penalize claims that don't match
+    /// the impact ceiling for the class.
+    #[serde(default)]
+    pub vuln_class: String,
+    /// Free-form impact description. The scorer looks for keywords
+    /// like "rce", "admin", "ato", "production", "all users" to
+    /// award impact points beyond what severity alone implies.
+    #[serde(default)]
+    pub impact_text: String,
+    /// `true` if the finding has a reproducible PoC (HTTP request
+    /// or contract call). Required to break out of the
+    /// "speculative" tier.
+    #[serde(default)]
+    pub has_poc: bool,
+    /// `true` if response evidence is captured (status, headers,
+    /// body — even truncated).
+    #[serde(default)]
+    pub has_response_evidence: bool,
+    /// The auth profile that produced the evidence (e.g.
+    /// `attacker`, `victim`, `unauth`). Cross-profile evidence
+    /// (attacker reading victim data) scores higher.
+    #[serde(default)]
+    pub auth_profile: Option<String>,
+    /// `true` if at least one chain attempt confirmed the finding
+    /// composes into a higher-severity outcome.
+    #[serde(default)]
+    pub chain_confirmed: bool,
+    /// `true` if the finding is one of the "never-record-alone"
+    /// noise classes (missing SPF, banner, CORS wildcard, CSV
+    /// injection, …). Auto-routes to SKIP unless `chain_confirmed`.
+    #[serde(default)]
+    pub is_known_noise_class: bool,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct ScoreFindingResult {
+    /// One of `SUBMIT`, `HOLD`, `SKIP`. Mirrors the grader rubric:
+    ///   SUBMIT ≥ 40 with at least medium severity
+    ///   HOLD   20–39
+    ///   SKIP   < 20  (or any known-noise class without chain confirm)
+    pub verdict: String,
+    pub total_score: u32,
+    pub impact: u32,
+    pub proof_quality: u32,
+    pub severity_accuracy: u32,
+    pub chain_potential: u32,
+    pub report_quality: u32,
+    /// Short human-readable explanation of how the score was
+    /// assembled and which axes are dragging the verdict.
+    pub feedback: String,
+    /// Concrete next steps a hunter could take to elevate the
+    /// finding (extra request, alternate profile, chain hop) if the
+    /// verdict is HOLD or SKIP.
+    pub elevate_hints: Vec<String>,
+}
+
+/// Pure-Rust pre-grader. Mirrors the 5-axis rubric the `grader`
+/// sub-agent uses post-VERIFY so a hunter can decide whether the
+/// finding is worth recording before spending a `mantis_record_finding`
+/// MCP call. Not a substitute for the real grader — same rubric,
+/// strictly cheaper to call.
+pub fn score_finding(args: &ScoreFindingArgs) -> ScoreFindingResult {
+    let sev_rank = parse_severity_rank(&args.severity);
+
+    // ----- impact (0–30) -----
+    // Base by severity, then bumped by impact-text keywords.
+    let mut impact: u32 = match sev_rank {
+        4 => 22, // critical
+        3 => 16, // high
+        2 => 10, // medium
+        1 => 4,  // low
+        _ => 1,  // info
+    };
+    let it = args.impact_text.to_ascii_lowercase();
+    for kw in [
+        "rce", "remote code execution", "shell", "ssrf to imds", "imds",
+        "admin takeover", "ato ", " ato", "data exfil", "data exfiltration",
+        "mass assignment", "production data", "all users", "tenant isolation",
+    ] {
+        if it.contains(kw) {
+            impact = (impact + 4).min(30);
+        }
+    }
+    if matches!(args.auth_profile.as_deref(), Some("attacker") | Some("victim"))
+        && (it.contains("cross-account") || it.contains("idor") || it.contains("other user"))
+    {
+        impact = (impact + 4).min(30);
+    }
+    impact = impact.min(30);
+
+    // ----- proof quality (0–25) -----
+    let mut proof_quality: u32 = 0;
+    if args.has_poc { proof_quality += 12; }
+    if args.has_response_evidence { proof_quality += 10; }
+    if args.auth_profile.is_some() { proof_quality += 3; }
+    proof_quality = proof_quality.min(25);
+
+    // ----- severity accuracy (0–15) -----
+    // Penalise mismatch: e.g. "critical" claim for a info-class
+    // finding, or "low" for vuln_class=rce.
+    let class_ceiling = vuln_class_ceiling(&args.vuln_class);
+    let severity_accuracy: u32 = if class_ceiling == 0 {
+        // unknown class — modest credit, not a freebie
+        8
+    } else if sev_rank <= class_ceiling {
+        15
+    } else {
+        // claimed higher than the class typically maxes; scale down
+        let over = sev_rank - class_ceiling;
+        15u32.saturating_sub(over as u32 * 5)
+    };
+
+    // ----- chain potential (0–15) -----
+    let chain_potential: u32 = if args.chain_confirmed { 15 } else { 3 };
+
+    // ----- report quality (0–15) -----
+    let report_quality: u32 = if args.has_response_evidence {
+        if it.len() > 60 { 14 } else { 10 }
+    } else if args.has_poc {
+        7
+    } else {
+        2
+    };
+
+    let total = impact + proof_quality + severity_accuracy + chain_potential + report_quality;
+
+    // ----- verdict -----
+    let auto_skip_noise = args.is_known_noise_class && !args.chain_confirmed;
+    // SUBMIT requires strong proof in addition to clearing the score
+    // threshold — a "high severity claim with PoC but no captured
+    // response" should still HOLD until the hunter captures evidence.
+    let strong_proof = proof_quality >= 15;
+    let verdict: &str = if auto_skip_noise {
+        "SKIP"
+    } else if total >= 45 && sev_rank >= 2 && strong_proof {
+        "SUBMIT"
+    } else if total >= 20 {
+        "HOLD"
+    } else {
+        "SKIP"
+    };
+
+    // ----- feedback + hints -----
+    let mut hints: Vec<String> = vec![];
+    if !args.has_poc {
+        hints.push("add a reproducible PoC (exact HTTP request / contract call)".into());
+    }
+    if !args.has_response_evidence {
+        hints.push("capture the response (status + headers + body even truncated)".into());
+    }
+    if args.auth_profile.is_none() {
+        hints.push("identify which auth_profile produced the evidence (attacker / victim / unauth)".into());
+    }
+    if !args.chain_confirmed && sev_rank < 3 {
+        hints.push("try chaining: does this enable a higher-severity outcome end-to-end?".into());
+    }
+    if args.is_known_noise_class && !args.chain_confirmed {
+        hints.push("known-noise class — only record if you can prove a chain into real impact".into());
+    }
+    if class_ceiling > 0 && sev_rank > class_ceiling {
+        hints.push(format!(
+            "claimed severity exceeds the ceiling for vuln_class '{}' — drop one tier or add evidence",
+            args.vuln_class
+        ));
+    }
+
+    let feedback = format!(
+        "verdict={verdict} total={total} (impact={impact} proof={proof_quality} \
+         sev_acc={severity_accuracy} chain={chain_potential} report={report_quality})"
+    );
+
+    ScoreFindingResult {
+        verdict: verdict.to_string(),
+        total_score: total,
+        impact,
+        proof_quality,
+        severity_accuracy,
+        chain_potential,
+        report_quality,
+        feedback,
+        elevate_hints: hints,
+    }
+}
+
+fn parse_severity_rank(s: &str) -> u8 {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "critical" => 4,
+        "high" => 3,
+        "medium" => 2,
+        "low" => 1,
+        _ => 0,
+    }
+}
+
+/// Rough "what's the realistic ceiling for this vuln class" — used
+/// to penalise inflated claims. Returns the severity rank (4=critical
+/// down to 1=low); 0 means "unknown class, no penalty".
+fn vuln_class_ceiling(class: &str) -> u8 {
+    let c = class.trim().to_ascii_lowercase();
+    match c.as_str() {
+        "rce" | "auth_bypass_admin" | "ato_mass" | "ssrf_to_imds" => 4,
+        "idor" | "ssrf" | "sqli" | "xss_stored" | "auth_bypass" | "privesc" => 3,
+        "xss_reflected" | "csrf" | "open_redirect_chained" | "info_disclosure_pii" => 2,
+        "missing_headers" | "spf_dkim_dmarc" | "graphql_introspection"
+        | "banner_disclosure" | "csv_injection" | "cors_wildcard"
+        | "logout_csrf" | "self_xss" | "open_redirect" | "rate_limit_login"
+        | "missing_cookie_flags" | "password_autocomplete" => 1,
+        "" => 0,
+        _ => 0,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // tests
 // ---------------------------------------------------------------------------
 
@@ -1324,6 +1546,82 @@ mod tests {
         assert!(r.matches.is_empty());
         assert_eq!(r.total_matches, 0);
         assert_eq!(r.max_severity, "none");
+    }
+
+    fn args(severity: &str, has_poc: bool, has_evidence: bool, chain: bool) -> ScoreFindingArgs {
+        ScoreFindingArgs {
+            severity: severity.into(),
+            vuln_class: String::new(),
+            impact_text: String::new(),
+            has_poc,
+            has_response_evidence: has_evidence,
+            auth_profile: None,
+            chain_confirmed: chain,
+            is_known_noise_class: false,
+        }
+    }
+
+    #[test]
+    fn score_submits_strong_high_finding() {
+        let mut a = args("high", true, true, false);
+        a.vuln_class = "idor".into();
+        a.impact_text = "Cross-account read: attacker profile reads victim's orders via predictable id".into();
+        a.auth_profile = Some("attacker".into());
+        let r = score_finding(&a);
+        assert_eq!(r.verdict, "SUBMIT");
+        assert!(r.total_score >= 40, "{r:?}");
+        assert!(r.elevate_hints.iter().any(|h| h.contains("chain")) || r.chain_potential < 15);
+    }
+
+    #[test]
+    fn score_holds_partial_finding() {
+        let mut a = args("medium", true, false, false);
+        a.vuln_class = "idor".into();
+        a.impact_text = "potential cross-account read".into();
+        let r = score_finding(&a);
+        assert_eq!(r.verdict, "HOLD");
+        assert!(r.elevate_hints.iter().any(|h| h.contains("response")));
+    }
+
+    #[test]
+    fn score_skips_speculative() {
+        let r = score_finding(&args("low", false, false, false));
+        assert_eq!(r.verdict, "SKIP");
+        assert!(!r.elevate_hints.is_empty());
+    }
+
+    #[test]
+    fn score_skips_known_noise_class_without_chain() {
+        let mut a = args("low", true, true, false);
+        a.vuln_class = "missing_headers".into();
+        a.is_known_noise_class = true;
+        let r = score_finding(&a);
+        assert_eq!(r.verdict, "SKIP");
+        assert!(r
+            .elevate_hints
+            .iter()
+            .any(|h| h.contains("known-noise")));
+    }
+
+    #[test]
+    fn score_promotes_noise_class_if_chain_confirmed() {
+        let mut a = args("high", true, true, true);
+        a.vuln_class = "open_redirect".into();
+        a.impact_text = "Chained into ATO via OAuth state confusion; victim session hijacked".into();
+        a.is_known_noise_class = true;
+        let r = score_finding(&a);
+        // chain_confirmed bypasses the auto-skip; severity high keeps SUBMIT eligible
+        assert!(r.verdict == "SUBMIT" || r.verdict == "HOLD", "{r:?}");
+    }
+
+    #[test]
+    fn score_penalises_inflated_severity() {
+        // Claim "critical" for a known-noise class — severity_accuracy
+        // drops, total drops, verdict downgrades.
+        let mut a = args("critical", true, true, false);
+        a.vuln_class = "missing_headers".into();
+        let r = score_finding(&a);
+        assert!(r.severity_accuracy < 15, "{r:?}");
     }
 
     #[test]
