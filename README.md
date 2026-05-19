@@ -1,4 +1,31 @@
+<div align="center">
+
+<img src="docs/assets/mascot/hero.png" alt="Mantis — offensive-security mascot" width="640" />
+
 # Mantis
+
+`stalk · wait · strike · hold`
+**Ethically hack any website with the power of AI.**
+
+[Quickstart](docs/site/quickstart.md) ·
+[Docs](docs/site/README.md) ·
+[Responsible Use](docs/site/responsible-use.md) ·
+[mantishack.com](https://mantishack.com)
+
+</div>
+
+---
+
+> ## ⚠️  Authorized Testing Only
+>
+> **Mantis is offensive-security tooling. Use it only against systems you own or have explicit written authorization to test.**
+>
+> - Running Mantis against systems without permission is illegal in most jurisdictions.
+> - Mantis enforces scope cryptographically at the egress proxy, but the **legal gate is yours**.
+> - The CLI refuses to start without `--i-have-authorization`. Passing that flag is a self-attestation, not a legal credential.
+> - See [Responsible Use](docs/site/responsible-use.md) for the full policy.
+
+---
 
 ```
 ███╗   ███╗ █████╗ ███╗   ██╗████████╗██╗███████╗
@@ -7,9 +34,6 @@
 ██║╚██╔╝██║██╔══██║██║╚██╗██║   ██║   ██║╚════██║
 ██║ ╚═╝ ██║██║  ██║██║ ╚████║   ██║   ██║███████║
 ╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝   ╚═╝   ╚═╝╚══════╝
-
-    stalk · wait · strike · hold
-    ethically hack any website with the power of AI
 ```
 
 Daemon-driven, evidence-grade automated security research platform.
@@ -20,7 +44,18 @@ exploits, runs continuously against in-scope assets, and improves
 measurably between engagements through learned playbooks, evolutionary
 self-tuning, and a self-generated training corpus.
 
-## One-line install
+## Install
+
+**Via npm / bun / yarn / pnpm** (recommended, one platform binary auto-selected):
+
+```sh
+npm  install -g mantishack
+bun  add    -g mantishack
+yarn global add mantishack
+pnpm add    -g mantishack
+```
+
+**Or one-line from source:**
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/deonmenezes/mantishack/main/install.sh | bash
@@ -87,28 +122,14 @@ mantis engagement report "demo" --format pdf       # render report
 
 ## Requirements
 
-- A working Rust toolchain (only for source builds — the prebuilt binary has no deps)
-- `curl` and `python3` (for some optional recon paths)
-- One supported host CLI: Claude Code, Codex, or another MCP-capable host (only if you want the slash-command surface — the standalone CLI has none of these deps)
+- One supported host CLI: Claude Code, Codex, or another MCP-capable host — required for the slash-command surface (`/mantishack`, etc.). The standalone CLI (`mantis hack`, `mantis pentest`) has no AI-CLI dependency.
+- A working Rust toolchain — only for source builds. The prebuilt npm binary has no deps.
 
-Optional recon tools improve coverage when they are installed. Mantis detects them at engagement start (also via `mantis doctor`) and folds their output into the surface set when present. **Mantis runs without any of them.**
+Recon tools (subfinder, httpx, katana, nuclei, jwt_tool) are **auto-installed** into the per-repo `tools/recon/bin/` directory by `install.sh` / `mantis init`. No manual `go install` step needed; the recon-agent prepends that directory to PATH at engagement start. Run `mantis doctor` to confirm what's installed. Mantis runs without any of them — coverage just narrows.
 
-```bash
-go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
-go install github.com/projectdiscovery/httpx/cmd/httpx@latest
-go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
-go install github.com/owasp-amass/amass/v4/...@latest
-go install github.com/tomnomnom/assetfinder@latest
-go install github.com/projectdiscovery/chaos-client/cmd/chaos@latest
-go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest
-go install github.com/projectdiscovery/tlsx/cmd/tlsx@latest
-go install github.com/projectdiscovery/katana/cmd/katana@latest
-go install -v github.com/PentestPad/subzy@latest
-git clone https://github.com/ticarpi/jwt_tool ~/jwt_tool
-python3 -m pip install -r ~/jwt_tool/requirements.txt
-```
+## Attributions
 
-Run `mantis doctor` to see which tools are installed and which install hints apply. The detection + invocation layer is `crates/mantis-recon-tools`; the runners return owned Rust types and surface `ToolError::NotInstalled` to the orchestrator so it can fall back silently.
+Mantis takes architectural inspiration from open-source projects in the offensive-security space. See [`NOTICE`](./NOTICE) for the full list — covers [Hacker Bob](https://github.com/vmihalis/hacker-bob) (the MCP-tool-orchestrated workflow + wave/handoff pattern), [ProjectDiscovery](https://github.com/projectdiscovery) (recon binaries: subfinder, httpx, katana, nuclei), [ticarpi/jwt_tool](https://github.com/ticarpi/jwt_tool), and [BLAKE3](https://github.com/BLAKE3-team/BLAKE3). Per-binary licenses + install-time-fetch vs vendoring rationale live in [`tools/recon/THIRD_PARTY.md`](./tools/recon/THIRD_PARTY.md). All Rust code in this repo is original; the third-party projects are credited as inspiration or invoked as separate subprocesses.
 
 ## Workspace layout
 

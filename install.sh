@@ -84,6 +84,20 @@ install -m 0755 "$BUILD_DIR/target/release/mantis" "$BIN_DIR/mantis"
 log "installed: $BIN_DIR/mantis-daemon"
 log "installed: $BIN_DIR/mantis"
 
+# 3a. Recon tools (subfinder, httpx, katana, nuclei, jwt_tool) ----------------
+# Auto-fetched into the per-repo `tools/recon/bin/` so the recon-agent has
+# them at engagement start without operator setup. Best-effort: if the host
+# can't satisfy the Go toolchain prerequisite, we warn and proceed —
+# Mantis runs without these tools (coverage just narrows).
+if [ -x "$BUILD_DIR/tools/recon/install.sh" ]; then
+    log "installing per-repo recon tools (subfinder + httpx + katana + nuclei + jwt_tool)"
+    if ! (cd "$BUILD_DIR" && ./tools/recon/install.sh); then
+        warn "recon-tool install did not complete cleanly — Mantis still runs,"
+        warn "but advanced recon coverage will be reduced. Re-run later with:"
+        warn "    cd $BUILD_DIR && ./tools/recon/install.sh"
+    fi
+fi
+
 # 4. AI-CLI plugin installation ----------------------------------------------
 PLUGIN_SOURCE="$BUILD_DIR/plugin"
 INSTALLED_FOR=()

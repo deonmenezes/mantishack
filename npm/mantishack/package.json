@@ -1,0 +1,40 @@
+{
+  "name": "mantishack",
+  "version": "0.0.1",
+  "description": "Mantis — offensive-security daemon for AUTHORIZED security testing only (use against systems you own or have explicit written authorization to test). 7-phase FSM (RECON → AUTH → HUNT → CHAIN → VERIFY → GRADE → REPORT), parallel hunter sub-agents, cryptographic scope enforcement, BLAKE3/Ed25519 Merkle event logs.",
+  "keywords": [
+    "security",
+    "pentest",
+    "bug-bounty",
+    "offensive-security",
+    "vulnerability-scanner",
+    "fsm",
+    "mcp",
+    "claude-code"
+  ],
+  "homepage": "https://github.com/deonmenezes/mantishack",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/deonmenezes/mantishack.git"
+  },
+  "license": "Apache-2.0 OR MIT",
+  "author": "Deon Menezes",
+  "bin": {
+    "mantis": "bin/mantis.js",
+    "mantis-daemon": "bin/mantis-daemon.js",
+    "mantis-mcp": "bin/mantis-mcp.js"
+  },
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=14"
+  },
+  "optionalDependencies": {
+    "@mantishack/cli-darwin-arm64": "0.0.1",
+    "@mantishack/cli-darwin-x64": "0.0.1",
+    "@mantishack/cli-linux-x64": "0.0.1",
+    "@mantishack/cli-linux-arm64": "0.0.1"
+  }
+}

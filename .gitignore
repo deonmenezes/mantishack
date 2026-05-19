@@ -18,3 +18,12 @@ mantishack-*/
 
 # Engagement-output subdirectories under reports/ (keep top-level .md docs).
 reports/*/
+
+# npm distribution: prebuilt binaries + tarballs are produced by ./npm/build.sh
+# at release time, NOT carried in git history.
+npm/dist/
+npm/platforms/*/bin/
+
+# Per-skill scratch state (claude-code skills materialize working dirs here).
+.claude/skills/*/reports/
+.claude/skills/*/mantishack-*/

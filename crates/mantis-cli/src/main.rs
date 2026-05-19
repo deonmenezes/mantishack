@@ -102,19 +102,21 @@ enum Command {
         #[arg(long, env = "MANTIS_DAEMON", default_value = DEFAULT_DAEMON_ENDPOINT)]
         daemon: String,
     },
-    /// One-shot pentest. The simple command. Takes a single
-    /// positional target (URL or bare domain), auto-discovers the
-    /// auth stack from the target's HTML, signs up attacker +
-    /// victim accounts when possible, enumerates endpoints, runs
-    /// the auth-differential against everything, and archives the
-    /// findings to `./reports/<host>/`.
+    /// Full-pipeline pentest. Drives the same FSM + parallel-hunter
+    /// wave-fan-out flow as the `/mantishack` slash command, but
+    /// from the bare CLI. Ensures the Mantis daemon is up, ensures
+    /// `claude` is on PATH with the `mantis` MCP server registered,
+    /// then shells out to `claude --print` with `/mantishack <target>`.
+    /// stdio is streamed live so the operator sees every phase
+    /// (RECON → AUTH → HUNT → CHAIN → VERIFY → GRADE → REPORT).
     ///
     /// Examples:
     ///   mantis hack app.example.com --i-have-authorization
-    ///   mantis hack https://app.example.com/ --i-have-authorization
+    ///   mantis hack https://app.example.com/ --i-have-authorization --deep
+    ///   mantis hack api.example.com --i-have-authorization --no-auth
     ///
-    /// This is the equivalent of hacker-bob's `/bob-hunt target.com`
-    /// — one command, zero flags beyond the authorization gate.
+    /// For the legacy unauth-only auth-differential pipeline (no
+    /// FSM, no LLM, no waves) see `mantis find-auth-bugs`.
     Hack {
         /// Target URL or bare domain. `example.com` is treated as
         /// `https://example.com/` automatically.
@@ -123,36 +125,52 @@ enum Command {
         /// written authorization for the target.
         #[arg(long)]
         i_have_authorization: bool,
-        /// Cookie header passed through every discovery + probe
-        /// request. Use after solving the target's WAF challenge
-        /// once in your browser: copy the Cookie header from
-        /// DevTools → Network. Format: `name1=value1; name2=value2`.
-        #[arg(long, env = "MANTIS_COOKIE")]
+        /// Enable deep-recon mode (broader script-heavy recon plus
+        /// durable surface-lead promotion).
+        #[arg(long)]
+        deep: bool,
+        /// Skip AUTH phase; transition RECON → AUTH → HUNT with
+        /// `auth_status: "unauthenticated"`.
+        #[arg(long)]
+        no_auth: bool,
+        /// Named operator-managed egress profile. Defaults to
+        /// `default`.
+        #[arg(long, default_value = "default")]
+        egress: String,
+        /// Daemon gRPC endpoint.
+        #[arg(long, env = "MANTIS_DAEMON", default_value = DEFAULT_DAEMON_ENDPOINT)]
+        daemon: String,
+        /// Override the `claude` binary path. Defaults to whichever
+        /// `claude` is on `PATH`.
+        #[arg(long, env = "MANTIS_CLAUDE_BIN")]
+        claude_bin: Option<Utf8PathBuf>,
+        /// Extra args appended to the `claude` invocation after `--`.
+        /// Useful for `--model claude-opus-4-7` or similar provider
+        /// overrides. Example:
+        ///   mantis hack app.example.com --i-have-authorization -- --model claude-opus-4-7
+        #[arg(last = true)]
+        claude_extra_args: Vec<String>,
+
+        // -- Legacy flags below: accepted for backwards compat but
+        // -- they belong to `mantis find-auth-bugs` now. Setting any
+        // -- of them prints a deprecation warning and is otherwise
+        // -- ignored by the FSM-driven flow.
+        #[arg(long, env = "MANTIS_COOKIE", hide = true)]
         cookie: Option<String>,
-        /// Override the Supabase signup URL discovered from the
-        /// target HTML.
-        #[arg(long)]
+        #[arg(long, hide = true)]
         supabase_signup: Option<String>,
-        /// Override the Supabase anon key discovered from the target
-        /// HTML.
-        #[arg(long, env = "MANTIS_SUPABASE_APIKEY")]
+        #[arg(long, env = "MANTIS_SUPABASE_APIKEY", hide = true)]
         supabase_apikey: Option<String>,
-        /// BYO attacker auth profile (skip signup phase).
-        #[arg(long)]
+        #[arg(long, hide = true)]
         attacker_profile: Option<Utf8PathBuf>,
-        /// BYO victim auth profile (skip signup phase).
-        #[arg(long)]
+        #[arg(long, hide = true)]
         victim_profile: Option<Utf8PathBuf>,
-        /// Operator-supplied paths added on top of the built-in
-        /// wordlist.
-        #[arg(long = "extra-path")]
+        #[arg(long = "extra-path", hide = true)]
         extra_paths: Vec<String>,
-        /// Max candidate URLs enumerated. Default: 100.
-        #[arg(long, default_value_t = 100)]
-        max_candidates: usize,
-        /// Max endpoints probed (hard cap, protects against runaway).
-        #[arg(long, default_value_t = 100)]
-        max_endpoints_probed: usize,
+        #[arg(long, hide = true)]
+        max_candidates: Option<usize>,
+        #[arg(long, hide = true)]
+        max_endpoints_probed: Option<usize>,
     },
     /// End-to-end auth-bug pipeline. Signs up an attacker + victim
     /// (Supabase JSON path), enumerates endpoint candidates from
@@ -455,6 +473,12 @@ fn main() -> Result<()> {
         Command::Hack {
             target,
             i_have_authorization,
+            deep,
+            no_auth,
+            egress,
+            daemon,
+            claude_bin,
+            claude_extra_args,
             cookie,
             supabase_signup,
             supabase_apikey,
@@ -466,14 +490,22 @@ fn main() -> Result<()> {
         } => run_async(handle_hack(
             target,
             i_have_authorization,
-            cookie,
-            supabase_signup,
-            supabase_apikey,
-            attacker_profile,
-            victim_profile,
-            extra_paths,
-            max_candidates,
-            max_endpoints_probed,
+            deep,
+            no_auth,
+            egress,
+            daemon,
+            claude_bin,
+            claude_extra_args,
+            HackLegacyFlags {
+                cookie,
+                supabase_signup,
+                supabase_apikey,
+                attacker_profile,
+                victim_profile,
+                extra_paths,
+                max_candidates,
+                max_endpoints_probed,
+            },
         )),
         Command::FindAuthBugs {
             target,
@@ -1082,120 +1114,580 @@ fn host_port_is_likely_http(host_port: &str) -> bool {
 /// discovers Supabase config from the target's HTML, runs the full
 /// pipeline, archives.
 #[allow(clippy::too_many_arguments)]
-async fn handle_hack(
-    target: String,
-    i_have_authorization: bool,
+/// Legacy `mantis hack` flags that pre-date the FSM-driven flow.
+/// Kept on the clap struct so old scripts don't hard-fail; we emit a
+/// deprecation warning if any are set and redirect the operator to
+/// `mantis find-auth-bugs`.
+struct HackLegacyFlags {
     cookie: Option<String>,
-    supabase_signup_override: Option<String>,
-    supabase_apikey_override: Option<String>,
+    supabase_signup: Option<String>,
+    supabase_apikey: Option<String>,
     attacker_profile: Option<Utf8PathBuf>,
     victim_profile: Option<Utf8PathBuf>,
     extra_paths: Vec<String>,
-    max_candidates: usize,
-    max_endpoints_probed: usize,
+    max_candidates: Option<usize>,
+    max_endpoints_probed: Option<usize>,
+}
+
+impl HackLegacyFlags {
+    fn any_set(&self) -> bool {
+        self.cookie.is_some()
+            || self.supabase_signup.is_some()
+            || self.supabase_apikey.is_some()
+            || self.attacker_profile.is_some()
+            || self.victim_profile.is_some()
+            || !self.extra_paths.is_empty()
+            || self.max_candidates.is_some()
+            || self.max_endpoints_probed.is_some()
+    }
+}
+
+async fn handle_hack(
+    target: String,
+    i_have_authorization: bool,
+    deep: bool,
+    no_auth: bool,
+    egress: String,
+    daemon: String,
+    claude_bin: Option<Utf8PathBuf>,
+    claude_extra_args: Vec<String>,
+    legacy: HackLegacyFlags,
 ) -> Result<()> {
     banner::print();
     if !i_have_authorization {
         anyhow::bail!(
-            "refusing to start: `mantis hack` runs offensive-security tests against the named target.\n\
-             Re-run with --i-have-authorization once you have written permission to test {target}.\n\
+            "refusing to start: `mantis hack` runs offensive-security tests against {target}.\n\
+             Re-run with --i-have-authorization once you have written permission.\n\
              Mantis enforces scope at the egress proxy when daemon-driven, but the legal gate is yours."
         );
     }
 
-    // Normalize:
-    //   has scheme → use as-is
-    //   bare host with no port → https://host/
-    //   bare host:port where port is a common-http port → http://host:port/
-    //   bare host:port otherwise → https://host:port/
-    let target_url = if target.starts_with("http://") || target.starts_with("https://") {
-        target.clone()
-    } else {
-        let stripped = target.trim_end_matches('/');
-        let needs_http = stripped.split('/').next().map(host_port_is_likely_http).unwrap_or(false);
-        let scheme = if needs_http { "http" } else { "https" };
-        format!("{scheme}://{stripped}/")
-    };
+    if legacy.any_set() {
+        eprintln!(
+            "[mantishack] warning: --cookie / --supabase-* / --attacker-profile / \
+             --victim-profile / --extra-path / --max-candidates / --max-endpoints-probed \
+             are no-ops for `mantis hack` (FSM-driven). Use `mantis find-auth-bugs` for \
+             the legacy auth-differential pipeline."
+        );
+    }
 
+    let target_url = normalize_target_url(&target);
     eprintln!("[mantishack] target: {target_url}");
-    if let Some(c) = &cookie {
-        eprintln!(
-            "[mantishack] cookie supplied ({} chars) — passed through every discovery probe",
-            c.len()
-        );
-    }
-    eprintln!("[mantishack] phase 1/3: auto-discover");
-    let discovered = mantis_orchestrator::discover_with_cookie(&target_url, cookie.as_deref()).await;
-    for note in &discovered.notes {
-        eprintln!("[mantishack]   • {note}");
-    }
+    eprintln!("[mantishack] daemon: {daemon}");
 
-    // Operator overrides beat discovery.
-    let supabase_signup = supabase_signup_override
-        .or(discovered.supabase_signup_url.clone());
-    let supabase_apikey = supabase_apikey_override.or(discovered.supabase_anon_key.clone());
+    // 1. Daemon must be reachable so the MCP server can talk to it.
+    ensure_daemon_for_hack(&daemon)?;
 
-    if let Some(s) = &supabase_signup {
-        eprintln!("[mantishack]   ✓ supabase signup: {s}");
-    }
-    if let Some(k) = &supabase_apikey {
-        eprintln!("[mantishack]   ✓ supabase apikey: {}…", &k[..k.len().min(20)]);
-    }
-    if supabase_signup.is_none() && attacker_profile.is_none() {
-        eprintln!("[mantishack]   ⚠ no Supabase signup discovered — running unauth-only");
-        eprintln!("[mantishack]     supply --attacker-profile / --victim-profile to drive the full diff");
-    }
+    // 2. Locate the local `claude` CLI; this is the LLM orchestrator
+    //    that drives the /mantishack slash command. Fail loud with an
+    //    install hint if it's missing.
+    let claude_path = resolve_claude_binary(claude_bin.as_deref())?;
+    eprintln!("[mantishack] claude: {}", claude_path.display());
 
-    // Optional LLM-augmented hypothesis: ask the picked provider for
-    // extra endpoint paths to probe. Never blocks — failures degrade
-    // to the deterministic wordlist alone.
-    let mut extra_paths = extra_paths;
-    if let Some((adapter, provider)) = llm_pick::pick() {
-        eprintln!(
-            "[mantishack]   ⚡ LLM provider: {} (asking for hypothesis paths)",
-            provider.label()
-        );
-        let suggested = llm_pick::suggest_paths(
-            adapter.as_ref(),
-            &target_url,
-            &discovered.notes,
-            supabase_signup.is_some(),
-        )
-        .await;
-        if suggested.is_empty() {
-            eprintln!("[mantishack]   ⚡ LLM returned no usable paths");
-        } else {
-            eprintln!(
-                "[mantishack]   ⚡ LLM suggested {} extra paths (e.g. {})",
-                suggested.len(),
-                suggested.iter().take(3).cloned().collect::<Vec<_>>().join(", ")
-            );
-            extra_paths.extend(suggested);
-        }
-    } else {
-        eprintln!(
-            "[mantishack]   ⚡ no LLM configured (set ANTHROPIC_API_KEY / OPENAI_API_KEY or install `claude`); skipping hypothesis step"
-        );
-    }
+    // 3. Verify the `mantis` MCP server is registered with claude.
+    //    If not, register it now (idempotent — same code path as
+    //    `mantis init --no-plugin --no-daemon`).
+    ensure_mantis_mcp_registered(&claude_path, &daemon)?;
 
-    eprintln!("[mantishack] phase 2/3: signup + enumerate + auth-diff");
-    handle_find_auth_bugs(
-        target_url,
-        supabase_signup,
-        supabase_apikey,
-        extra_paths,
-        attacker_profile,
-        victim_profile,
-        max_candidates,
-        max_endpoints_probed,
-        true, // no_subdomain_expansion — `hack` defaults to host-only for speed
-        i_have_authorization,
-        None,
+    // 4. Build the orchestrator system prompt and shell out.
+    //
+    //    `claude --print` does NOT expand slash commands; the model
+    //    sees `/mantishack` as literal text and tries to resolve it
+    //    via the `Skill` tool, which can return arbitrary skill
+    //    content. In a previous run the model then took a shortcut
+    //    and tried to recursively `Bash(mantis hack ...)` — an
+    //    infinite loop. The fix: inline the orchestrator role body
+    //    directly as `--append-system-prompt`, ban the `Skill` tool
+    //    via `--disallowed-tools`, and explicitly forbid shelling
+    //    out to `mantis` in the prompt.
+    let arguments = build_orchestrator_arguments(&target_url, deep, no_auth, &egress);
+    let orchestrator_body = orchestrator_role_body(&arguments);
+
+    let preauth_system_prompt = format!(
+        "Non-interactive invocation by `mantis hack`.\n\
+         The operator has provided explicit written authorization for the target \
+         `{target_url}` via the `--i-have-authorization` flag at the CLI gate. \
+         The legal authorization gate AND the scope confirmation gate are \
+         PRE-CONFIRMED for this session. Do not ask the user to re-confirm \
+         either gate; the user is not interactive and cannot answer.\n\n\
+         HARD RULES for this session:\n\
+         - Do NOT use the `Skill` tool for anything. It is disabled.\n\
+         - Do NOT shell out to `mantis hack`, `mantis pentest`, or any other \
+           `mantis` CLI command via `Bash`. The `mantis` binary spawned YOU; \
+           calling it again is an infinite loop. Use only `mcp__mantis__*` \
+           tools and `Task` spawns of the named subagents.\n\
+         - The orchestrator role prompt is appended below. Follow it exactly. \
+           Begin with PHASE 1: RECON. Do not delegate the whole engagement to \
+           a single sub-agent — drive the FSM yourself by calling MCP tools \
+           and spawning the named role subagents (recon-agent, \
+           surface-router-agent, hunter-agent, chain-builder, \
+           brutalist-verifier, balanced-verifier, final-verifier, \
+           evidence-agent, grader, report-writer).\n\n\
+         === ORCHESTRATOR ROLE PROMPT ===\n\n\
+         {orchestrator_body}",
+    );
+
+    let prompt = format!(
+        "Authorization granted at the CLI gate for `{target_url}`. \
+         Scope confirmed: `{target_url}`. Both legal and scope gates are \
+         PRE-CONFIRMED — do not re-ask the user. \n\
+         Engagement input ($ARGUMENTS): {arguments}\n\n\
+         Begin the engagement now. Start with PHASE 1: RECON by calling \
+         `mcp__mantis__mantis_init_session({{ target_domain, target_url, deep_mode }})` \
+         and then spawning the recon agent via the `Task` tool. Drive the \
+         full FSM (RECON → AUTH → HUNT → CHAIN → VERIFY → GRADE → REPORT). \
+         Do NOT use Skill. Do NOT shell out to `mantis hack`."
+    );
+
+    eprintln!("[mantishack] orchestrator: inlined ({} chars)", orchestrator_body.len());
+    eprintln!(
+        "[mantishack] handing off to the orchestrator — RECON → AUTH → HUNT → CHAIN → VERIFY → GRADE → REPORT"
+    );
+    eprintln!();
+
+    let status = run_claude_slash_command(
+        &claude_path,
+        &prompt,
+        &preauth_system_prompt,
+        &claude_extra_args,
     )
     .await?;
 
-    eprintln!("[mantishack] phase 3/3: archive written under ./reports/<host>/AB-<id>/");
+    if !status.success() {
+        anyhow::bail!(
+            "`claude` exited with status {} — see streamed output above for details",
+            status
+        );
+    }
+
+    eprintln!();
+    eprintln!("[mantishack] orchestrator returned cleanly.");
+    eprintln!("[mantishack] artifacts (if produced) live under ./mantishack-<engagement-id>/");
+    eprintln!("[mantishack]   See `summary.txt`, `events.jsonl`, `report.*` inside that folder.");
     Ok(())
+}
+
+fn normalize_target_url(target: &str) -> String {
+    if target.starts_with("http://") || target.starts_with("https://") {
+        return target.to_string();
+    }
+    let stripped = target.trim_end_matches('/');
+    let needs_http = stripped
+        .split('/')
+        .next()
+        .map(host_port_is_likely_http)
+        .unwrap_or(false);
+    let scheme = if needs_http { "http" } else { "https" };
+    format!("{scheme}://{stripped}/")
+}
+
+/// Pre-flight: make sure the daemon is reachable. If not, try to
+/// spawn a fresh one using whichever `mantis-daemon` is on PATH.
+fn ensure_daemon_for_hack(endpoint: &str) -> Result<()> {
+    if daemon_is_up(endpoint) {
+        eprintln!("[mantishack] daemon: up");
+        return Ok(());
+    }
+    eprintln!("[mantishack] daemon: down at {endpoint} — attempting to spawn");
+    let daemon_bin = which_bin("mantis-daemon").ok_or_else(|| {
+        anyhow::anyhow!(
+            "daemon is down at {endpoint} and `mantis-daemon` is not on PATH.\n\
+             Install / wire up via the `mantis` setup screen (run `mantis`), then re-run."
+        )
+    })?;
+    spawn_daemon_detached(&daemon_bin, endpoint)
+        .with_context(|| format!("spawning mantis-daemon at {endpoint}"))?;
+    Ok(())
+}
+
+/// Find the `claude` CLI binary, honoring `--claude-bin` /
+/// `MANTIS_CLAUDE_BIN` if set, otherwise a plain PATH lookup.
+fn resolve_claude_binary(override_path: Option<&camino::Utf8Path>) -> Result<std::path::PathBuf> {
+    if let Some(p) = override_path {
+        let pb: std::path::PathBuf = p.as_str().into();
+        if !pb.exists() {
+            anyhow::bail!("claude binary override {p} does not exist on disk");
+        }
+        return Ok(pb);
+    }
+    which_bin("claude").ok_or_else(|| {
+        anyhow::anyhow!(
+            "`claude` is not on PATH — install Claude Code from \
+             https://claude.com/claude-code, then re-run `mantis hack`.\n\
+             Or point at a specific binary with `--claude-bin <path>` / \
+             `MANTIS_CLAUDE_BIN=<path>`."
+        )
+    })
+}
+
+/// Idempotent. Probe `claude mcp get mantis`; if it fails, register
+/// `mantis-mcp` as a user-scope MCP server pointing at the daemon
+/// endpoint we'll be using.
+fn ensure_mantis_mcp_registered(claude_path: &std::path::Path, daemon_endpoint: &str) -> Result<()> {
+    let probe = std::process::Command::new(claude_path)
+        .args(["mcp", "get", "mantis"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    if matches!(probe, Ok(s) if s.success()) {
+        eprintln!("[mantishack] mcp:    `mantis` already registered with claude");
+        return Ok(());
+    }
+    eprintln!("[mantishack] mcp:    registering `mantis` MCP server with claude");
+    let mcp_bin = which_bin("mantis-mcp").ok_or_else(|| {
+        anyhow::anyhow!(
+            "`mantis-mcp` is not on PATH. Install Mantis (`mantis` setup screen, \
+             `cargo install --path crates/mantis-mcp`, or `npm i -g mantishack`), \
+             then re-run."
+        )
+    })?;
+    // Best-effort cleanup of any prior registration so add succeeds.
+    let _ = std::process::Command::new(claude_path)
+        .args(["mcp", "remove", "mantis", "-s", "user"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    let status = std::process::Command::new(claude_path)
+        .args([
+            "mcp",
+            "add",
+            "mantis",
+            "-s",
+            "user",
+            "--",
+            mcp_bin.to_string_lossy().as_ref(),
+            "--daemon",
+            daemon_endpoint,
+        ])
+        .status()
+        .context("invoke `claude mcp add`")?;
+    if !status.success() {
+        anyhow::bail!("`claude mcp add` exited with status {status}");
+    }
+    Ok(())
+}
+
+/// Look up an executable on the current `PATH`. Lightweight std-only
+/// replacement for the `which` crate.
+fn which_bin(name: &str) -> Option<std::path::PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path) {
+        let candidate = dir.join(name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+/// TCP-connect probe to confirm the daemon's gRPC endpoint accepts
+/// connections. Cheap and sync — avoids pulling tonic into this path.
+fn daemon_is_up(endpoint: &str) -> bool {
+    let addr = endpoint
+        .trim_start_matches("http://")
+        .trim_start_matches("https://")
+        .trim_end_matches('/');
+    let addr = addr.split('/').next().unwrap_or(addr);
+    let Ok(parsed) = addr.parse::<std::net::SocketAddr>() else {
+        return false;
+    };
+    std::net::TcpStream::connect_timeout(&parsed, std::time::Duration::from_millis(250)).is_ok()
+}
+
+/// Spawn `mantis-daemon` in the background, detached from this
+/// process so a `Ctrl-C` in this shell doesn't take it down. Stdio
+/// goes to `~/.Mantis/daemon.log`, pid to `~/.Mantis/daemon.pid`.
+fn spawn_daemon_detached(daemon_bin: &std::path::Path, endpoint: &str) -> Result<()> {
+    let home = std::env::var("HOME").context("HOME not set")?;
+    let state_dir = std::path::PathBuf::from(format!("{home}/.Mantis"));
+    std::fs::create_dir_all(&state_dir)
+        .with_context(|| format!("create {}", state_dir.display()))?;
+    let log_path = state_dir.join("daemon.log");
+    let pid_path = state_dir.join("daemon.pid");
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .with_context(|| format!("open {}", log_path.display()))?;
+    let log_err = log.try_clone()?;
+
+    let mut cmd = std::process::Command::new(daemon_bin);
+    cmd.stdin(std::process::Stdio::null())
+        .stdout(log)
+        .stderr(log_err);
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+    let child = cmd
+        .spawn()
+        .with_context(|| format!("spawn {}", daemon_bin.display()))?;
+    let _ = std::fs::write(&pid_path, child.id().to_string());
+
+    let start = std::time::Instant::now();
+    while start.elapsed() < std::time::Duration::from_secs(5) {
+        if daemon_is_up(endpoint) {
+            eprintln!(
+                "[mantishack] daemon: started (pid {}, log {})",
+                child.id(),
+                log_path.display()
+            );
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(150));
+    }
+    anyhow::bail!(
+        "daemon did not start listening on {endpoint} within 5s — check {}",
+        log_path.display()
+    );
+}
+
+/// The rich 7-phase orchestrator role prompt, baked into the binary
+/// at compile time. We inline this rather than rely on slash-command
+/// resolution because `claude --print` does NOT expand slash
+/// commands — the model would see `/mantishack` as text and try to
+/// resolve it via the `Skill` tool, which is exactly the recursion
+/// trap we're avoiding.
+const ORCHESTRATOR_SLASH_COMMAND_SRC: &str =
+    include_str!("../../../plugin/claude-code/commands/mantishack.md");
+
+/// Strip the leading YAML frontmatter (between `---` lines) and
+/// substitute `$ARGUMENTS` with the supplied target+flags string.
+fn orchestrator_role_body(arguments: &str) -> String {
+    let raw = ORCHESTRATOR_SLASH_COMMAND_SRC;
+    let body = if raw.starts_with("---") {
+        // Find the closing `---` of the frontmatter.
+        let after_open = &raw[3..];
+        match after_open.find("\n---\n").or_else(|| after_open.find("\r\n---\r\n")) {
+            Some(pos) => {
+                // pos is offset within after_open; advance past the closing fence + newline.
+                let close_len = if after_open[pos..].starts_with("\r\n") { 7 } else { 5 };
+                after_open[pos + close_len..].trim_start_matches('\n').to_string()
+            }
+            None => raw.to_string(),
+        }
+    } else {
+        raw.to_string()
+    };
+    body.replace("$ARGUMENTS", arguments)
+}
+
+/// Reconstruct the slash-command-style argument string the
+/// orchestrator references as `$ARGUMENTS`.
+fn build_orchestrator_arguments(target_url: &str, deep: bool, no_auth: bool, egress: &str) -> String {
+    let mut parts = vec![target_url.to_string()];
+    if deep {
+        parts.push("--deep".to_string());
+    }
+    if no_auth {
+        parts.push("--no-auth".to_string());
+    }
+    if !egress.is_empty() && egress != "default" {
+        parts.push(format!("--egress {egress}"));
+    }
+    parts.join(" ")
+}
+
+/// Run `claude --print --output-format stream-json` and pretty-print
+/// each event live to the operator's terminal. The system prompt
+/// inlines the orchestrator role and pre-grants both interactive
+/// gates so the non-interactive session doesn't stall. The `Skill`
+/// tool is disallowed to prevent skill-resolution recursion.
+async fn run_claude_slash_command(
+    claude_path: &std::path::Path,
+    prompt: &str,
+    append_system_prompt: &str,
+    extra_args: &[String],
+) -> Result<std::process::ExitStatus> {
+    use tokio::io::AsyncBufReadExt;
+
+    let cwd = std::env::current_dir().context("get cwd")?;
+    let mut cmd = tokio::process::Command::new(claude_path);
+    cmd.arg("--print")
+        .arg("--dangerously-skip-permissions")
+        .arg("--output-format")
+        .arg("stream-json")
+        .arg("--verbose")
+        .arg("--disallowed-tools")
+        .arg("Skill")
+        .arg("--add-dir")
+        .arg(&cwd)
+        .arg("--append-system-prompt")
+        .arg(append_system_prompt)
+        .arg(prompt);
+    for a in extra_args {
+        cmd.arg(a);
+    }
+    cmd.stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::inherit());
+
+    let mut child = cmd
+        .spawn()
+        .with_context(|| format!("exec `{}`", claude_path.display()))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("claude child has no stdout pipe"))?;
+    let mut lines = tokio::io::BufReader::new(stdout).lines();
+
+    while let Some(line) = lines.next_line().await? {
+        if line.trim().is_empty() {
+            continue;
+        }
+        match serde_json::from_str::<serde_json::Value>(&line) {
+            Ok(event) => {
+                if let Some(pretty) = format_stream_event(&event) {
+                    eprintln!("{pretty}");
+                }
+            }
+            // Not JSON (e.g. claude warmup banner) — passthrough.
+            Err(_) => eprintln!("{line}"),
+        }
+    }
+
+    let status = child.wait().await?;
+    Ok(status)
+}
+
+/// Convert one `--output-format stream-json` event into a human line
+/// for the operator's terminal. Returns `None` to drop noisy events
+/// (e.g. per-token partial deltas).
+fn format_stream_event(event: &serde_json::Value) -> Option<String> {
+    let ty = event.get("type")?.as_str()?;
+    match ty {
+        "system" => {
+            let subtype = event
+                .get("subtype")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            Some(format!("[mantishack] · session {subtype}"))
+        }
+        "assistant" => {
+            let content = event.pointer("/message/content")?.as_array()?;
+            let mut out = Vec::new();
+            for block in content {
+                let bty = block.get("type")?.as_str()?;
+                match bty {
+                    "tool_use" => {
+                        let name = block.get("name").and_then(|s| s.as_str()).unwrap_or("?");
+                        let args = summarize_tool_input(name, block.get("input"));
+                        out.push(format!("[mantishack] → {name}({args})"));
+                    }
+                    "text" => {
+                        let txt = block
+                            .get("text")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("")
+                            .trim();
+                        if txt.is_empty() {
+                            continue;
+                        }
+                        for raw_line in txt.lines() {
+                            let line = raw_line.trim_end();
+                            if line.is_empty() {
+                                continue;
+                            }
+                            out.push(format!("[mantishack] · {line}"));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if out.is_empty() {
+                None
+            } else {
+                Some(out.join("\n"))
+            }
+        }
+        "user" => {
+            let content = event.pointer("/message/content")?.as_array()?;
+            for block in content {
+                if block.get("type").and_then(|s| s.as_str()) == Some("tool_result") {
+                    let is_error = block
+                        .get("is_error")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false);
+                    let marker = if is_error { "✗" } else { "✓" };
+                    return Some(format!("[mantishack]   {marker} result"));
+                }
+            }
+            None
+        }
+        "result" => {
+            let subtype = event
+                .get("subtype")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            let cost = event
+                .get("total_cost_usd")
+                .and_then(serde_json::Value::as_f64)
+                .unwrap_or(0.0);
+            let turns = event
+                .get("num_turns")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0);
+            Some(format!(
+                "[mantishack] · session {subtype} ({turns} turns, ${cost:.4})"
+            ))
+        }
+        // Skip per-token partial chunks and any unknown event type to
+        // avoid drowning the terminal.
+        _ => None,
+    }
+}
+
+fn summarize_tool_input(name: &str, input: Option<&serde_json::Value>) -> String {
+    let Some(input) = input else {
+        return String::new();
+    };
+    match name {
+        "Task" => {
+            let subtype = input
+                .get("subagent_type")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("?");
+            let in_bg = input
+                .get("run_in_background")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            let suffix = if in_bg { ", background" } else { "" };
+            format!("type={subtype}{suffix}")
+        }
+        n if n.starts_with("mcp__mantis__") => {
+            let mut parts = Vec::new();
+            for key in [
+                "target_domain",
+                "wave",
+                "to_phase",
+                "round",
+                "auth_status",
+                "profile_name",
+            ] {
+                if let Some(v) = input.get(key).and_then(serde_json::Value::as_str) {
+                    let label = match key {
+                        "to_phase" => format!("→{v}"),
+                        _ => format!("{key}={v}"),
+                    };
+                    parts.push(label);
+                }
+            }
+            parts.join(", ")
+        }
+        "Bash" => input
+            .get("command")
+            .and_then(serde_json::Value::as_str)
+            .map(|c| {
+                let preview: String = c.chars().take(60).collect();
+                format!("`{preview}`")
+            })
+            .unwrap_or_default(),
+        _ => input
+            .as_object()
+            .map(|m| format!("{} args", m.len()))
+            .unwrap_or_default(),
+    }
 }
 
 async fn handle_find_auth_bugs(
