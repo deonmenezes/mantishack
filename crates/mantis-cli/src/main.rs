@@ -196,6 +196,18 @@ enum Command {
         /// for verifying setup after `mantis init`.
         #[arg(long)]
         dry_run: bool,
+        /// "Proof-loop" mode — after each VERIFY round, if any
+        /// reportable finding lacks a 3-round confirmation (final
+        /// verifier `reportable=true` with non-low confidence), the
+        /// orchestrator must loop back through HUNT (with grader
+        /// feedback) → CHAIN → VERIFY until every reportable finding
+        /// has cascade-confirmed evidence — OR until the operator's
+        /// wall-clock budget exhausts. Use when you want the report
+        /// to be evidence-dense and self-verified rather than
+        /// truncating at the first VERIFY pass. Default-on for
+        /// `mantis ultra`.
+        #[arg(long)]
+        until_proven: bool,
         /// Extra args appended to the `claude` invocation after `--`.
         /// Useful for `--model claude-opus-4-7` or similar provider
         /// overrides. Example:
@@ -800,6 +812,7 @@ fn main() -> Result<()> {
             turbo,
             print_prompt,
             dry_run,
+            until_proven,
             claude_extra_args,
             cookie,
             supabase_signup,
@@ -820,6 +833,7 @@ fn main() -> Result<()> {
             turbo,
             print_prompt,
             dry_run,
+            until_proven,
             claude_extra_args,
             HackLegacyFlags {
                 cookie,
@@ -1564,6 +1578,8 @@ async fn handle_preset(
         }
     );
 
+    let until_proven = matches!(preset, HackPreset::Ultra);
+
     handle_hack(
         target,
         i_have_authorization,
@@ -1575,6 +1591,7 @@ async fn handle_preset(
         turbo,
         /* print_prompt */ false,
         /* dry_run */ false,
+        until_proven,
         claude_extra_args,
         HackLegacyFlags::default(),
     )
@@ -1592,6 +1609,7 @@ async fn handle_hack(
     turbo: bool,
     print_prompt: bool,
     dry_run: bool,
+    until_proven: bool,
     claude_extra_args: Vec<String>,
     legacy: HackLegacyFlags,
 ) -> Result<()> {
@@ -1638,6 +1656,12 @@ async fn handle_hack(
     };
     if turbo {
         eprintln!("[mantishack] turbo: deep recon + Opus model preset");
+    }
+    if until_proven {
+        eprintln!(
+            "[mantishack] proof-loop: ON — orchestrator will loop VERIFY/CHAIN/HUNT until every \
+             reportable finding has 3-round cascade confirmation"
+        );
     }
 
     let target_url = normalize_target_url(&target);
@@ -1717,6 +1741,29 @@ async fn handle_hack(
         None => String::new(),
     };
 
+    let proof_loop_block = if until_proven {
+        "\n         - PROOF-LOOP MODE IS ON. After each VERIFY round, inspect every reportable \
+         finding's final-round verdict via \
+         `mantis_read_verification_round(round=\"final\")`. For ANY finding where \
+         `reportable !== true`, confidence is missing or 'low', the evidence pack lacks a \
+         captured request+response pair, or `mantis_diff_verification_attempts` shows the \
+         cascade rounds disagree on severity, do NOT advance to GRADE — loop back: \
+         transition to HUNT, pass the grader's HOLD-style feedback into a fresh wave \
+         targeted at recovering the missing evidence, then re-run CHAIN → VERIFY (all three \
+         rounds: brutalist, balanced, final). Continue this loop until EVERY reportable \
+         finding has cascade-confirmed evidence (final.reportable===true, with a captured \
+         request+response in the evidence pack and no round-to-round severity drift) OR the \
+         daemon's budget exhausts. Each proof-loop iteration MUST call \
+         `mantis_build_verification_adjudication` so the final-round adjudication_plan_hash \
+         binding stays intact. Use `mantis_score_finding` between iterations as a pre-grade; \
+         findings that score SKIP or HOLD on the rubric are under-proven — keep looping. The \
+         intent is an evidence-dense final report where every finding is proven through the \
+         full 3-round cascade, not a single-pass scan."
+            .to_string()
+    } else {
+        String::new()
+    };
+
     let preauth_system_prompt = format!(
         "Non-interactive invocation by `mantis hack`.\n\
          The operator has provided explicit written authorization for the target \
@@ -1736,7 +1783,7 @@ async fn handle_hack(
            and spawning the named role subagents (recon-agent, \
            surface-router-agent, hunter-agent, chain-builder, \
            brutalist-verifier, balanced-verifier, final-verifier, \
-           evidence-agent, grader, report-writer).{guidance_block}\n\n\
+           evidence-agent, grader, report-writer).{proof_loop_block}{guidance_block}\n\n\
          === ORCHESTRATOR ROLE PROMPT ===\n\n\
          {orchestrator_body}",
     );
