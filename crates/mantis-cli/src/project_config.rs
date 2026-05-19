@@ -40,15 +40,46 @@ pub(crate) struct ProjectConfig {
 /// cwd or any ancestor. Returns `None` when no config is reachable
 /// (which is the common case and is not an error).
 pub(crate) fn discover() -> Option<PathBuf> {
+    discover_named(".mantis.json")
+}
+
+/// Same walk-up search but for `MANTIS.md` — the repo guidance file
+/// that gets auto-loaded into the orchestrator system prompt.
+pub(crate) fn discover_guidance() -> Option<PathBuf> {
+    discover_named("MANTIS.md")
+}
+
+fn discover_named(filename: &str) -> Option<PathBuf> {
     let cwd = std::env::current_dir().ok()?;
     let mut dir: &Path = &cwd;
     loop {
-        let candidate = dir.join(".mantis.json");
+        let candidate = dir.join(filename);
         if candidate.is_file() {
             return Some(candidate);
         }
         dir = dir.parent()?;
     }
+}
+
+/// Read the closest `MANTIS.md` (cwd or ancestor) and return its
+/// content capped at `cap` bytes. Returns `None` when the file
+/// doesn't exist or is empty.
+pub(crate) fn load_guidance(cap: usize) -> Option<(PathBuf, String)> {
+    let path = discover_guidance()?;
+    let mut content = std::fs::read_to_string(&path).ok()?;
+    if content.trim().is_empty() {
+        return None;
+    }
+    if content.len() > cap {
+        // Truncate at a UTF-8 boundary near `cap`.
+        let mut end = cap;
+        while end > 0 && !content.is_char_boundary(end) {
+            end -= 1;
+        }
+        content.truncate(end);
+        content.push_str("\n\n…(truncated; raise cap to see more)…");
+    }
+    Some((path, content))
 }
 
 /// Read and parse the closest `.mantis.json`. Errors on malformed

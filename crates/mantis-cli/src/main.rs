@@ -1445,6 +1445,23 @@ async fn handle_hack(
     let arguments = build_orchestrator_arguments(&target_url, deep, no_auth, &egress);
     let orchestrator_body = orchestrator_role_body(&arguments);
 
+    // Auto-load per-repo guidance (MANTIS.md) if present. Capped at
+    // 8 KB so an oversized guide can't blow the prompt budget.
+    let guidance_block = match project_config::load_guidance(8 * 1024) {
+        Some((path, body)) => {
+            eprintln!("[mantishack] guidance: {} ({} bytes)", path.display(), body.len());
+            format!(
+                "\n\n=== REPO GUIDANCE (MANTIS.md from {}) ===\n\n{body}\n\n\
+                 The orchestrator must consult this guidance when deciding scope, \
+                 do-not-touch lists, authorized auth profiles, and severity floor \
+                 for this engagement. Any explicit constraint in this guidance \
+                 wins over the default playbook.\n",
+                path.display()
+            )
+        }
+        None => String::new(),
+    };
+
     let preauth_system_prompt = format!(
         "Non-interactive invocation by `mantis hack`.\n\
          The operator has provided explicit written authorization for the target \
@@ -1464,7 +1481,7 @@ async fn handle_hack(
            and spawning the named role subagents (recon-agent, \
            surface-router-agent, hunter-agent, chain-builder, \
            brutalist-verifier, balanced-verifier, final-verifier, \
-           evidence-agent, grader, report-writer).\n\n\
+           evidence-agent, grader, report-writer).{guidance_block}\n\n\
          === ORCHESTRATOR ROLE PROMPT ===\n\n\
          {orchestrator_body}",
     );
@@ -1695,14 +1712,25 @@ async fn handle_prompt(
     // The system prompt is intentionally short: this is an ad-hoc
     // surface, not an FSM run. The only invariant is "do not start
     // an engagement without explicit authorization".
-    let system_prompt = "You are running under `mantis prompt` — a one-shot Claude-Code-style \
-                         assistant invocation. The `mantis` MCP server is wired so you have \
-                         access to mantis_* tools, but no engagement has been authorized. \
-                         If the user asks you to start an engagement or run offensive-security \
-                         tests against any target, refuse and direct them to `mantis hack \
-                         <target> --i-have-authorization`. For everything else (questions \
-                         about the codebase, summarizing recon notes, ad-hoc analysis), \
-                         answer directly.";
+    let mut system_prompt = String::from(
+        "You are running under `mantis prompt` — a one-shot Claude-Code-style \
+         assistant invocation. The `mantis` MCP server is wired so you have \
+         access to mantis_* tools, but no engagement has been authorized. \
+         If the user asks you to start an engagement or run offensive-security \
+         tests against any target, refuse and direct them to `mantis hack \
+         <target> --i-have-authorization`. For everything else (questions \
+         about the codebase, summarizing recon notes, ad-hoc analysis), \
+         answer directly.",
+    );
+    if let Some((path, body)) = project_config::load_guidance(8 * 1024) {
+        if !json_mode {
+            eprintln!("[mantis prompt] guidance: {} ({} bytes)", path.display(), body.len());
+        }
+        system_prompt.push_str("\n\n=== REPO GUIDANCE (MANTIS.md from ");
+        system_prompt.push_str(&path.display().to_string());
+        system_prompt.push_str(") ===\n\n");
+        system_prompt.push_str(&body);
+    }
 
     if !json_mode {
         eprintln!("[mantis prompt] claude: {}", claude_path.display());
@@ -1711,7 +1739,7 @@ async fn handle_prompt(
     let status = run_claude_one_shot(
         &claude_path,
         &text,
-        system_prompt,
+        &system_prompt,
         &claude_extra_args,
         json_mode,
     )
