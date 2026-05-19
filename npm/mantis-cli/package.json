@@ -1,0 +1,34 @@
+{
+  "name": "mantis-cli",
+  "version": "0.0.4",
+  "description": "Alias for `mantishack` — installs the Mantis offensive-security daemon CLI (mantis, mantis-daemon, mantis-mcp). AUTHORIZED security testing only. See https://github.com/deonmenezes/mantishack.",
+  "keywords": [
+    "security",
+    "pentest",
+    "bug-bounty",
+    "offensive-security",
+    "mantis"
+  ],
+  "homepage": "https://github.com/deonmenezes/mantishack",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/deonmenezes/mantishack.git"
+  },
+  "license": "Apache-2.0 OR MIT",
+  "author": "Deon Menezes",
+  "bin": {
+    "mantis": "bin/mantis.js",
+    "mantis-daemon": "bin/mantis-daemon.js",
+    "mantis-mcp": "bin/mantis-mcp.js"
+  },
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=14"
+  },
+  "dependencies": {
+    "mantishack": "0.0.4"
+  }
+}
