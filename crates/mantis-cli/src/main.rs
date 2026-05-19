@@ -1547,9 +1547,107 @@ async fn handle_hack(
 
     eprintln!();
     eprintln!("[mantishack] orchestrator returned cleanly.");
-    eprintln!("[mantishack] artifacts (if produced) live under ./mantishack-<engagement-id>/");
-    eprintln!("[mantishack]   See `summary.txt`, `events.jsonl`, `report.*` inside that folder.");
+    print_post_run_summary();
     Ok(())
+}
+
+/// Find the most-recent `./mantishack-<id>/` engagement directory and
+/// print a claude-code-style "what just happened" summary: findings
+/// by severity, grade verdict (SUBMIT / HOLD / SKIP), and the path
+/// to the rendered report.
+fn print_post_run_summary() {
+    let cwd = match std::env::current_dir() {
+        Ok(p) => p,
+        Err(_) => return,
+    };
+    let mut newest: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
+    let Ok(entries) = std::fs::read_dir(&cwd) else {
+        eprintln!("[mantishack] artifacts (if produced) live under ./mantishack-<engagement-id>/");
+        return;
+    };
+    for ent in entries.flatten() {
+        let name = ent.file_name();
+        let name = name.to_string_lossy();
+        if !name.starts_with("mantishack-") {
+            continue;
+        }
+        let Ok(meta) = ent.metadata() else { continue; };
+        if !meta.is_dir() {
+            continue;
+        }
+        let mtime = meta.modified().unwrap_or(std::time::UNIX_EPOCH);
+        if newest.as_ref().is_none_or(|(t, _)| mtime > *t) {
+            newest = Some((mtime, ent.path()));
+        }
+    }
+    let Some((_, eng_dir)) = newest else {
+        eprintln!("[mantishack] artifacts (if produced) live under ./mantishack-<engagement-id>/");
+        return;
+    };
+
+    eprintln!();
+    eprintln!("┌──────────────────────────────────────────────────────────────");
+    eprintln!("│ engagement: {}", eng_dir.display());
+
+    // Findings.jsonl — count by severity.
+    let findings_path = eng_dir.join("findings.jsonl");
+    if let Ok(raw) = std::fs::read_to_string(&findings_path) {
+        let mut counts: std::collections::BTreeMap<String, u32> = Default::default();
+        let mut total = 0u32;
+        for line in raw.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+                let sev = v.get("severity").and_then(|s| s.as_str()).unwrap_or("?");
+                *counts.entry(sev.to_string()).or_insert(0) += 1;
+                total += 1;
+            }
+        }
+        eprintln!("│ findings:   {total} total");
+        for sev in ["critical", "high", "medium", "low", "info"] {
+            if let Some(n) = counts.get(sev) {
+                eprintln!("│   {sev:<10} {n}");
+            }
+        }
+    } else {
+        eprintln!("│ findings:   (no findings.jsonl)");
+    }
+
+    // Grade verdict.
+    let grade_path = eng_dir.join("grade-verdict.json");
+    if let Ok(raw) = std::fs::read_to_string(&grade_path) {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
+            let verdict = v.get("verdict").and_then(|s| s.as_str()).unwrap_or("(unknown)");
+            let total = v.get("total_score").and_then(|s| s.as_i64()).unwrap_or(0);
+            eprintln!("│ grade:      {verdict} (total_score={total})");
+        }
+    }
+
+    // Report — list rendered formats.
+    let mut report_paths: Vec<String> = vec![];
+    if eng_dir.join("report.md").is_file() {
+        report_paths.push("report.md".into());
+    }
+    for ext in ["pdf", "json", "sarif", "openvex"] {
+        if eng_dir.join(format!("report.{ext}")).is_file() {
+            report_paths.push(format!("report.{ext}"));
+        }
+    }
+    if !report_paths.is_empty() {
+        eprintln!("│ reports:    {}", report_paths.join(", "));
+    }
+
+    // Merkle log size.
+    if let Ok(meta) = std::fs::metadata(eng_dir.join("events.jsonl")) {
+        eprintln!("│ events.jsonl: {} bytes (signed Merkle log)", meta.len());
+    }
+
+    eprintln!("└──────────────────────────────────────────────────────────────");
+    eprintln!();
+    eprintln!("[mantishack] render report in other formats:");
+    eprintln!("[mantishack]   mantis engagement report <id> --format pdf");
+    eprintln!("[mantishack]   mantis engagement report <id> --format hackerone");
 }
 
 /// Prepend `--model <id>` to the args forwarded to `claude --print`,
