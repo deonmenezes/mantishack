@@ -1549,7 +1549,23 @@ impl MantisMcpServer {
             }
         }
         let floor_rank = parse_severity_floor(args.severity_floor.as_deref());
-        let report = render_markdown(&info, &surfaces, &waves, &chains, floor_rank);
+        // Evidence-dense rendering: load the 3-round verifier
+        // cascade, evidence packs, and grade verdict from disk so
+        // the rendered report is the proof itself, not just a list
+        // of finding titles.
+        let verification_rounds = load_verification_rounds(&dir);
+        let evidence_packs = load_evidence_packs(&dir);
+        let grade_verdict = load_grade_verdict(&dir);
+        let report = render_markdown_with_evidence(
+            &info,
+            &surfaces,
+            &waves,
+            &chains,
+            floor_rank,
+            &verification_rounds,
+            evidence_packs.as_ref(),
+            grade_verdict.as_ref(),
+        );
         std::fs::write(dir.join("report.md"), &report)
             .map_err(|e| to_internal("write report.md", e))?;
         let findings_total: u32 = waves.iter().map(|w| w.findings_total).sum();
@@ -2219,6 +2235,39 @@ pub fn load_wave_merges(dir: &std::path::Path) -> Vec<wave::WaveMerge> {
     out
 }
 
+/// Load the three verification-cascade rounds from the engagement
+/// directory. Returns a map keyed by `"brutalist" | "balanced" |
+/// "final"` to the parsed JSON, with missing files silently
+/// omitted (e.g. mid-engagement, only brutalist might be written).
+pub fn load_verification_rounds(
+    dir: &std::path::Path,
+) -> std::collections::BTreeMap<String, serde_json::Value> {
+    let mut out = std::collections::BTreeMap::new();
+    let rounds_dir = dir.join("verification-rounds");
+    for round in ["brutalist", "balanced", "final"] {
+        let path = rounds_dir.join(format!("{round}.json"));
+        let Ok(bytes) = std::fs::read(&path) else { continue };
+        let Ok(v) = serde_json::from_slice::<serde_json::Value>(&bytes) else { continue };
+        out.insert(round.to_string(), v);
+    }
+    out
+}
+
+/// Load the evidence pack JSON from the engagement directory.
+/// Returns `None` when the file is missing or unreadable.
+pub fn load_evidence_packs(dir: &std::path::Path) -> Option<serde_json::Value> {
+    let path = dir.join("evidence-packs.json");
+    let bytes = std::fs::read(&path).ok()?;
+    serde_json::from_slice::<serde_json::Value>(&bytes).ok()
+}
+
+/// Load the grade verdict JSON from the engagement directory.
+pub fn load_grade_verdict(dir: &std::path::Path) -> Option<serde_json::Value> {
+    let path = dir.join("grade-verdict.json");
+    let bytes = std::fs::read(&path).ok()?;
+    serde_json::from_slice::<serde_json::Value>(&bytes).ok()
+}
+
 /// Map a severity-floor string to its rank. Findings whose severity
 /// rank is strictly below this rank are suppressed from the rendered
 /// report. Defaults to `low` (rank 1), which drops info-tier noise.
@@ -2246,7 +2295,228 @@ pub fn severity_rank(sev: &str) -> u8 {
 /// Render the engagement summary + waves + chain attempts as a
 /// stand-alone markdown report. `severity_floor_rank` of 0 admits
 /// everything; 1 drops `info`; 2 drops `info`+`low`; etc.
+///
+/// Back-compat wrapper that calls the evidence-dense renderer
+/// below with no verification rounds, evidence packs, or grade
+/// verdict. Existing tests + callers keep working as-is.
 pub fn render_markdown(
+    info: &EngagementSummary,
+    surfaces: &[Surface],
+    waves: &[wave::WaveMerge],
+    chains: &[(u32, Vec<wave::ChainAttempt>)],
+    severity_floor_rank: u8,
+) -> String {
+    render_markdown_with_evidence(
+        info,
+        surfaces,
+        waves,
+        chains,
+        severity_floor_rank,
+        &Default::default(),
+        None,
+        None,
+    )
+}
+
+/// Evidence-dense renderer. Same arguments as `render_markdown`
+/// plus the 3-round verification cascade, evidence packs, and grade
+/// verdict. When any of those auxiliary inputs is present, the
+/// rendered report grows a `## Verification cascade`,
+/// `## Evidence packs`, and / or `## Grade verdict` section so the
+/// final artifact is the proof itself — not just a list of finding
+/// titles.
+pub fn render_markdown_with_evidence(
+    info: &EngagementSummary,
+    surfaces: &[Surface],
+    waves: &[wave::WaveMerge],
+    chains: &[(u32, Vec<wave::ChainAttempt>)],
+    severity_floor_rank: u8,
+    verification_rounds: &std::collections::BTreeMap<String, serde_json::Value>,
+    evidence_packs: Option<&serde_json::Value>,
+    grade_verdict: Option<&serde_json::Value>,
+) -> String {
+    let body = render_markdown_core(info, surfaces, waves, chains, severity_floor_rank);
+    let mut s = body;
+    s.push_str(&render_verification_cascade_section(verification_rounds));
+    if let Some(packs) = evidence_packs {
+        s.push_str(&render_evidence_packs_section(packs));
+    }
+    if let Some(grade) = grade_verdict {
+        s.push_str(&render_grade_verdict_section(grade));
+    }
+    s
+}
+
+/// Render the brutalist / balanced / final verification rounds as a
+/// markdown section keyed by finding_id (when available) plus the
+/// adjudication plan hash if present in the final round.
+fn render_verification_cascade_section(
+    rounds: &std::collections::BTreeMap<String, serde_json::Value>,
+) -> String {
+    if rounds.is_empty() {
+        return String::new();
+    }
+    let mut s = String::new();
+    s.push_str("\n## Verification cascade\n\n");
+    s.push_str(
+        "Each reportable finding is re-proven through three independent verifier rounds:\n\
+         **brutalist** (skeptic; assumes false positive until proven), **balanced** \
+         (false-negative recovery on top of the brutalist's rejections), and **final** \
+         (fresh re-run bound to the deterministic `adjudication_plan_hash` derived from \
+         brutalist + balanced). The final round's `reportable=true` outcome is the gate \
+         that admits a finding into the report.\n\n",
+    );
+    for round in ["brutalist", "balanced", "final"] {
+        let Some(v) = rounds.get(round) else { continue };
+        s.push_str(&format!("### {round} verifier\n\n"));
+        // Top-level metadata (adjudication_plan_hash, summary, etc.)
+        if let Some(hash) = v.get("adjudication_plan_hash").and_then(|x| x.as_str()) {
+            s.push_str(&format!("- **adjudication_plan_hash:** `{hash}`\n"));
+        }
+        if let Some(summary) = v.get("summary").and_then(|x| x.as_str()) {
+            s.push_str(&format!("- **summary:** {summary}\n"));
+        }
+        // Findings map: per-finding verdicts.
+        if let Some(findings) = v.get("findings").and_then(|x| x.as_object()) {
+            if !findings.is_empty() {
+                s.push_str("\n| finding_id | reportable | confidence | reasoning |\n");
+                s.push_str("|---|---|---|---|\n");
+                for (fid, fv) in findings {
+                    let reportable = fv
+                        .get("reportable")
+                        .and_then(|x| x.as_bool())
+                        .map(|b| if b { "✅ true" } else { "❌ false" })
+                        .unwrap_or("—");
+                    let conf = fv
+                        .get("confidence")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("—");
+                    let reasoning = fv
+                        .get("reasoning")
+                        .and_then(|x| x.as_str())
+                        .map(|t| {
+                            let one_line = t.replace('\n', " ");
+                            one_line.chars().take(180).collect::<String>()
+                        })
+                        .unwrap_or_default();
+                    s.push_str(&format!(
+                        "| `{fid}` | {reportable} | {conf} | {reasoning} |\n"
+                    ));
+                }
+                s.push('\n');
+            }
+        }
+        // Drop the full JSON body into a fold-out so an auditor can
+        // verify the verbatim verdict without grep'ing the dir.
+        if let Ok(pretty) = serde_json::to_string_pretty(v) {
+            s.push_str("<details><summary>full round JSON</summary>\n\n```json\n");
+            s.push_str(&pretty);
+            s.push_str("\n```\n\n</details>\n\n");
+        }
+    }
+    s
+}
+
+fn render_evidence_packs_section(packs: &serde_json::Value) -> String {
+    let mut s = String::new();
+    s.push_str("\n## Evidence packs\n\n");
+    s.push_str(
+        "Per-finding evidence bundles: the exact request + response pair, sub-agent \
+         transcripts, and chain steps that constitute the proof. These are what the final \
+         verifier read; they are what a triager will read first.\n\n",
+    );
+    // Try to enumerate per-finding entries when the JSON has that shape.
+    if let Some(map) = packs.as_object() {
+        if let Some(findings) = map.get("findings").and_then(|f| f.as_object()) {
+            for (fid, body) in findings {
+                s.push_str(&format!("### {fid}\n\n"));
+                if let Some(title) = body.get("title").and_then(|t| t.as_str()) {
+                    s.push_str(&format!("- **title:** {title}\n"));
+                }
+                if let Some(sev) = body.get("severity").and_then(|t| t.as_str()) {
+                    s.push_str(&format!("- **severity:** `{sev}`\n"));
+                }
+                if let Some(endpoint) = body.get("endpoint").and_then(|t| t.as_str()) {
+                    s.push_str(&format!("- **endpoint:** `{endpoint}`\n"));
+                }
+                if let Some(impact) = body.get("impact").and_then(|t| t.as_str()) {
+                    s.push_str(&format!("- **impact:** {impact}\n"));
+                }
+                if let Some(poc) = body.get("proof_of_concept").and_then(|t| t.as_str()) {
+                    s.push_str("\n**Proof of concept:**\n\n```\n");
+                    s.push_str(poc);
+                    s.push_str("\n```\n\n");
+                }
+                if let Some(resp) = body.get("response_evidence").and_then(|t| t.as_str()) {
+                    s.push_str("**Response evidence:**\n\n```\n");
+                    s.push_str(resp);
+                    s.push_str("\n```\n\n");
+                }
+                if let Some(steps) = body.get("steps").and_then(|t| t.as_array()) {
+                    if !steps.is_empty() {
+                        s.push_str("**Steps:**\n\n");
+                        for (i, step) in steps.iter().enumerate() {
+                            let summary = step
+                                .get("summary")
+                                .or_else(|| step.get("description"))
+                                .and_then(|x| x.as_str())
+                                .unwrap_or("(no summary)");
+                            s.push_str(&format!("{}. {}\n", i + 1, summary));
+                        }
+                        s.push('\n');
+                    }
+                }
+            }
+            return s;
+        }
+    }
+    // Fallback: just embed the JSON.
+    if let Ok(pretty) = serde_json::to_string_pretty(packs) {
+        s.push_str("```json\n");
+        s.push_str(&pretty);
+        s.push_str("\n```\n\n");
+    }
+    s
+}
+
+fn render_grade_verdict_section(grade: &serde_json::Value) -> String {
+    let mut s = String::new();
+    s.push_str("\n## Grade verdict\n\n");
+    let verdict = grade.get("verdict").and_then(|v| v.as_str()).unwrap_or("—");
+    let total = grade.get("total_score").and_then(|v| v.as_i64()).unwrap_or(0);
+    s.push_str(&format!("- **Verdict:** `{verdict}`\n"));
+    s.push_str(&format!("- **Total score:** {total}\n"));
+    if let Some(fb) = grade.get("feedback").and_then(|v| v.as_str()) {
+        s.push_str(&format!("- **Feedback:** {fb}\n"));
+    }
+    if let Some(findings) = grade.get("findings").and_then(|v| v.as_object()) {
+        if !findings.is_empty() {
+            s.push_str("\n| finding_id | impact | proof | sev_acc | chain | report | total |\n");
+            s.push_str("|---|---|---|---|---|---|---|\n");
+            for (fid, fv) in findings {
+                let g = |k: &str| {
+                    fv.get(k)
+                        .and_then(|x| x.as_i64())
+                        .map(|n| n.to_string())
+                        .unwrap_or_else(|| "—".into())
+                };
+                s.push_str(&format!(
+                    "| `{fid}` | {} | {} | {} | {} | {} | {} |\n",
+                    g("impact"),
+                    g("proof_quality"),
+                    g("severity_accuracy"),
+                    g("chain_potential"),
+                    g("report_quality"),
+                    g("total_score"),
+                ));
+            }
+            s.push('\n');
+        }
+    }
+    s
+}
+
+fn render_markdown_core(
     info: &EngagementSummary,
     surfaces: &[Surface],
     waves: &[wave::WaveMerge],
@@ -3076,5 +3346,110 @@ mod tests {
         let v: RunTieredArgs = serde_json::from_str(raw).unwrap();
         assert_eq!(v.budget_seconds, Some(60));
         assert_eq!(v.hard_max_iterations, Some(5));
+    }
+
+    #[test]
+    fn verification_cascade_renders_per_finding_table() {
+        let mut rounds = std::collections::BTreeMap::new();
+        rounds.insert(
+            "brutalist".into(),
+            json!({
+                "adjudication_plan_hash": "blake3:abc123",
+                "findings": {
+                    "F-1": {"reportable": false, "confidence": "high", "reasoning": "Authorization header was missing — replay does not show cross-tenant access"},
+                    "F-2": {"reportable": true,  "confidence": "high", "reasoning": "Attacker profile reads victim order: id=42 returns row owner=victim"},
+                }
+            }),
+        );
+        rounds.insert(
+            "balanced".into(),
+            json!({"findings": {"F-1": {"reportable": true, "confidence": "medium", "reasoning": "Brutalist over-rejected; victim-profile shows leak"}}}),
+        );
+        rounds.insert(
+            "final".into(),
+            json!({
+                "adjudication_plan_hash": "blake3:abc123",
+                "findings": {
+                    "F-1": {"reportable": true, "confidence": "medium"},
+                    "F-2": {"reportable": true, "confidence": "high"},
+                }
+            }),
+        );
+        let out = render_verification_cascade_section(&rounds);
+        assert!(out.contains("Verification cascade"));
+        assert!(out.contains("brutalist verifier"));
+        assert!(out.contains("balanced verifier"));
+        assert!(out.contains("final verifier"));
+        assert!(out.contains("F-1"));
+        assert!(out.contains("F-2"));
+        assert!(out.contains("✅ true"));
+        assert!(out.contains("❌ false"));
+        assert!(out.contains("blake3:abc123"));
+        assert!(out.contains("full round JSON"));
+    }
+
+    #[test]
+    fn evidence_packs_render_per_finding() {
+        let packs = json!({
+            "findings": {
+                "F-1": {
+                    "title": "IDOR on /orders/{id}",
+                    "severity": "high",
+                    "endpoint": "/api/orders/42",
+                    "impact": "Cross-tenant read of any user's orders by manipulating id",
+                    "proof_of_concept": "GET /api/orders/42 with attacker bearer ...",
+                    "response_evidence": "200 OK { owner: 'victim', amount: 19.99 }"
+                }
+            }
+        });
+        let out = render_evidence_packs_section(&packs);
+        assert!(out.contains("F-1"));
+        assert!(out.contains("IDOR on /orders/{id}"));
+        assert!(out.contains("Proof of concept"));
+        assert!(out.contains("Response evidence"));
+        assert!(out.contains("`/api/orders/42`"));
+    }
+
+    #[test]
+    fn grade_verdict_renders_scoring_table() {
+        let grade = json!({
+            "verdict": "SUBMIT",
+            "total_score": 78,
+            "findings": {
+                "F-1": {
+                    "impact": 24,
+                    "proof_quality": 22,
+                    "severity_accuracy": 12,
+                    "chain_potential": 8,
+                    "report_quality": 12,
+                    "total_score": 78
+                }
+            }
+        });
+        let out = render_grade_verdict_section(&grade);
+        assert!(out.contains("`SUBMIT`"));
+        assert!(out.contains("F-1"));
+        assert!(out.contains("78"));
+    }
+
+    #[test]
+    fn render_markdown_with_evidence_back_compat_when_aux_empty() {
+        // When no auxiliary data is supplied, the evidence-dense
+        // renderer must produce a report indistinguishable from the
+        // back-compat shim (no Verification cascade / Evidence packs
+        // / Grade verdict sections).
+        let info = EngagementSummary {
+            id: "01HXXX".into(),
+            name: "t".into(),
+            state: "active",
+            created_at_unix: 0,
+            event_count: 0,
+            scope_hash: None,
+        };
+        let plain = render_markdown(&info, &[], &[], &[], 1);
+        let dense = render_markdown_with_evidence(
+            &info, &[], &[], &[], 1, &Default::default(), None, None,
+        );
+        assert_eq!(plain, dense);
     }
 }
