@@ -18,9 +18,10 @@
 //! Ctrl-D / EOF exits.
 
 use std::io::{self, BufRead, BufReader, Write};
+use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
 use std::process::{Command as StdCommand, Stdio};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -30,6 +31,11 @@ use indicatif::{ProgressBar, ProgressStyle};
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 use serde_json::Value;
+
+/// PID of the currently-running provider child. Zero means idle.
+/// The SIGINT handler reads this; when non-zero it forwards SIGINT
+/// to the child instead of letting the signal kill the whole REPL.
+static CURRENT_CHILD_PID: AtomicI32 = AtomicI32::new(0);
 
 // ANSI escape codes. We render the header + inline status hints
 // directly instead of going through ratatui — the whole point of
@@ -121,6 +127,8 @@ pub fn run() -> Result<()> {
 
     let mut active = providers[0].clone();
     print_banner(&active, &providers);
+
+    install_sigint_handler();
 
     let mut rl = DefaultEditor::new().context("init readline")?;
     let history_path = history_path();
@@ -277,6 +285,12 @@ fn build_full_prompt(user_prompt: &str) -> String {
 fn spawn_provider(provider: &str, user_prompt: &str) -> Result<()> {
     let full = build_full_prompt(user_prompt);
 
+    // Pre-flight: daemon up + MCP registered. Both sub-100ms when
+    // already OK; fixes "no MCP configuration" mid-session when the
+    // npm marker said init ran but state drifted (claude config
+    // edited, daemon killed, etc).
+    ensure_ready_for_spawn();
+
     // Pick + show a tip above the spinner.
     println!("{DIM}✦ tip: {}{RESET}", pick_tip());
 
@@ -347,6 +361,10 @@ fn spawn_provider(provider: &str, user_prompt: &str) -> Result<()> {
     let mut child = cmd
         .spawn()
         .with_context(|| format!("spawn {provider}"))?;
+    // Publish the child PID so the SIGINT handler can route Ctrl+C
+    // to it (instead of killing the whole REPL). Cleared right
+    // after wait() returns.
+    CURRENT_CHILD_PID.store(child.id() as i32, Ordering::Relaxed);
     let stdout = child.stdout.take().context("no stdout")?;
     let stderr = child.stderr.take().context("no stderr")?;
 
@@ -387,6 +405,7 @@ fn spawn_provider(provider: &str, user_prompt: &str) -> Result<()> {
 
     let _ = stderr_thread.join();
     let status = child.wait()?;
+    CURRENT_CHILD_PID.store(0, Ordering::Relaxed);
     stop_flag.store(true, Ordering::Relaxed);
     let _ = ticker.join();
     pb.finish_and_clear();
@@ -547,6 +566,156 @@ fn summarize_tool_input(name: &str, input: Option<&Value>) -> String {
             .as_object()
             .map(|m| format!("{} args", m.len()))
             .unwrap_or_default(),
+    }
+}
+
+/// Install a SIGINT handler that forwards Ctrl+C to the running
+/// child process when one is active. When no child is running the
+/// signal falls through to rustyline's default behavior (blank the
+/// current input line). Without this, Ctrl+C while a provider is
+/// streaming would kill the whole REPL.
+fn install_sigint_handler() {
+    use signal_hook::consts::SIGINT;
+    use signal_hook::iterator::Signals;
+    let mut signals = match Signals::new([SIGINT]) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("{DIM}(could not install SIGINT handler: {e}){RESET}");
+            return;
+        }
+    };
+    thread::spawn(move || {
+        for _ in signals.forever() {
+            let pid = CURRENT_CHILD_PID.load(Ordering::Relaxed);
+            if pid > 0 {
+                // Forward SIGINT to the child. It usually exits;
+                // its stdout pipe closes, the spawn_provider loop
+                // returns, and we're back at the REPL prompt.
+                // Shell out to /bin/kill instead of libc::kill so
+                // we don't need an unsafe block (workspace lints
+                // forbid those).
+                let _ = StdCommand::new("kill")
+                    .args(["-INT", &pid.to_string()])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+            }
+            // If pid == 0 (idle), rustyline's own SIGINT handling
+            // (ReadlineError::Interrupted) takes care of clearing
+            // the line.
+        }
+    });
+}
+
+/// Pre-spawn health check: make sure the daemon is reachable and
+/// the `mantis` MCP server is registered with the `claude` CLI.
+/// Both checks are <100 ms when already OK; we run them on every
+/// spawn so a stale env doesn't produce the "no MCP configuration"
+/// error mid-session.
+fn ensure_ready_for_spawn() {
+    if !daemon_is_up() {
+        try_spawn_daemon();
+    }
+    if !mantis_mcp_registered_with_claude() {
+        try_register_mantis_mcp();
+    }
+}
+
+fn daemon_is_up() -> bool {
+    let addr: SocketAddr = match "127.0.0.1:50451".parse() {
+        Ok(a) => a,
+        Err(_) => return false,
+    };
+    TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok()
+}
+
+fn try_spawn_daemon() {
+    let Some(daemon_bin) = which_bin("mantis-daemon") else {
+        return;
+    };
+    let home = match std::env::var("HOME") {
+        Ok(h) => h,
+        Err(_) => return,
+    };
+    let state_dir = PathBuf::from(home).join(".Mantis");
+    let _ = std::fs::create_dir_all(&state_dir);
+    let log_path = state_dir.join("daemon.log");
+    let Ok(log) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+    else {
+        return;
+    };
+    let Ok(log_err) = log.try_clone() else { return };
+    let mut cmd = StdCommand::new(&daemon_bin);
+    cmd.stdin(Stdio::null()).stdout(log).stderr(log_err);
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+    if let Ok(child) = cmd.spawn() {
+        let _ = std::fs::write(state_dir.join("daemon.pid"), child.id().to_string());
+        // Give it a moment to bind.
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(3) {
+            if daemon_is_up() {
+                eprintln!(
+                    "{DIM}✓ started mantis-daemon (pid {}) → {}{RESET}",
+                    child.id(),
+                    log_path.display()
+                );
+                return;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+    }
+}
+
+fn mantis_mcp_registered_with_claude() -> bool {
+    let Some(claude) = which_bin("claude") else {
+        return true; // claude not installed — nothing to register
+    };
+    StdCommand::new(claude)
+        .args(["mcp", "get", "mantis"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+fn try_register_mantis_mcp() {
+    let Some(claude) = which_bin("claude") else {
+        return;
+    };
+    let Some(mcp_bin) = which_bin("mantis-mcp") else {
+        return;
+    };
+    // Best-effort cleanup of any stale registration so add succeeds.
+    let _ = StdCommand::new(&claude)
+        .args(["mcp", "remove", "mantis", "-s", "user"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    let status = StdCommand::new(&claude)
+        .args([
+            "mcp",
+            "add",
+            "mantis",
+            "-s",
+            "user",
+            "--",
+            mcp_bin.to_string_lossy().as_ref(),
+            "--daemon",
+            "http://127.0.0.1:50451",
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    if matches!(status, Ok(s) if s.success()) {
+        eprintln!("{DIM}✓ registered `mantis` MCP server with claude{RESET}");
     }
 }
 

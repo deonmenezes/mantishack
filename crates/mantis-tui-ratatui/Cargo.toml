@@ -22,6 +22,9 @@ anyhow = { workspace = true }
 rustyline = "14"
 indicatif = "0.17"
 serde_json = { workspace = true }
+# Catches Ctrl+C in the REPL so we can route it to the running child
+# instead of killing mantis itself.
+signal-hook = "0.3"
 
 [lints]
 workspace = true
