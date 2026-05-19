@@ -318,13 +318,15 @@ fn spawn_provider(provider: &str, user_prompt: &str) -> Result<()> {
     let stream_json = provider == "claude";
     match provider {
         "claude" => {
+            // `--disallowed-tools <tools...>` is variadic in claude's
+            // CLI — separate arg form would consume the prompt as
+            // another tool name. Use `--flag=value` so it takes
+            // exactly one value and the prompt arg stays separate.
             cmd.arg("--print")
                 .arg("--dangerously-skip-permissions")
-                .arg("--output-format")
-                .arg("stream-json")
+                .arg("--output-format=stream-json")
                 .arg("--verbose")
-                .arg("--disallowed-tools")
-                .arg("Skill")
+                .arg("--disallowed-tools=Skill")
                 .arg(&full);
         }
         _ => {
