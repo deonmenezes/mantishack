@@ -27,8 +27,10 @@ const DEFAULT_DAEMON_ENDPOINT: &str = "http://127.0.0.1:50451";
 
 /// How many times `mantis hack` / `mantis investigate` / `mantis
 /// prompt` will auto-resume on a failed `claude --print` session
-/// before giving up. Override at runtime via `MANTIS_MAX_RESUMES`.
-const DEFAULT_MAX_RESUMES_FALLBACK: u32 = 3;
+/// before giving up. Default: `u32::MAX` (effectively "no budget"
+/// — mantis never gives up on its own). Override at runtime via
+/// `MANTIS_MAX_RESUMES=N` if you want a hard cap.
+const DEFAULT_MAX_RESUMES_FALLBACK: u32 = u32::MAX;
 
 /// Resolved per-invocation so an operator can dial it via env var
 /// without rebuilding. Returns the fallback when unset / malformed.
@@ -404,6 +406,47 @@ enum Command {
         #[command(subcommand)]
         action: Option<ModelAction>,
     },
+    /// "Ultra" preset — go all in. Opus 4.7 model, deep recon, turbo
+    /// mode, unlimited auto-resume on errors. Use when you want
+    /// maximum thoroughness and don't care about token cost.
+    /// Equivalent to:
+    ///   MANTIS_MODEL=claude-opus-4-7 MANTIS_MAX_RESUMES=∞ \
+    ///   mantis hack <target> --turbo --i-have-authorization
+    Ultra {
+        /// Target URL or bare domain.
+        target: String,
+        /// Skip the authorization prompt. The caller MUST hold
+        /// written authorization for the target.
+        #[arg(long)]
+        i_have_authorization: bool,
+        /// Daemon gRPC endpoint.
+        #[arg(long, env = "MANTIS_DAEMON", default_value = DEFAULT_DAEMON_ENDPOINT)]
+        daemon: String,
+        /// Override the `claude` binary path.
+        #[arg(long, env = "MANTIS_CLAUDE_BIN")]
+        claude_bin: Option<Utf8PathBuf>,
+        /// Extra args forwarded to `claude --print` after `--`.
+        #[arg(last = true)]
+        claude_extra_args: Vec<String>,
+    },
+    /// "Flash" preset — fast and cheap. Haiku 4.5 model, shallow
+    /// recon, a single auto-resume budget. Use for quick scans, dry
+    /// runs, and CI smoke tests where you want a fast pass and not
+    /// a deep one. Equivalent to:
+    ///   MANTIS_MODEL=claude-haiku-4-5-20251001 MANTIS_MAX_RESUMES=1 \
+    ///   mantis hack <target> --i-have-authorization
+    Flash {
+        /// Target URL or bare domain.
+        target: String,
+        #[arg(long)]
+        i_have_authorization: bool,
+        #[arg(long, env = "MANTIS_DAEMON", default_value = DEFAULT_DAEMON_ENDPOINT)]
+        daemon: String,
+        #[arg(long, env = "MANTIS_CLAUDE_BIN")]
+        claude_bin: Option<Utf8PathBuf>,
+        #[arg(last = true)]
+        claude_extra_args: Vec<String>,
+    },
     /// Investigate anything carefully using the full Mantis stack —
     /// MCP tools, spawned sub-agents, the egress proxy, the Merkle
     /// log — but without the rigid 7-phase FSM that `mantis hack`
@@ -638,6 +681,34 @@ fn main() -> Result<()> {
     match command {
         Command::Tui => mantis_tui_ratatui::prompt::run(),
         Command::Model { action } => handle_model(action),
+        Command::Ultra {
+            target,
+            i_have_authorization,
+            daemon,
+            claude_bin,
+            claude_extra_args,
+        } => run_async(handle_preset(
+            HackPreset::Ultra,
+            target,
+            i_have_authorization,
+            daemon,
+            claude_bin,
+            claude_extra_args,
+        )),
+        Command::Flash {
+            target,
+            i_have_authorization,
+            daemon,
+            claude_bin,
+            claude_extra_args,
+        } => run_async(handle_preset(
+            HackPreset::Flash,
+            target,
+            i_have_authorization,
+            daemon,
+            claude_bin,
+            claude_extra_args,
+        )),
         Command::Prompt {
             text,
             daemon,
@@ -1394,6 +1465,120 @@ impl HackLegacyFlags {
             || self.max_candidates.is_some()
             || self.max_endpoints_probed.is_some()
     }
+}
+
+impl Default for HackLegacyFlags {
+    fn default() -> Self {
+        Self {
+            cookie: None,
+            supabase_signup: None,
+            supabase_apikey: None,
+            attacker_profile: None,
+            victim_profile: None,
+            extra_paths: vec![],
+            max_candidates: None,
+            max_endpoints_probed: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum HackPreset {
+    /// All-in: Opus 4.7 + deep recon + turbo + unlimited auto-resume.
+    Ultra,
+    /// Fast / cheap: Haiku 4.5 + shallow + tight auto-resume cap.
+    Flash,
+}
+
+/// Common entry point for `mantis ultra <target>` and `mantis flash
+/// <target>`. Each preset wires the right env vars (`MANTIS_MODEL`,
+/// `MANTIS_MAX_RESUMES`) and the right `--turbo` / `--deep` state,
+/// then delegates to `handle_hack` so a preset run is bit-for-bit
+/// the same code path as the explicit-flag equivalent.
+async fn handle_preset(
+    preset: HackPreset,
+    target: String,
+    i_have_authorization: bool,
+    daemon: String,
+    claude_bin: Option<Utf8PathBuf>,
+    claude_extra_args: Vec<String>,
+) -> Result<()> {
+    let (label, model, max_resumes, turbo, deep) = match preset {
+        HackPreset::Ultra => (
+            "ultra",
+            "claude-opus-4-7",
+            u32::MAX,   // unlimited
+            true,       // turbo (implies deep + opus, but we set both explicitly below)
+            true,       // deep
+        ),
+        HackPreset::Flash => (
+            "flash",
+            "claude-haiku-4-5-20251001",
+            1u32,       // one retry
+            false,
+            false,
+        ),
+    };
+
+    // Only set MANTIS_MODEL if the operator hasn't already pinned
+    // one — flags / env / .mantis.json / ~/.Mantis/model still win.
+    // For presets the intent is "if nothing else is set, use this".
+    let prior_env = std::env::var("MANTIS_MODEL").ok().filter(|s| !s.trim().is_empty());
+    let claude_args_have_model = claude_extra_args
+        .iter()
+        .any(|a| a == "--model" || a == "-m" || a.starts_with("--model="));
+    if prior_env.is_none() && !claude_args_have_model {
+        std::env::set_var("MANTIS_MODEL", model);
+    }
+    // Resume cap: presets always pin it (env can still override).
+    let prior_resumes = std::env::var("MANTIS_MAX_RESUMES")
+        .ok()
+        .and_then(|s| s.trim().parse::<u32>().ok());
+    if prior_resumes.is_none() {
+        if max_resumes == u32::MAX {
+            // u32::MAX is the new default; no need to set the env var.
+        } else {
+            std::env::set_var("MANTIS_MAX_RESUMES", max_resumes.to_string());
+        }
+    }
+
+    eprintln!("[mantishack] preset:  {label}");
+    eprintln!(
+        "[mantishack]   model:        {model}{}",
+        if prior_env.is_some() || claude_args_have_model {
+            "  (overridden by env / flag)"
+        } else {
+            ""
+        }
+    );
+    eprintln!(
+        "[mantishack]   deep:         {}",
+        if deep { "yes" } else { "no" }
+    );
+    eprintln!(
+        "[mantishack]   auto-resume:  {}",
+        if max_resumes == u32::MAX {
+            "unlimited".to_string()
+        } else {
+            max_resumes.to_string()
+        }
+    );
+
+    handle_hack(
+        target,
+        i_have_authorization,
+        deep,
+        /* no_auth */ false,
+        /* egress */ "default".to_string(),
+        daemon,
+        claude_bin,
+        turbo,
+        /* print_prompt */ false,
+        /* dry_run */ false,
+        claude_extra_args,
+        HackLegacyFlags::default(),
+    )
+    .await
 }
 
 async fn handle_hack(
@@ -2523,9 +2708,14 @@ fn log_resume_attempt(json_mode: bool, attempt: u32, max_resumes: u32, reason: &
     if json_mode {
         return;
     }
+    let budget = if max_resumes == u32::MAX {
+        String::from("∞")
+    } else {
+        max_resumes.to_string()
+    };
     eprintln!();
     eprintln!(
-        "[mantishack] ⚠ claude session failed — auto-resume #{attempt}/{max_resumes} \
+        "[mantishack] ⚠ claude session failed — auto-resume #{attempt}/{budget} \
          (reason: {reason})"
     );
 }
