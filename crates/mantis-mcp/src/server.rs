@@ -823,7 +823,15 @@ impl MantisMcpServer {
         &self,
         Parameters(args): Parameters<WriteVerificationRoundArgs>,
     ) -> Result<CallToolResult, McpError> {
-        let round_bytes = serde_json::to_vec(&args.round_json)
+        // Normalise round_json: MCP transports may deliver it as a pre-encoded
+        // JSON string (Value::String) rather than a native object. Parse it
+        // back to a Value so to_vec produces valid object bytes for the daemon.
+        let round_value = match args.round_json {
+            serde_json::Value::String(ref s) => serde_json::from_str(s)
+                .map_err(|e| to_invalid("round_json parse", e))?,
+            other => other,
+        };
+        let round_bytes = serde_json::to_vec(&round_value)
             .map_err(|e| to_invalid("round_json serialize", e))?;
         let mut client = daemon::connect(&self.daemon_endpoint)
             .await
