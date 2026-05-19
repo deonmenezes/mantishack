@@ -390,6 +390,46 @@ enum Command {
         #[command(subcommand)]
         action: Option<ModelAction>,
     },
+    /// Investigate anything carefully using the full Mantis stack —
+    /// MCP tools, spawned sub-agents, the egress proxy, the Merkle
+    /// log — but without the rigid 7-phase FSM that `mantis hack`
+    /// enforces. The subject auto-classifies:
+    ///
+    /// * URL (`https://…` / `http://…`) — runs an offensive
+    ///   investigation against the target (requires
+    ///   `--i-have-authorization`). The orchestrator spawns recon
+    ///   and hunter agents as needed and reports back.
+    /// * File path that exists on disk — reads the file (capped at
+    ///   64 KB), embeds it in the prompt, and runs a code/config-
+    ///   focused investigation. No auth flag required.
+    /// * Anything else — treated as a free-form prompt. The
+    ///   orchestrator spawns whatever agents help answer it.
+    ///
+    /// Examples:
+    ///   mantis investigate https://app.example.com/api/users --i-have-authorization
+    ///   mantis investigate ./suspicious.js
+    ///   mantis investigate "this IDOR claim — does it really compose into ATO?"
+    Investigate {
+        /// What to investigate. URL, file path, or free-form text.
+        subject: String,
+        /// Required ONLY when the subject classifies as a URL.
+        /// Non-URL subjects don't issue offensive traffic so they
+        /// don't gate on this flag.
+        #[arg(long)]
+        i_have_authorization: bool,
+        /// Daemon gRPC endpoint.
+        #[arg(long, env = "MANTIS_DAEMON", default_value = DEFAULT_DAEMON_ENDPOINT)]
+        daemon: String,
+        /// Override the `claude` binary path.
+        #[arg(long, env = "MANTIS_CLAUDE_BIN")]
+        claude_bin: Option<Utf8PathBuf>,
+        /// Output format: `text` (default) or `json` (raw stream-json).
+        #[arg(long, default_value = "text", value_parser = ["text", "json"])]
+        output_format: String,
+        /// Extra args forwarded to `claude --print` after `--`.
+        #[arg(last = true)]
+        claude_extra_args: Vec<String>,
+    },
     /// One-shot Claude-Code-style prompt. Wires the `mantis` MCP
     /// server and applies the saved model preference, then runs
     /// `claude --print` so you can ask anything — no engagement,
@@ -591,6 +631,21 @@ fn main() -> Result<()> {
             output_format,
             claude_extra_args,
         } => run_async(handle_prompt(text, daemon, claude_bin, output_format, claude_extra_args)),
+        Command::Investigate {
+            subject,
+            i_have_authorization,
+            daemon,
+            claude_bin,
+            output_format,
+            claude_extra_args,
+        } => run_async(handle_investigate(
+            subject,
+            i_have_authorization,
+            daemon,
+            claude_bin,
+            output_format,
+            claude_extra_args,
+        )),
         Command::Status {
             output_format,
             daemon,
@@ -1893,6 +1948,309 @@ async fn handle_prompt(
         anyhow::bail!("`claude` exited with status {status}");
     }
     Ok(())
+}
+
+/// Classification of a `mantis investigate <subject>` argument.
+#[derive(Debug, PartialEq, Eq)]
+enum InvestigateSubject {
+    /// URL — auto-detected by `http://` / `https://` scheme.
+    /// Offensive testing → requires `--i-have-authorization`.
+    Url(String),
+    /// Existing file on disk — content embedded in the investigator
+    /// prompt (capped at 64 KB).
+    File {
+        path: std::path::PathBuf,
+        body: String,
+        truncated: bool,
+    },
+    /// Free-form text. Anything else.
+    Prompt(String),
+}
+
+fn classify_subject(raw: &str) -> InvestigateSubject {
+    let trimmed = raw.trim();
+    if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        return InvestigateSubject::Url(trimmed.to_string());
+    }
+    // File path heuristic: looks like a path AND exists on disk.
+    // We don't treat random multi-word text as a file even if it
+    // contains slashes (e.g. "the /api/users endpoint…").
+    let looks_pathy = !trimmed.contains(char::is_whitespace)
+        && (trimmed.starts_with('/')
+            || trimmed.starts_with("./")
+            || trimmed.starts_with("../")
+            || trimmed.starts_with('~')
+            || trimmed.contains('.'));
+    if looks_pathy {
+        let expanded = if let Some(rest) = trimmed.strip_prefix('~') {
+            if let Ok(home) = std::env::var("HOME") {
+                std::path::PathBuf::from(home).join(rest.trim_start_matches('/'))
+            } else {
+                std::path::PathBuf::from(trimmed)
+            }
+        } else {
+            std::path::PathBuf::from(trimmed)
+        };
+        if expanded.is_file() {
+            const CAP: usize = 64 * 1024;
+            match std::fs::read_to_string(&expanded) {
+                Ok(mut body) => {
+                    let truncated = body.len() > CAP;
+                    if truncated {
+                        // truncate at a UTF-8 boundary
+                        let mut end = CAP;
+                        while end > 0 && !body.is_char_boundary(end) {
+                            end -= 1;
+                        }
+                        body.truncate(end);
+                    }
+                    return InvestigateSubject::File {
+                        path: expanded,
+                        body,
+                        truncated,
+                    };
+                }
+                Err(_) => {
+                    // Fall through to Prompt — couldn't read, treat as text.
+                }
+            }
+        }
+    }
+    InvestigateSubject::Prompt(trimmed.to_string())
+}
+
+/// `mantis investigate <subject>` — flexible follow-up to `mantis
+/// hack`. Uses the full Mantis stack (MCP, sub-agents, egress
+/// proxy, Merkle log) but without the strict 7-phase FSM, so it can
+/// dig into a single finding, a code file, or a free-form question.
+async fn handle_investigate(
+    subject: String,
+    i_have_authorization: bool,
+    daemon: String,
+    claude_bin: Option<Utf8PathBuf>,
+    output_format: String,
+    claude_extra_args: Vec<String>,
+) -> Result<()> {
+    let json_mode = output_format == "json";
+    if !json_mode {
+        banner::print();
+    }
+
+    let classified = classify_subject(&subject);
+    // Auth gate: only the URL variant issues offensive traffic.
+    if matches!(classified, InvestigateSubject::Url(_)) && !i_have_authorization {
+        anyhow::bail!(
+            "refusing to start: `mantis investigate <url>` issues HTTP probes against the target.\n\
+             Re-run with --i-have-authorization once you have written permission."
+        );
+    }
+
+    // Pre-flight: parallel claude + mantis-mcp resolution.
+    let daemon_for_task = daemon.clone();
+    let claude_bin_for_task = claude_bin.clone();
+    let (claude_res, mcp_bin_res) = tokio::join!(
+        tokio::task::spawn_blocking(move || resolve_claude_binary(claude_bin_for_task.as_deref())),
+        tokio::task::spawn_blocking(|| which_bin("mantis-mcp")),
+    );
+    let claude_path = claude_res.context("spawn_blocking(claude-resolve)")??;
+    let mcp_bin = mcp_bin_res.context("spawn_blocking(mantis-mcp lookup)")?;
+    if mcp_bin.is_some() {
+        let claude_path_for_task = claude_path.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            ensure_mantis_mcp_registered_with_prefetched_helper(
+                &claude_path_for_task,
+                &daemon_for_task,
+                mcp_bin,
+            )
+        })
+        .await
+        .context("spawn_blocking(mcp-register)")?;
+    } else if !json_mode {
+        eprintln!("[mantis investigate] note: `mantis-mcp` not on PATH — continuing without mantis_* tools.");
+    }
+
+    let claude_extra_args = apply_model_preference(claude_extra_args, false);
+
+    // Build the investigator prompt — per subject variant.
+    let (subject_label, user_prompt, append_system_prompt) =
+        build_investigator_prompts(&classified, i_have_authorization);
+
+    if !json_mode {
+        eprintln!("[mantis investigate] subject: {subject_label}");
+        eprintln!("[mantis investigate] claude:  {}", claude_path.display());
+    }
+
+    // Open the markdown run log so every claude command is captured.
+    let log_path = run_log::pick_log_path(None);
+    let run_log = match run_log::RunLog::open(log_path.clone(), "mantis investigate", &subject_label) {
+        Ok(l) => {
+            if !json_mode {
+                eprintln!("[mantis investigate] log:     {} (pretty markdown)", log_path.display());
+            }
+            Some(l)
+        }
+        Err(_) => None,
+    };
+    if !json_mode {
+        eprintln!();
+    }
+
+    let status = run_claude_one_shot(
+        &claude_path,
+        &user_prompt,
+        &append_system_prompt,
+        &claude_extra_args,
+        json_mode,
+        run_log.as_ref(),
+    )
+    .await?;
+    if let Some(log) = &run_log {
+        let label = if status.success() {
+            "success".to_string()
+        } else {
+            format!("exit {status}")
+        };
+        log.finalize(&label);
+    }
+    if !status.success() {
+        anyhow::bail!("`claude` exited with status {status}");
+    }
+    Ok(())
+}
+
+/// Build the (subject_label, user_prompt, system_prompt) triple for
+/// the investigator. The system prompt enumerates available tools
+/// and agents and tells the orchestrator how to investigate; the
+/// user prompt is what gets handed to `claude --print` as the
+/// question.
+fn build_investigator_prompts(
+    s: &InvestigateSubject,
+    i_have_authorization: bool,
+) -> (String, String, String) {
+    let common_system = r#"You are running under `mantis investigate` — a flexible Mantis-driven \
+investigation surface. You have access to the full Mantis MCP server (every \
+`mcp__mantis__*` tool) and may spawn any of the specialized sub-agents via the \
+`Task` tool:
+
+  recon-agent              — surface enumeration
+  deep-recon-agent         — script-heavy recon + surface-lead promotion
+  surface-router-agent     — capability-pack routing per surface
+  hunter-agent             — web-surface hunter
+  hunter-evm-agent         — EVM smart-contract hunter
+  hunter-svm-agent         — Solana hunter
+  hunter-move-agent        — Aptos + Sui Move hunter
+  hunter-substrate-agent   — Substrate / ink! hunter
+  hunter-cosmwasm-agent    — CosmWasm hunter
+  chain-builder            — multi-step exploit chain construction
+  brutalist-verifier       — skeptic verifier (round 1)
+  balanced-verifier        — false-negative catcher (round 2)
+  final-verifier           — fresh re-run + adjudication-plan-hash gate
+  evidence-agent           — pre-grade evidence pack assembly
+  grader                   — 5-axis scoring → SUBMIT/HOLD/SKIP
+  report-writer            — disclosure-ready report rendering
+
+Pure-utility leaf tools you should reach for on raw evidence:
+
+  mantis_decode_jwt        — JWT triage (alg:none, exp, signature)
+  mantis_diff_responses    — structural HTTP response diff + markers
+  mantis_summarize_url     — URL parse + SSRF / IMDS / admin / secret-path flags
+  mantis_extract_secrets   — AWS / GitHub / Stripe / Slack / OpenAI / etc token scan
+  mantis_extract_html_forms — form parser + CSRF / mass-assignment buckets
+  mantis_extract_links     — endpoint + host discovery from blobs
+  mantis_hash_request      — stable request hash for dedup
+  mantis_score_finding     — pre-grader using the 5-axis rubric
+
+RULES for this session:
+
+* Do NOT shell out to `mantis hack`, `mantis pentest`, or any other `mantis` CLI
+  via Bash — the `mantis` binary spawned YOU; recursion would infinite-loop. Use
+  MCP tools and Task spawns only.
+* You are NOT driving the 7-phase FSM here. No `mantis_create_engagement`, no
+  `mantis_authorize_scope`, no `mantis_transition_phase`. This is an
+  investigation surface — read, reason, spawn agents, report. If the
+  investigation reveals work that needs a real FSM run, tell the user to launch
+  `mantis hack <target> --i-have-authorization`.
+* When you uncover a candidate finding, call `mantis_score_finding(...)` first
+  and only report it as a real finding if the verdict is SUBMIT.
+* Be thorough but bounded — when you've gathered enough evidence to answer the
+  user's question with high confidence, stop and report. Don't keep mining if
+  the answer is in hand.
+* Report findings inline (not in JSON unless asked). Use markdown for
+  structure. If you produce a final recommendation, lead with it.
+"#;
+
+    match s {
+        InvestigateSubject::Url(url) => {
+            let auth_note = if i_have_authorization {
+                "AUTHORIZED: the operator confirmed written authorization for this target via --i-have-authorization."
+            } else {
+                "NOT AUTHORIZED: do not issue offensive HTTP traffic. Limit to passive reasoning only."
+            };
+            let user = format!(
+                "Investigate this URL carefully: `{url}`\n\n\
+                 Context: the operator wants to know what's worth probing here, what \
+                 vulnerabilities may exist, and whether any specific findings already \
+                 hypothesized about this URL hold up under closer inspection. Use:\n\n\
+                 - `mantis_summarize_url` to classify the URL (admin-like? secret-artifact path? IMDS-shaped?)\n\
+                 - `mantis_http_scan` (with target_domain) to probe the surface live\n\
+                 - `mantis_extract_links` / `mantis_extract_html_forms` on responses to map further surface\n\
+                 - `mantis_decode_jwt` / `mantis_extract_secrets` on auth headers and response bodies\n\
+                 - `Task(subagent_type=hunter-agent, ...)` for a focused per-surface hunt\n\
+                 - `mantis_diff_responses` for auth-differential proofs (attacker vs victim)\n\
+                 - `mantis_score_finding` before reporting any candidate finding\n\n\
+                 Report your investigation as you go: what you tried, what you found, what's left."
+            );
+            let sys = format!(
+                "{common_system}\n\nINVESTIGATION TARGET TYPE: url\n{auth_note}\n"
+            );
+            (format!("url:{url}"), user, sys)
+        }
+        InvestigateSubject::File { path, body, truncated } => {
+            let trunc_note = if *truncated {
+                "\n(NOTE: file content was truncated at 64 KB. Use Read tool on the path for the full file.)"
+            } else {
+                ""
+            };
+            let user = format!(
+                "Investigate this file carefully: `{}`\n\n\
+                 The file content is embedded below (capped at 64 KB).{trunc_note} Use:\n\n\
+                 - `Read`, `Grep`, `Glob` to walk the surrounding repo if useful\n\
+                 - `mantis_extract_secrets` to scan for leaked credentials inline\n\
+                 - `mantis_extract_links` to find URLs / endpoints / hosts referenced\n\
+                 - `mantis_summarize_url` on any URL you discover\n\
+                 - `Task(subagent_type=hunter-agent, ...)` only if the file points at a live target the operator is authorized to test\n\n\
+                 Look for: hardcoded secrets, unsafe patterns, broken auth checks, \
+                 missing input validation, SQL injection / SSRF / RCE primitives, \
+                 untrusted-input → privileged-action sinks, mass-assignment risks, \
+                 unsanitized renders. Report what you found, ranked by severity. \
+                 Tell the user concretely what to do next.\n\n\
+                 === FILE: {} ===\n\n```\n{body}\n```\n",
+                path.display(),
+                path.display()
+            );
+            let sys = format!(
+                "{common_system}\n\nINVESTIGATION TARGET TYPE: file ({})\nThis is a static analysis pass — do not issue HTTP probes.\n",
+                path.display()
+            );
+            (format!("file:{}", path.display()), user, sys)
+        }
+        InvestigateSubject::Prompt(text) => {
+            let user = format!(
+                "Investigate this matter carefully: {text}\n\n\
+                 The user has given you a free-form prompt. Decide what it needs:\n\n\
+                 - If it references a target you should probe live, refuse unless they re-run with `mantis investigate <url> --i-have-authorization`.\n\
+                 - If it references a finding or claim, walk through evidence on disk (`Read` / `Grep`) and via MCP read tools (`mantis_read_findings`, `mantis_read_chain_attempts`, `mantis_read_verification_round`).\n\
+                 - If it's a question about the codebase or about an existing engagement, answer from the artifacts available.\n\
+                 - Spawn specialized sub-agents only if the work clearly fits one of them.\n\n\
+                 Lead with the bottom-line answer; back it up with evidence; tell the user what to do next."
+            );
+            let sys = format!(
+                "{common_system}\n\nINVESTIGATION TARGET TYPE: free-form prompt\nNo target is implied — do not issue offensive HTTP traffic unless the user explicitly authorizes a specific URL.\n"
+            );
+            let label = text.chars().take(40).collect::<String>();
+            (format!("prompt:{label}"), user, sys)
+        }
+    }
 }
 
 /// Like [`run_claude_slash_command`] but for the `mantis prompt`
@@ -3558,5 +3916,80 @@ fn print_engagement(info: EngagementInfo) {
     println!("  events:       {}", info.event_count);
     if let Some(hash) = info.scope_hash {
         println!("  scope_hash:   {hash}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classify_https_is_url() {
+        match classify_subject("https://app.example.com/users/42") {
+            InvestigateSubject::Url(u) => {
+                assert_eq!(u, "https://app.example.com/users/42");
+            }
+            other => panic!("expected Url, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classify_http_is_url() {
+        assert!(matches!(
+            classify_subject("http://localhost:8080/admin"),
+            InvestigateSubject::Url(_)
+        ));
+    }
+
+    #[test]
+    fn classify_existing_file_is_file() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(tmp.path(), "let x = 1;\n").unwrap();
+        match classify_subject(tmp.path().to_str().unwrap()) {
+            InvestigateSubject::File { path, body, truncated } => {
+                assert_eq!(path, tmp.path());
+                assert!(body.contains("let x"));
+                assert!(!truncated);
+            }
+            other => panic!("expected File, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classify_pathy_but_missing_falls_through_to_prompt() {
+        // Looks like a path (starts with /) but doesn't exist on disk.
+        let r = classify_subject("/this/path/does/not/exist.example");
+        assert!(matches!(r, InvestigateSubject::Prompt(_)));
+    }
+
+    #[test]
+    fn classify_free_text_is_prompt() {
+        match classify_subject("does this IDOR claim hold up?") {
+            InvestigateSubject::Prompt(t) => assert_eq!(t, "does this IDOR claim hold up?"),
+            other => panic!("expected Prompt, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classify_trims_whitespace() {
+        match classify_subject("  https://example.com/  ") {
+            InvestigateSubject::Url(u) => assert_eq!(u, "https://example.com/"),
+            other => panic!("expected Url, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn classify_truncates_large_files() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        // 80 KB of ASCII
+        let big: String = "x".repeat(80 * 1024);
+        std::fs::write(tmp.path(), &big).unwrap();
+        match classify_subject(tmp.path().to_str().unwrap()) {
+            InvestigateSubject::File { truncated, body, .. } => {
+                assert!(truncated);
+                assert_eq!(body.len(), 64 * 1024);
+            }
+            other => panic!("expected File, got {other:?}"),
+        }
     }
 }

@@ -228,6 +228,7 @@ fn print_help() {
     println!("  {MINT}/init{RESET}              re-wire plugin + MCP + daemon");
     println!("  {MINT}/init-project{RESET}      scaffold .mantis.json + MANTIS.md in cwd");
     println!("  {MINT}/hack <target>{RESET}     `mantis hack <target> --i-have-authorization`");
+    println!("  {MINT}/investigate <x>{RESET}   investigate URL / file / prompt with the full Mantis stack");
     println!("  {DIM}—— meta ——{RESET}");
     println!("  {MINT}/help{RESET}              this list");
     println!("  {MINT}/exit{RESET}              exit (ctrl-d also works)");
@@ -283,6 +284,27 @@ fn handle_slash(cmd: &str, active: &mut String, providers: &[String]) -> bool {
             run_mantis_subcommand_argv(&argv);
         }
         ["hack"] => println!("{DIM}usage:{RESET} /hack <target> [extra flags]"),
+        ["investigate", first, rest @ ..] => {
+            // `/investigate <subject>` joins the rest into a single
+            // subject string so users can type a multi-word prompt
+            // without quoting. URL detection is unaffected — a
+            // single token starting with http(s):// still wins.
+            let mut subject = String::from(*first);
+            for w in rest {
+                subject.push(' ');
+                subject.push_str(w);
+            }
+            // If the subject is a URL, attach --i-have-authorization
+            // implicitly — typing /investigate <url> in the REPL is
+            // the operator's in-session attestation, same UX as /hack.
+            let is_url = subject.starts_with("http://") || subject.starts_with("https://");
+            let mut argv = vec!["investigate", &subject];
+            if is_url {
+                argv.push("--i-have-authorization");
+            }
+            run_mantis_subcommand_argv(&argv);
+        }
+        ["investigate"] => println!("{DIM}usage:{RESET} /investigate <url|file|prompt>"),
         _ => println!("{DIM}unknown command. /help for the list{RESET}"),
     }
     false
