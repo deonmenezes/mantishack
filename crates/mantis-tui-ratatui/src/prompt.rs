@@ -206,7 +206,7 @@ fn print_banner(active: &str, providers: &[String]) {
     }
     println!();
     println!(
-        "{DIM}Type a request and press Enter. Slash commands: /help, /provider <name>, /exit.{RESET}"
+        "{DIM}Type a request and press Enter. Slash commands: /help, /doctor, /status, /model, /hack <target>, /exit.{RESET}"
     );
     println!(
         "{HIGH}⏵⏵ ethical hacking with authorization only{RESET}  {DIM}(ctrl-d exits){RESET}"
@@ -220,6 +220,14 @@ fn print_help() {
     println!("{BOLD}commands{RESET}");
     println!("  {MINT}/provider <name>{RESET}   switch active AI CLI (claude / codex / opencode / gemini)");
     println!("  {MINT}/providers{RESET}         list AI CLIs detected on PATH");
+    println!("  {DIM}—— mantis subcommands (run inline without leaving the REPL) ——{RESET}");
+    println!("  {MINT}/doctor{RESET}            run `mantis doctor` and print results");
+    println!("  {MINT}/status{RESET}            run `mantis status` (daemon / claude / model snapshot)");
+    println!("  {MINT}/model{RESET} [id|clear]  open the Tab/Shift+Tab picker, set a model, or clear it");
+    println!("  {MINT}/version{RESET}           print the mantis version");
+    println!("  {MINT}/init{RESET}              re-wire plugin + MCP + daemon");
+    println!("  {MINT}/hack <target>{RESET}     `mantis hack <target> --i-have-authorization`");
+    println!("  {DIM}—— meta ——{RESET}");
     println!("  {MINT}/help{RESET}              this list");
     println!("  {MINT}/exit{RESET}              exit (ctrl-d also works)");
     println!();
@@ -246,9 +254,61 @@ fn handle_slash(cmd: &str, active: &mut String, providers: &[String]) -> bool {
                 );
             }
         }
+        // ---- mantis subcommands dispatched to the current binary ----
+        ["doctor", rest @ ..] => run_mantis_subcommand(&["doctor"], rest),
+        ["status", rest @ ..] => run_mantis_subcommand(&["status"], rest),
+        ["version", rest @ ..] => run_mantis_subcommand(&["version"], rest),
+        ["init", rest @ ..] => run_mantis_subcommand(&["init"], rest),
+        ["model"] => run_mantis_subcommand(&["model"], &[]),
+        ["model", "clear"] => run_mantis_subcommand(&["model", "clear"], &[]),
+        ["model", "show"] => run_mantis_subcommand(&["model", "show"], &[]),
+        ["model", id] => run_mantis_subcommand(&["model", "set"], &[id]),
+        ["hack", target, rest @ ..] => {
+            // `/hack` is gated — the operator's typing it interactively
+            // counts as in-session attestation, but we still pass the
+            // explicit flag so the CLI's safety prompt still fires on
+            // any unexpected path.
+            let mut argv = vec!["hack", target, "--i-have-authorization"];
+            argv.extend_from_slice(rest);
+            run_mantis_subcommand_argv(&argv);
+        }
+        ["hack"] => println!("{DIM}usage:{RESET} /hack <target> [extra flags]"),
         _ => println!("{DIM}unknown command. /help for the list{RESET}"),
     }
     false
+}
+
+/// Dispatch a `mantis <subcommand>` call to the currently-running
+/// `mantis` binary (located via `std::env::current_exe`). The REPL
+/// pipes the child's stdout / stderr to its own so the user sees the
+/// output inline. Slash commands are always best-effort — non-zero
+/// exits print a tag-line but don't kill the REPL.
+fn run_mantis_subcommand(base: &[&str], rest: &[&str]) {
+    let mut argv: Vec<&str> = base.to_vec();
+    argv.extend_from_slice(rest);
+    run_mantis_subcommand_argv(&argv);
+}
+
+fn run_mantis_subcommand_argv(argv: &[&str]) {
+    let bin = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(e) => {
+            println!("{HOT}cannot resolve mantis binary path:{RESET} {e}");
+            return;
+        }
+    };
+    println!("{DIM}→ mantis {}{RESET}", argv.join(" "));
+    let status = StdCommand::new(&bin)
+        .args(argv)
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .stdin(Stdio::inherit())
+        .status();
+    match status {
+        Ok(s) if s.success() => {}
+        Ok(s) => println!("{DIM}(mantis exited with status {s}){RESET}"),
+        Err(e) => println!("{HOT}spawn failed:{RESET} {e}"),
+    }
 }
 
 /// Build the Mantis-context preamble that wraps every user prompt.
