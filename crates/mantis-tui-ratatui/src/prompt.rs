@@ -48,22 +48,23 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
+use ratatui::widgets::{Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::Mutex;
 
+// 2-line mantis pixel-art mascot (mint-green). Matches the compact
+// footprint of Claude Code's robot icon — two rows × ~9 cols. The
+// first row is the raised antennae; the second is the armored head
+// silhouette with two glowing eye dots.
 const MASCOT: &[&str] = &[
-    "    /\\_/\\  ",
-    "   ( ^.^ ) ",
-    "    > ^ <  ",
+    " \\\\,,//",
+    " (◣▼◢)",
 ];
 
 const PROVIDERS: &[&str] = &["claude", "codex", "opencode", "gemini"];
 
-const ETHICAL_DISCLAIMER: &str =
-    "ethical hacking with authorization only · mantis enforces scope at the egress proxy";
 
 /// Entry point. Initializes the terminal, runs the event loop, and
 /// restores the terminal state on exit (even on panic).
@@ -322,125 +323,173 @@ async fn stream_provider(
     Ok(status.code().unwrap_or(0))
 }
 
-// --- Rendering ---------------------------------------------------------
+// --- Rendering (Claude-Code-style compact chrome) ----------------------
+//
+// Layout, top to bottom:
+//   3 lines · header (mascot left, title/provider/cwd right)
+//   1 line  · thin divider (─)
+//   1 line  · input row (`›  <prompt>`)
+//   1 line  · thin divider (─)
+//   2 lines · status (provider | cwd | CLI count   ·   mode hint right-aligned)
+//   rest    · output area, plain text (no border), tail-trimmed to fit
+//
+// The chrome is small and pinned to the top half so the eye is drawn
+// to the input. Output flows beneath the chrome as plain lines, the
+// way Claude Code's conversation pane does.
+
+const MINT: Color = Color::Rgb(130, 240, 180);
+const DIM: Color = Color::Rgb(140, 140, 160);
+const DIM_BORDER: Color = Color::Rgb(60, 70, 90);
+const WHITE: Color = Color::Rgb(220, 220, 230);
+const HOT: Color = Color::Rgb(220, 90, 90);
+const HIGH: Color = Color::Rgb(255, 200, 90);
 
 fn draw(f: &mut Frame<'_>, app: &App) {
-    let outer = Layout::default()
+    let area = f.area();
+    let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(5),  // header (mascot + title)
-            Constraint::Min(5),     // output pane
-            Constraint::Length(3),  // input box
-            Constraint::Length(2),  // status bar
+            Constraint::Length(3), // header (mascot + 3 info lines)
+            Constraint::Length(1), // divider
+            Constraint::Length(1), // input row
+            Constraint::Length(1), // divider
+            Constraint::Length(2), // status (2 lines)
+            Constraint::Min(0),    // output area, fills the rest
         ])
-        .split(f.area());
+        .split(area);
 
-    draw_header(f, outer[0]);
-    draw_output(f, outer[1], app);
-    draw_input(f, outer[2], app);
-    draw_status(f, outer[3], app);
+    draw_header(f, layout[0], app);
+    draw_divider(f, layout[1]);
+    draw_input(f, layout[2], app);
+    draw_divider(f, layout[3]);
+    draw_status(f, layout[4], app);
+    draw_output(f, layout[5], app);
 }
 
-fn draw_header(f: &mut Frame<'_>, area: Rect) {
-    let mantis_green = Style::default()
-        .fg(Color::Rgb(130, 240, 180))
-        .add_modifier(Modifier::BOLD);
-    let dim = Style::default().fg(Color::Gray);
-    let mut lines: Vec<Line<'_>> = MASCOT
-        .iter()
-        .map(|s| Line::from(Span::styled((*s).to_string(), mantis_green)))
-        .collect();
-    // Adjust: append title + tagline to the right of the art.
-    let title = Line::from(vec![
-        Span::styled(
-            "  Mantis  ",
-            Style::default()
-                .fg(Color::Rgb(130, 240, 180))
-                .add_modifier(Modifier::BOLD),
-        ),
+fn draw_header(f: &mut Frame<'_>, area: Rect, app: &App) {
+    let mint_b = Style::default().fg(MINT).add_modifier(Modifier::BOLD);
+    let mint = Style::default().fg(MINT);
+    let dim = Style::default().fg(DIM);
+
+    // Mascot on the left (2 rows), info on the right (3 rows).
+    // We render row-by-row so the mascot and info align horizontally.
+    // Mascot column width is fixed; info lines start at a fixed
+    // x-offset that always clears the mascot.
+    let m0 = MASCOT.first().copied().unwrap_or("");
+    let m1 = MASCOT.get(1).copied().unwrap_or("");
+
+    let title_line = Line::from(vec![
+        Span::styled(format!("{m0:<9}  "), mint_b),
+        Span::styled("Mantis ", mint_b),
         Span::styled(env!("CARGO_PKG_VERSION"), dim),
     ]);
-    let tagline = Line::from(vec![
-        Span::styled("  ", dim),
-        Span::styled(
-            ETHICAL_DISCLAIMER,
-            Style::default().fg(Color::Rgb(160, 160, 180)),
-        ),
+    let provider_line = Line::from(vec![
+        Span::styled(format!("{m1:<9}  "), mint),
+        Span::styled(app.active_provider().to_string(), mint),
+        Span::styled("  ·  ", dim),
+        Span::styled(format!("{} CLI{}", app.providers.len(), if app.providers.len() == 1 { "" } else { "s" }), dim),
+        Span::styled("  ·  ", dim),
+        Span::styled("offensive-security agent runner", dim),
     ]);
-    lines.push(title);
-    lines.push(tagline);
-    let p = Paragraph::new(lines).wrap(Wrap { trim: false });
+    let cwd_line = Line::from(vec![
+        Span::styled(format!("{:<11}", ""), dim),
+        Span::styled(format!("~/{}", app.cwd_label), dim),
+    ]);
+
+    let p = Paragraph::new(vec![title_line, provider_line, cwd_line])
+        .wrap(Wrap { trim: false });
     f.render_widget(p, area);
 }
 
-fn draw_output(f: &mut Frame<'_>, area: Rect, app: &App) {
-    // Snapshot the shared buffer once per frame (no .await — we use
-    // blocking_lock since draw is sync).
-    let snapshot: Vec<String> = match app.output_lines.try_lock() {
-        Ok(g) => g.clone(),
-        Err(_) => vec!["...".into()],
-    };
-    // Show only the tail that fits in the pane.
-    let inner_h = area.height.saturating_sub(2) as usize;
-    let start = snapshot.len().saturating_sub(inner_h);
-    let visible: Vec<Line<'_>> = snapshot[start..]
-        .iter()
-        .map(|s| Line::from(s.clone()))
-        .collect();
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::DarkGray))
-        .title(Span::styled(
-            " output ",
-            Style::default().fg(Color::Rgb(130, 240, 180)),
-        ));
-    let p = Paragraph::new(visible).block(block).wrap(Wrap { trim: false });
+fn draw_divider(f: &mut Frame<'_>, area: Rect) {
+    let line: String = "─".repeat(area.width as usize);
+    let p = Paragraph::new(Line::from(Span::styled(
+        line,
+        Style::default().fg(DIM_BORDER),
+    )));
     f.render_widget(p, area);
 }
 
 fn draw_input(f: &mut Frame<'_>, area: Rect, app: &App) {
-    let title = format!(" › {} ", app.active_provider());
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Rgb(130, 240, 180)))
-        .title(Span::styled(
-            title,
-            Style::default()
-                .fg(Color::Rgb(130, 240, 180))
-                .add_modifier(Modifier::BOLD),
-        ));
-    let cursor = if app.busy { " …" } else { "▌" };
+    let cursor = if app.busy { "…" } else { "▌" };
     let body = Line::from(vec![
-        Span::styled(app.prompt.clone(), Style::default().fg(Color::White)),
+        Span::styled("› ", Style::default().fg(DIM)),
+        Span::styled(app.prompt.clone(), Style::default().fg(WHITE)),
         Span::styled(
             cursor.to_string(),
-            Style::default()
-                .fg(Color::Rgb(130, 240, 180))
-                .add_modifier(Modifier::SLOW_BLINK),
+            Style::default().fg(MINT).add_modifier(Modifier::SLOW_BLINK),
         ),
     ]);
-    let p = Paragraph::new(body).block(block);
+    let p = Paragraph::new(body);
     f.render_widget(p, area);
 }
 
 fn draw_status(f: &mut Frame<'_>, area: Rect, app: &App) {
-    let dim = Style::default().fg(Color::Rgb(140, 140, 160));
-    let red = Style::default().fg(Color::Rgb(220, 90, 90));
-    let line1 = Line::from(vec![
-        Span::styled(app.active_provider().to_string(), Style::default().fg(Color::Rgb(130, 240, 180))),
-        Span::styled("  ·  ", dim),
+    let dim = Style::default().fg(DIM);
+    let mint = Style::default().fg(MINT);
+    let high = Style::default().fg(HIGH);
+    let red = Style::default().fg(HOT);
+
+    // Line 1 (matches Claude Code's "Opus 4.7 (1M context) | mantishack | CHAIN 4f | deonmenezes.com   xhigh ·")
+    // Left: provider | cwd-label | "Mantis" mode tag
+    // Right: a small accent the user expects ("xhigh ·" in the screenshot)
+    let left1 = Line::from(vec![
+        Span::styled(app.active_provider().to_string(), mint),
+        Span::styled("  |  ", dim),
         Span::styled(app.cwd_label.clone(), dim),
-        Span::styled("  ·  ", dim),
+        Span::styled("  |  ", dim),
+        Span::styled("Mantis", Style::default().fg(MINT).add_modifier(Modifier::BOLD)),
+        Span::styled(" agent runner", dim),
+    ]);
+    let right1 = Span::styled("● xhigh", high);
+
+    // Line 2: yellow ▶▶ "ethical hacking … (shift+tab to cycle)"
+    let line2 = Line::from(vec![
+        Span::styled("▶▶ ", red),
         Span::styled(
-            format!("{} CLI{}", app.providers.len(), if app.providers.len() == 1 { "" } else { "s" }),
+            "ethical hacking with authorization only",
+            Style::default().fg(HIGH).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            "  (shift+tab to cycle providers) · ctrl-c exits",
             dim,
         ),
     ]);
-    let line2 = Line::from(vec![
-        Span::styled("▶▶ ", red),
-        Span::styled(ETHICAL_DISCLAIMER, dim),
-        Span::styled("   (Tab cycles · Ctrl-C exits)", dim),
-    ]);
-    let p = Paragraph::new(vec![line1, line2]);
+
+    // Render line 1 in two halves to right-align the accent.
+    let split = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Min(0), Constraint::Length(10)])
+        .split(Rect { x: area.x, y: area.y, width: area.width, height: 1 });
+    f.render_widget(Paragraph::new(left1), split[0]);
+    f.render_widget(
+        Paragraph::new(Line::from(right1)).alignment(ratatui::layout::Alignment::Right),
+        split[1],
+    );
+
+    // Render line 2 across the full status width.
+    let row2 = Rect { x: area.x, y: area.y + 1, width: area.width, height: 1 };
+    f.render_widget(Paragraph::new(line2), row2);
+}
+
+fn draw_output(f: &mut Frame<'_>, area: Rect, app: &App) {
+    if area.height == 0 {
+        return;
+    }
+    // Snapshot the shared buffer once per frame; try_lock so a brief
+    // contention with the stream task doesn't stall the UI.
+    let snapshot: Vec<String> = match app.output_lines.try_lock() {
+        Ok(g) => g.clone(),
+        Err(_) => return,
+    };
+    // Tail-trim to fit. No border — output reads as plain terminal
+    // text below the chrome, the way Claude Code's conversation does.
+    let inner_h = area.height as usize;
+    let start = snapshot.len().saturating_sub(inner_h);
+    let lines: Vec<Line<'_>> = snapshot[start..]
+        .iter()
+        .map(|s| Line::from(Span::styled(s.clone(), Style::default().fg(WHITE))))
+        .collect();
+    let p = Paragraph::new(lines).wrap(Wrap { trim: false });
     f.render_widget(p, area);
 }
