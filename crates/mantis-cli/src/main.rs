@@ -37,6 +37,13 @@ enum Command {
     /// API, Claude Code CLI). Tells you exactly what to set to get
     /// ready. Running `mantis` with no subcommand is equivalent.
     Setup,
+    /// Print Mantis version info. Use `--output-format json` for
+    /// scripting (returns `{ "name", "version", "rust_target" }`).
+    /// Mirrors the claude-code / claw-code diagnostic convention.
+    Version {
+        #[arg(long, default_value = "text", value_parser = ["text", "json"])]
+        output_format: String,
+    },
     /// Start the Mantis daemon in the foreground.
     Daemon {
         #[arg(long, env = "MANTIS_BIND", default_value = mantis_daemon::DEFAULT_BIND)]
@@ -63,7 +70,15 @@ enum Command {
     Doctor {
         #[arg(long)]
         root: Option<Utf8PathBuf>,
-        #[arg(long)]
+        /// Output format: `text` (default) or `json` (machine-
+        /// readable). Mirrors the claude-code / claw-code
+        /// convention so any diagnostic verb works under the
+        /// same flag.
+        #[arg(long, default_value = "text", value_parser = ["text", "json"])]
+        output_format: String,
+        /// Legacy alias for `--output-format json`. Hidden in
+        /// `--help` but accepted for backwards compatibility.
+        #[arg(long, hide = true)]
         json: bool,
     },
     /// Export an engagement's event log as JSONL (M0.5).
@@ -583,6 +598,7 @@ fn main() -> Result<()> {
             setup::run();
             Ok(())
         }
+        Command::Version { output_format } => handle_version(output_format),
         Command::Daemon { bind, root } => run_async(async move {
             mantis_daemon::run(mantis_daemon::DaemonConfig {
                 bind,
@@ -600,7 +616,9 @@ fn main() -> Result<()> {
             OperatorAction::Delete { id, root } => cmd_operator_delete(&id, root),
         },
         Command::Engagement { action } => run_async(handle_engagement(action)),
-        Command::Doctor { root, json } => cmd_doctor(root, json),
+        Command::Doctor { root, output_format, json } => {
+            cmd_doctor(root, json || output_format == "json")
+        }
         Command::Export { id } => run_async(handle_engagement(EngagementAction::Export {
             id,
             output: None,
@@ -1558,6 +1576,28 @@ fn handle_model(action: Option<ModelAction>) -> Result<()> {
             }
         },
     }
+}
+
+/// `mantis version` — mirror of claude-code / claw-code's
+/// diagnostic verb. Default text is one line; `--output-format json`
+/// emits `{ "name", "version", "rust_target" }`.
+fn handle_version(output_format: String) -> Result<()> {
+    let name = env!("CARGO_PKG_NAME");
+    let version = env!("CARGO_PKG_VERSION");
+    let rust_target = std::env::consts::ARCH.to_string()
+        + "-"
+        + std::env::consts::OS;
+    if output_format == "json" {
+        let v = serde_json::json!({
+            "name": name,
+            "version": version,
+            "rust_target": rust_target,
+        });
+        println!("{}", serde_json::to_string_pretty(&v)?);
+    } else {
+        println!("{name} {version} ({rust_target})");
+    }
+    Ok(())
 }
 
 /// `mantis prompt "..."` — claude-code-style one-shot. No
