@@ -279,9 +279,24 @@
         <a class="more" href="./concepts/fsm.md#phase-5--verify-3-round-cascade">Inside VERIFY →</a>
       </div>
       <div class="card">
-        <h3><span class="ico">⎙</span>Disclosure-ready reports</h3>
-        <p>Render to Markdown, PDF, HackerOne JSON, Bugcrowd JSON, SARIF, or OpenVEX — with a severity floor you control.</p>
+        <h3><span class="ico">∞</span>Proof-loop, no budget</h3>
+        <p>With <code>--until-proven</code> (default-on for <code>mantis ultra</code>), the orchestrator loops VERIFY/CHAIN/HUNT until every reportable finding has 3-round cascade confirmation — and auto-resumes through any Claude API error with the run log as context.</p>
+        <a class="more" href="./cli/hack.md">Inside proof-loop →</a>
+      </div>
+      <div class="card">
+        <h3><span class="ico">⎙</span>Evidence-dense reports</h3>
+        <p>Rendered report shows the full 3-round verifier cascade per finding, the PoC + response evidence pack, and the 5-axis grader scoring. Output to Markdown, PDF, HackerOne, Bugcrowd, SARIF, or OpenVEX.</p>
         <a class="more" href="./cli/hack.md">Run the pipeline →</a>
+      </div>
+      <div class="card">
+        <h3><span class="ico">⚡</span>Ultra · Flash · Hack</h3>
+        <p><code>mantis ultra</code> goes all-in (Opus + deep + ∞ resumes). <code>mantis flash</code> is fast + cheap (Haiku + shallow). <code>mantis hack</code> stays the standard middle.</p>
+        <a class="more" href="./cli/hack.md">Pick a preset →</a>
+      </div>
+      <div class="card">
+        <h3><span class="ico">🔎</span>Investigate anything</h3>
+        <p><code>mantis investigate &lt;subject&gt;</code> takes a URL, a file, or a free-form prompt and drives the full FSM with that subject as priority context — or runs a static read-only pass when no URL is present.</p>
+        <a class="more" href="./cli/investigate.md">Investigation surface →</a>
       </div>
     </div>
   </div>
@@ -363,13 +378,25 @@ npm install -g mantishack
 mantis init
 
 # 3. ethically hack an authorized target
-mantis hack app.example.com --i-have-authorization</code></pre>
+mantis hack app.example.com --i-have-authorization
+
+# … or go all-in: Opus + deep + ∞ auto-resume + proof-loop
+mantis ultra app.example.com --i-have-authorization
+
+# … or run fast + cheap: Haiku + shallow + tight retry cap
+mantis flash app.example.com --i-have-authorization
+
+# … or investigate a specific finding / file / hunch with the full FSM
+mantis investigate "F-3 looks like ATO via state confusion against https://oauth.example.com/cb" --i-have-authorization</code></pre>
     <p style="margin-top: 16px; color: var(--dim); font-size: 14px;">
       Other entry points:
     </p>
     <ul style="color: var(--dim); font-size: 14px; line-height: 1.85; padding-left: 20px;">
       <li><code>mantis pentest &lt;target&gt; --i-have-authorization</code> — daemon-driven one-shot, no LLM orchestrator. <a href="./cli/pentest.md">→</a></li>
       <li><code>mantis goal "find idor" --target https://api.example.com --i-have-authorization</code> — goal-directed, multi-wave. <a href="./cli/goal.md">→</a></li>
+      <li><code>mantis prompt "..."</code> — one-shot Claude-Code-style prompt with mantis MCP wired. <a href="./cli/prompt.md">→</a></li>
+      <li><code>mantis status</code> — single-glance daemon / claude / model snapshot (text or JSON). <a href="./cli/status.md">→</a></li>
+      <li><code>mantis model</code> — Tab / Shift+Tab picker; pin a model via <code>~/.Mantis/model</code> or <code>MANTIS_MODEL</code>. <a href="./cli/model.md">→</a></li>
       <li><code>mantis find-auth-bugs --target https://app.example.com/ --i-have-authorization</code> — legacy auth-differential pipeline. <a href="./cli/find-auth-bugs.md">→</a></li>
       <li><code>/mantishack &lt;target&gt;</code> inside Claude Code — same orchestrator, interactive.</li>
     </ul>
@@ -410,14 +437,29 @@ mantis hack app.example.com --i-have-authorization</code></pre>
       <div class="docs-group">
         <h3>CLI reference</h3>
         <ul>
-          <li><a href="./cli/hack.md"><code>mantis hack</code></a><span class="desc">Full FSM, one command</span></li>
-          <li><a href="./cli/investigate.md"><code>mantis investigate</code></a><span class="desc">URL / file / prompt — full Mantis stack, no FSM</span></li>
+          <li><a href="./cli/hack.md"><code>mantis hack</code></a><span class="desc">Full FSM, one command (—turbo / —until-proven flags)</span></li>
+          <li><a href="./cli/hack.md"><code>mantis ultra</code></a><span class="desc">All-in preset — Opus, deep, ∞ resumes, proof-loop on</span></li>
+          <li><a href="./cli/hack.md"><code>mantis flash</code></a><span class="desc">Fast preset — Haiku, shallow, tight retry cap</span></li>
+          <li><a href="./cli/investigate.md"><code>mantis investigate</code></a><span class="desc">URL / file / prompt — full FSM with seed as priority context</span></li>
           <li><a href="./cli/pentest.md"><code>mantis pentest</code></a><span class="desc">Daemon-driven one-shot</span></li>
           <li><a href="./cli/goal.md"><code>mantis goal</code></a><span class="desc">Goal-directed, multi-wave</span></li>
           <li><a href="./cli/prompt.md"><code>mantis prompt</code></a><span class="desc">Claude-Code-style one-shot</span></li>
           <li><a href="./cli/status.md"><code>mantis status</code></a><span class="desc">Setup snapshot (text + JSON)</span></li>
           <li><a href="./cli/model.md"><code>mantis model</code></a><span class="desc">Tab / Shift+Tab Claude-model picker</span></li>
           <li><a href="./cli/find-auth-bugs.md"><code>mantis find-auth-bugs</code></a><span class="desc">Legacy auth-differential pipeline</span></li>
+        </ul>
+      </div>
+      <div class="docs-group">
+        <h3>Agent tools</h3>
+        <ul>
+          <li><code>mantis_decode_jwt</code><span class="desc">JWT triage — alg:none, missing/expired exp, signature length</span></li>
+          <li><code>mantis_diff_responses</code><span class="desc">Structural HTTP response diff + marker scan (role flags, leaked AWS/Stripe/GitHub keys)</span></li>
+          <li><code>mantis_summarize_url</code><span class="desc">URL parse + SSRF / IMDS / admin / secret-artifact flags</span></li>
+          <li><code>mantis_extract_secrets</code><span class="desc">AWS, GitHub, Stripe, OpenAI, Anthropic, Slack, Google, … token + PEM + DB-URL scan</span></li>
+          <li><code>mantis_extract_html_forms</code><span class="desc">Form parser with CSRF + mass-assignment buckets</span></li>
+          <li><code>mantis_extract_links</code><span class="desc">URL / endpoint discovery from any blob</span></li>
+          <li><code>mantis_hash_request</code><span class="desc">BLAKE3 stable hash for probe dedup</span></li>
+          <li><code>mantis_score_finding</code><span class="desc">Pre-grader using the 5-axis rubric — SUBMIT / HOLD / SKIP</span></li>
         </ul>
       </div>
       <div class="docs-group">

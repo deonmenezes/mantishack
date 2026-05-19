@@ -62,8 +62,10 @@ That single `mantis hack` invocation drives the full 7-phase FSM end-to-end, wit
   - [Sub-agents](./concepts/agents.md) — recon-agent, hunter-agent, chain-builder, verifier cascade, grader, report-writer
   - [Egress + scope enforcement](./concepts/egress.md)
 - **CLI reference**
-  - [`mantis hack`](./cli/hack.md) — one-shot full FSM
-  - [`mantis investigate`](./cli/investigate.md) — flexible URL / file / prompt investigation with full Mantis stack
+  - [`mantis hack`](./cli/hack.md) — one-shot full FSM, with `--turbo` / `--until-proven` flags
+  - `mantis ultra <target> --i-have-authorization` — preset: Opus + deep + ∞ auto-resume + proof-loop ON
+  - `mantis flash <target> --i-have-authorization` — preset: Haiku + shallow + tight retry cap
+  - [`mantis investigate`](./cli/investigate.md) — flexible URL / file / prompt; drives the FSM with subject as priority context
   - [`mantis pentest`](./cli/pentest.md) — daemon-driven one-shot
   - [`mantis goal`](./cli/goal.md) — goal-directed, multi-wave
   - [`mantis prompt`](./cli/prompt.md) — one-shot Claude-Code-style ad-hoc prompt
