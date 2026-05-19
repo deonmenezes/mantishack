@@ -365,7 +365,10 @@ async fn stream_provider(
 
 const MINT: Color = Color::Rgb(130, 240, 180);
 const DIM: Color = Color::Rgb(140, 140, 160);
-const DIM_BORDER: Color = Color::Rgb(60, 70, 90);
+// Divider color tuned to match Claude Code's visible mid-grey
+// horizontal rules — bright enough to read against a dark terminal
+// background without competing with the input/output text.
+const DIM_BORDER: Color = Color::Rgb(120, 130, 150);
 const WHITE: Color = Color::Rgb(220, 220, 230);
 const HOT: Color = Color::Rgb(220, 90, 90);
 const HIGH: Color = Color::Rgb(255, 200, 90);
