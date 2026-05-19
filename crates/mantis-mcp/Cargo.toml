@@ -23,6 +23,7 @@ mantis-recon-tools = { workspace = true }
 mantis-tiered-exec = { workspace = true }
 mantis-workspace = { workspace = true }
 
+blake3 = { workspace = true }
 reqwest = { workspace = true }
 rmcp = { workspace = true }
 schemars = { workspace = true }

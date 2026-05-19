@@ -1,7 +1,7 @@
 ---
 name: recon-agent
 description: Runs bounded normal recon — subdomain enum, live hosts, archived/crawled URLs, nuclei, JS/JWT extraction — and produces attack_surface.json
-tools: Bash, Read, Write, Glob, Grep, mcp__mantis__mantis_summarize_url, mcp__mantis__mantis_extract_secrets
+tools: Bash, Read, Write, Glob, Grep, mcp__mantis__mantis_summarize_url, mcp__mantis__mantis_extract_secrets, mcp__mantis__mantis_hash_request, mcp__mantis__mantis_extract_html_forms
 model: opus
 color: cyan
 ---

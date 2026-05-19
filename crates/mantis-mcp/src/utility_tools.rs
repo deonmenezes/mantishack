@@ -1305,6 +1305,340 @@ fn vuln_class_ceiling(class: &str) -> u8 {
 }
 
 // ---------------------------------------------------------------------------
+// mantis_hash_request
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct HashRequestArgs {
+    pub method: String,
+    pub url: String,
+    /// Header name → value. Sorted internally so order doesn't
+    /// change the hash.
+    #[serde(default)]
+    pub headers: BTreeMap<String, String>,
+    /// Body as-is. Empty string when there is no body.
+    #[serde(default)]
+    pub body: String,
+    /// Names of headers to ignore for hashing (e.g. `Authorization`,
+    /// `Cookie`, `User-Agent`). Default: a small set of known-noisy
+    /// headers (`Authorization`, `Cookie`, `User-Agent`, `Accept`,
+    /// `Accept-Encoding`, `X-Request-Id`, `X-Correlation-Id`,
+    /// `Date`). Pass an explicit list to override.
+    #[serde(default)]
+    pub ignore_headers: Vec<String>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct HashRequestResult {
+    /// BLAKE3 hex digest of the normalized request.
+    pub hash: String,
+    /// First 16 hex chars — usable as a compact dedup key.
+    pub short: String,
+    /// Headers that were stripped before hashing.
+    pub ignored_headers: Vec<String>,
+}
+
+/// Hash a request shape so two probes that differ only in noisy
+/// headers (Authorization rotation, request id, user-agent) get the
+/// same hash. Useful for hunter dedup: before issuing a probe, hash
+/// (method, url, headers, body) and skip if it's already in the
+/// in-memory seen-set or audit log.
+pub fn hash_request(args: &HashRequestArgs) -> HashRequestResult {
+    let default_ignored: &[&str] = &[
+        "authorization",
+        "cookie",
+        "user-agent",
+        "accept",
+        "accept-encoding",
+        "x-request-id",
+        "x-correlation-id",
+        "date",
+    ];
+    let ignore_lower: std::collections::BTreeSet<String> = if args.ignore_headers.is_empty() {
+        default_ignored.iter().map(|s| s.to_string()).collect()
+    } else {
+        args.ignore_headers.iter().map(|s| s.to_ascii_lowercase()).collect()
+    };
+
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(args.method.to_ascii_uppercase().as_bytes());
+    hasher.update(b"\x1f");
+    hasher.update(args.url.as_bytes());
+    hasher.update(b"\x1f");
+
+    let mut kept: Vec<(String, String)> = vec![];
+    for (k, v) in &args.headers {
+        if ignore_lower.contains(&k.to_ascii_lowercase()) {
+            continue;
+        }
+        kept.push((k.to_ascii_lowercase(), v.clone()));
+    }
+    kept.sort();
+    for (k, v) in &kept {
+        hasher.update(k.as_bytes());
+        hasher.update(b":");
+        hasher.update(v.as_bytes());
+        hasher.update(b"\n");
+    }
+    hasher.update(b"\x1f");
+    hasher.update(args.body.as_bytes());
+
+    let hex = hasher.finalize().to_hex().to_string();
+    let short = hex[..16].to_string();
+
+    HashRequestResult {
+        hash: hex,
+        short,
+        ignored_headers: ignore_lower.into_iter().collect(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// mantis_extract_html_forms
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ExtractHtmlFormsArgs {
+    pub html: String,
+    /// Base URL used to resolve relative `action` attributes.
+    /// Optional — when omitted, relative actions are returned as-is.
+    #[serde(default)]
+    pub base_url: Option<String>,
+}
+
+#[derive(Debug, Serialize, JsonSchema, Clone)]
+pub struct HtmlForm {
+    pub method: String,
+    pub action_raw: String,
+    pub action_resolved: Option<String>,
+    pub inputs: Vec<HtmlFormInput>,
+    /// CSRF-token-looking inputs (name contains "csrf", "_token",
+    /// "authenticity_token", "xsrf").
+    pub csrf_tokens: Vec<HtmlFormInput>,
+    /// Hidden inputs likely to be mass-assignment candidates
+    /// (`user_id`, `role`, `is_admin`, `owner`, `tenant_id`).
+    pub mass_assignment_candidates: Vec<HtmlFormInput>,
+}
+
+#[derive(Debug, Serialize, JsonSchema, Clone)]
+pub struct HtmlFormInput {
+    pub name: String,
+    /// `text` / `hidden` / `password` / `email` / `submit` / `checkbox`
+    /// / `radio` / `file` / `<other>`. Lowercased.
+    pub input_type: String,
+    pub value: Option<String>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct ExtractHtmlFormsResult {
+    pub forms: Vec<HtmlForm>,
+    pub count: usize,
+}
+
+/// Tiny HTML-form extractor — does not depend on a full HTML parser
+/// crate (no `scraper` / `html5ever` pull-in). The parser walks the
+/// blob looking for `<form ...>` ... `</form>` spans, extracts the
+/// attribute soup, then scans the body for `<input ...>` tags.
+/// Good enough for offensive-recon use; mis-parses on broken HTML
+/// (which we accept — hunters can fall back to a real parser if
+/// needed).
+pub fn extract_html_forms(args: &ExtractHtmlFormsArgs) -> ExtractHtmlFormsResult {
+    let html = args.html.as_str();
+    let mut forms: Vec<HtmlForm> = vec![];
+    let lowered = html.to_ascii_lowercase();
+    let mut cursor = 0usize;
+    while let Some(open_rel) = lowered[cursor..].find("<form") {
+        let open_abs = cursor + open_rel;
+        // Find the end of the opening tag.
+        let after_open = match lowered[open_abs..].find('>') {
+            Some(i) => open_abs + i + 1,
+            None => break,
+        };
+        let close_rel = lowered[after_open..].find("</form>");
+        let close_abs = close_rel.map(|i| after_open + i).unwrap_or(html.len());
+        let open_tag = &html[open_abs..after_open];
+        let body = &html[after_open..close_abs];
+
+        let attrs = parse_attrs(open_tag);
+        let method = attrs
+            .get("method")
+            .map(|s| s.to_ascii_uppercase())
+            .unwrap_or_else(|| "GET".to_string());
+        let action_raw = attrs.get("action").cloned().unwrap_or_default();
+        let action_resolved = resolve_action(&action_raw, args.base_url.as_deref());
+
+        let inputs = scan_inputs(body);
+        let csrf_tokens: Vec<HtmlFormInput> = inputs
+            .iter()
+            .filter(|i| is_csrf_name(&i.name))
+            .cloned()
+            .collect();
+        let mass_assignment_candidates: Vec<HtmlFormInput> = inputs
+            .iter()
+            .filter(|i| i.input_type == "hidden" && is_mass_assign_name(&i.name))
+            .cloned()
+            .collect();
+
+        forms.push(HtmlForm {
+            method,
+            action_raw,
+            action_resolved,
+            inputs,
+            csrf_tokens,
+            mass_assignment_candidates,
+        });
+        cursor = close_abs + 7;
+        if cursor >= html.len() {
+            break;
+        }
+    }
+    let count = forms.len();
+    ExtractHtmlFormsResult { forms, count }
+}
+
+fn parse_attrs(tag_open: &str) -> std::collections::BTreeMap<String, String> {
+    // Walk char-by-char; pull out name=value pairs. Quoted values
+    // can use either single or double quotes.
+    let mut out: std::collections::BTreeMap<String, String> = Default::default();
+    let bytes = tag_open.as_bytes();
+    let mut i = 0;
+    // Skip the leading "<form" or "<input".
+    while i < bytes.len() && bytes[i] != b' ' {
+        i += 1;
+    }
+    while i < bytes.len() {
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        // name
+        let name_start = i;
+        while i < bytes.len() && !matches!(bytes[i], b'=' | b'>' | b'/' | b' ' | b'\t' | b'\n') {
+            i += 1;
+        }
+        if name_start == i {
+            i += 1;
+            continue;
+        }
+        let name = tag_open[name_start..i].to_ascii_lowercase();
+        // optional '=value'
+        if i < bytes.len() && bytes[i] == b'=' {
+            i += 1;
+            if i < bytes.len() && (bytes[i] == b'"' || bytes[i] == b'\'') {
+                let quote = bytes[i];
+                i += 1;
+                let val_start = i;
+                while i < bytes.len() && bytes[i] != quote {
+                    i += 1;
+                }
+                let val = &tag_open[val_start..i.min(tag_open.len())];
+                out.insert(name, val.to_string());
+                if i < bytes.len() {
+                    i += 1;
+                }
+            } else {
+                let val_start = i;
+                while i < bytes.len() && !matches!(bytes[i], b'>' | b'/' | b' ' | b'\t' | b'\n') {
+                    i += 1;
+                }
+                let val = &tag_open[val_start..i.min(tag_open.len())];
+                out.insert(name, val.to_string());
+            }
+        } else {
+            out.insert(name, String::new());
+        }
+        // Done if we hit the close of the tag.
+        if i < bytes.len() && (bytes[i] == b'>' || bytes[i] == b'/') {
+            break;
+        }
+    }
+    out
+}
+
+fn scan_inputs(body: &str) -> Vec<HtmlFormInput> {
+    let lowered = body.to_ascii_lowercase();
+    let mut out: Vec<HtmlFormInput> = vec![];
+    let mut cursor = 0;
+    while let Some(rel) = lowered[cursor..].find("<input") {
+        let abs = cursor + rel;
+        let end_rel = lowered[abs..].find('>');
+        let end_abs = abs + end_rel.unwrap_or(0) + 1;
+        let tag = &body[abs..end_abs.min(body.len())];
+        let attrs = parse_attrs(tag);
+        let name = attrs.get("name").cloned().unwrap_or_default();
+        if name.is_empty() {
+            cursor = end_abs.max(abs + 6);
+            continue;
+        }
+        let input_type = attrs
+            .get("type")
+            .cloned()
+            .unwrap_or_else(|| "text".into())
+            .to_ascii_lowercase();
+        let value = attrs.get("value").cloned();
+        out.push(HtmlFormInput {
+            name,
+            input_type,
+            value,
+        });
+        cursor = end_abs.max(abs + 6);
+    }
+    out
+}
+
+fn resolve_action(action: &str, base: Option<&str>) -> Option<String> {
+    if action.is_empty() {
+        return base.map(str::to_owned);
+    }
+    if action.starts_with("http://") || action.starts_with("https://") {
+        return Some(action.to_string());
+    }
+    let base = base?;
+    // Strip any path/query/fragment from `base` to keep just the
+    // scheme+host+port when the action is absolute-path.
+    if action.starts_with('/') {
+        if let Some(idx) = base.find("://").and_then(|i| base[i + 3..].find('/').map(|j| i + 3 + j)) {
+            return Some(format!("{}{}", &base[..idx], action));
+        }
+        return Some(format!("{base}{action}"));
+    }
+    // Relative — chop the last path segment off base and append.
+    let parent = base.rsplit_once('/').map(|(a, _)| a).unwrap_or(base);
+    Some(format!("{parent}/{action}"))
+}
+
+fn is_csrf_name(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n.contains("csrf")
+        || n == "_token"
+        || n == "authenticity_token"
+        || n.contains("xsrf")
+        || n == "__requestverificationtoken"
+}
+
+fn is_mass_assign_name(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    matches!(
+        n.as_str(),
+        "user_id"
+            | "userid"
+            | "owner"
+            | "owner_id"
+            | "tenant_id"
+            | "tenantid"
+            | "role"
+            | "is_admin"
+            | "isadmin"
+            | "admin"
+            | "is_superuser"
+            | "permissions"
+            | "permission"
+            | "org_id"
+            | "organization_id"
+            | "account_id"
+    )
+}
+
+// ---------------------------------------------------------------------------
 // tests
 // ---------------------------------------------------------------------------
 
@@ -1622,6 +1956,97 @@ mod tests {
         a.vuln_class = "missing_headers".into();
         let r = score_finding(&a);
         assert!(r.severity_accuracy < 15, "{r:?}");
+    }
+
+    #[test]
+    fn hash_request_ignores_noisy_headers_by_default() {
+        let mut h1: BTreeMap<String, String> = BTreeMap::new();
+        h1.insert("Authorization".into(), "Bearer abc".into());
+        h1.insert("User-Agent".into(), "curl/8.0".into());
+        h1.insert("Content-Type".into(), "application/json".into());
+        let mut h2 = h1.clone();
+        h2.insert("Authorization".into(), "Bearer xyz".into()); // rotated
+        h2.insert("X-Request-Id".into(), "abc-123".into());     // new noisy
+
+        let r1 = hash_request(&HashRequestArgs {
+            method: "POST".into(),
+            url: "https://api.example.com/v1/orders".into(),
+            headers: h1,
+            body: r#"{"id":1}"#.into(),
+            ignore_headers: vec![],
+        });
+        let r2 = hash_request(&HashRequestArgs {
+            method: "POST".into(),
+            url: "https://api.example.com/v1/orders".into(),
+            headers: h2,
+            body: r#"{"id":1}"#.into(),
+            ignore_headers: vec![],
+        });
+        assert_eq!(r1.hash, r2.hash);
+        assert_eq!(r1.short.len(), 16);
+    }
+
+    #[test]
+    fn hash_request_changes_on_body_change() {
+        let r1 = hash_request(&HashRequestArgs {
+            method: "POST".into(),
+            url: "https://api.example.com/v1/orders".into(),
+            headers: BTreeMap::new(),
+            body: r#"{"id":1}"#.into(),
+            ignore_headers: vec![],
+        });
+        let r2 = hash_request(&HashRequestArgs {
+            method: "POST".into(),
+            url: "https://api.example.com/v1/orders".into(),
+            headers: BTreeMap::new(),
+            body: r#"{"id":2}"#.into(),
+            ignore_headers: vec![],
+        });
+        assert_ne!(r1.hash, r2.hash);
+    }
+
+    #[test]
+    fn extract_html_forms_basic() {
+        let html = r#"
+            <html><body>
+              <form method="POST" action="/users/42/update">
+                <input type="hidden" name="_token" value="abc123" />
+                <input type="hidden" name="user_id" value="42" />
+                <input type="text" name="email" value="alice@example.com" />
+                <input type="submit" value="Save" />
+              </form>
+            </body></html>
+        "#;
+        let r = extract_html_forms(&ExtractHtmlFormsArgs {
+            html: html.into(),
+            base_url: Some("https://app.example.com/account/settings".into()),
+        });
+        assert_eq!(r.count, 1);
+        let f = &r.forms[0];
+        assert_eq!(f.method, "POST");
+        assert_eq!(f.action_raw, "/users/42/update");
+        assert_eq!(
+            f.action_resolved.as_deref(),
+            Some("https://app.example.com/users/42/update")
+        );
+        assert!(f.csrf_tokens.iter().any(|i| i.name == "_token"));
+        assert!(f
+            .mass_assignment_candidates
+            .iter()
+            .any(|i| i.name == "user_id"));
+        assert!(f.inputs.iter().any(|i| i.name == "email"));
+    }
+
+    #[test]
+    fn extract_html_forms_handles_multiple_and_no_action() {
+        let html = "<form><input name=a></form><form action='/x'><input name=b type=hidden></form>";
+        let r = extract_html_forms(&ExtractHtmlFormsArgs {
+            html: html.into(),
+            base_url: None,
+        });
+        assert_eq!(r.count, 2);
+        assert_eq!(r.forms[0].action_raw, "");
+        assert_eq!(r.forms[1].action_raw, "/x");
     }
 
     #[test]

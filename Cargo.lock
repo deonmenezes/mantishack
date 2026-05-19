@@ -2415,6 +2415,7 @@ name = "mantis-mcp"
 version = "0.0.6"
 dependencies = [
  "anyhow",
+ "blake3",
  "clap",
  "mantis-auth",
  "mantis-auth-differential",

@@ -680,6 +680,41 @@ impl MantisMcpServer {
     }
 
     #[tool(
+        description = "Compute a stable hash for a request shape (method + url + headers + body) \
+                       so two probes that differ only in noisy headers (Authorization rotation, \
+                       X-Request-Id, User-Agent, Date) collapse to the same key. Returns a full \
+                       BLAKE3 hex digest plus a 16-char `short` form usable as a dedup key. By \
+                       default ignores `Authorization`, `Cookie`, `User-Agent`, `Accept`, \
+                       `Accept-Encoding`, `X-Request-Id`, `X-Correlation-Id`, `Date`. Pass an \
+                       explicit `ignore_headers` list to override. Use before issuing a probe \
+                       to skip duplicates already in the audit log."
+    )]
+    async fn mantis_hash_request(
+        &self,
+        Parameters(args): Parameters<crate::utility_tools::HashRequestArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&crate::utility_tools::hash_request(&args))
+    }
+
+    #[tool(
+        description = "Extract every `<form>` from an HTML blob: method, action (raw + resolved \
+                       against `base_url`), all `<input>` children with name / type / value, plus \
+                       two convenience subsets — `csrf_tokens` (inputs whose name matches the \
+                       Rails / Django / Laravel / ASP.NET CSRF conventions) and \
+                       `mass_assignment_candidates` (hidden inputs named like `user_id`, `role`, \
+                       `is_admin`, `tenant_id`, `owner` — direct IDOR / privilege-escalation \
+                       targets). Tiny parser, no external HTML-parser dep. Use on HTML responses \
+                       to discover form-driven endpoints + mass-assignment attack surfaces faster \
+                       than rolling a regex by hand."
+    )]
+    async fn mantis_extract_html_forms(
+        &self,
+        Parameters(args): Parameters<crate::utility_tools::ExtractHtmlFormsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&crate::utility_tools::extract_html_forms(&args))
+    }
+
+    #[tool(
         description = "Advance the engagement's FSM by one phase. \
                        Pipeline order: RECON -> AUTH -> HUNT -> CHAIN -> VERIFY -> GRADE -> REPORT. \
                        The daemon validates the transition against the persisted session state, \
