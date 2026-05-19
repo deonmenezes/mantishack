@@ -41,13 +41,20 @@ const HOT: &str = "\x1b[38;2;220;90;90m";
 const BOLD: &str = "\x1b[1m";
 const RESET: &str = "\x1b[0m";
 
-// 4-row mantis mascot — same shaded-block silhouette the TUI used.
-// Rendered in mint at startup, left of the info column.
+// 5-row praying-mantis mascot — captures the iconic mantis pose
+// that actually reads as a mantis at a glance:
+//   row 1: two long antennae rising and angling outward
+//   row 2: triangular head with two compound eyes (◉_◉)
+//   row 3: raised "praying" forearms (the most identifiable mantis
+//          feature — held high in front of the body)
+//   row 4: thorax
+//   row 5: long thin abdomen tip
 const MASCOT: &[&str] = &[
-    "   ╲╳╱  ",
-    "  ▟◣▼◢▙ ",
-    " ▝▆   ▆▘",
-    "    ▜▛  ",
+    "  \\  /  ",
+    "  (◉_◉) ",
+    "  /│ │\\ ",
+    "   \\│/  ",
+    "    │   ",
 ];
 
 const PROVIDERS: &[&str] = &["claude", "codex", "opencode", "gemini"];
