@@ -24,6 +24,7 @@ mantis-proto = { workspace = true }
 mantis-scanner-http = { workspace = true }
 mantis-scope = { workspace = true }
 mantis-signup = { workspace = true }
+mantis-tui-ratatui = { workspace = true }
 mantis-synthesizer = { workspace = true }
 mantis-workspace = { workspace = true }
 

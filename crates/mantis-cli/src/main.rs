@@ -303,6 +303,14 @@ enum Command {
         #[arg(long, env = "MANTIS_DAEMON", default_value = DEFAULT_DAEMON_ENDPOINT)]
         daemon: String,
     },
+    /// Interactive TUI — Claude-Code-style prompt box. Type a request
+    /// (e.g. "hack example.com") and Mantis routes it to your chosen
+    /// AI CLI (claude / codex / opencode / gemini). Tab cycles
+    /// providers; Ctrl-C exits.
+    ///
+    /// `mantis` (no arguments) defaults to launching this TUI when a
+    /// supported AI CLI is on PATH.
+    Tui,
 }
 
 #[derive(Subcommand, Debug)]
@@ -421,12 +429,19 @@ fn main() -> Result<()> {
     let command = match cli.command {
         Some(c) => c,
         None => {
-            // Bare `mantis` — show the first-run setup screen.
+            // Bare `mantis` — launch the Claude-Code-style prompt TUI
+            // when a supported AI CLI is on PATH; otherwise fall back
+            // to the first-run setup screen so the user gets wired
+            // up before trying again.
+            if has_any_ai_cli() {
+                return run_async(mantis_tui_ratatui::prompt::run());
+            }
             setup::run();
             return Ok(());
         }
     };
     match command {
+        Command::Tui => run_async(mantis_tui_ratatui::prompt::run()),
         Command::Setup => {
             setup::run();
             Ok(())
@@ -1365,6 +1380,15 @@ fn ensure_mantis_mcp_registered(claude_path: &std::path::Path, daemon_endpoint: 
         anyhow::bail!("`claude mcp add` exited with status {status}");
     }
     Ok(())
+}
+
+/// Probe PATH for any supported AI-CLI provider. Used to decide
+/// whether bare `mantis` should land on the prompt TUI or fall back
+/// to the first-run setup screen.
+fn has_any_ai_cli() -> bool {
+    ["claude", "codex", "opencode", "gemini"]
+        .iter()
+        .any(|n| which_bin(n).is_some())
 }
 
 /// Look up an executable on the current `PATH`. Lightweight std-only

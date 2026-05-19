@@ -1,6 +1,11 @@
 //! ratatui binding for [`mantis_tui::ScreenModel`] (PRD §9.2, M2.4b).
 //!
-//! Renders the model into a three-pane layout:
+//! Also hosts the Claude-Code-style prompt TUI in [`prompt`] — the
+//! interactive surface that `mantis` (no-args) lands on. That surface
+//! is independent from the engagement-dashboard ScreenModel renderer
+//! below and lives in its own module for clarity.
+//!
+//! Renders the ScreenModel into a three-pane layout:
 //! - top: engagement list (highlighted selection)
 //! - middle: recent claims table
 //! - bottom: log tail
@@ -9,6 +14,8 @@
 //! Input handling and the event-loop driver belong to the binary,
 //! not to this library — keeping it test-driven against
 //! `ratatui::backend::TestBackend` without spinning a real terminal.
+
+pub mod prompt;
 
 use mantis_tui::{ClaimRow, EngagementRow, ScreenModel};
 use ratatui::buffer::Buffer;
