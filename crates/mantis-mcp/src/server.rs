@@ -715,6 +715,23 @@ impl MantisMcpServer {
     }
 
     #[tool(
+        description = "Scan a text blob (HTML, JS bundle, JSON response, error trace) for URLs / \
+                       API endpoints / relative paths. Detects absolute URLs (http / https / ws / \
+                       wss / ftp / mailto / data / javascript), protocol-relative URLs \
+                       (`//cdn.example.com/…`), and quoted relative paths (`\"/api/v1/users\"`). \
+                       Each match is classified as `same_origin` / `external` / `relative` against \
+                       the optional `origin_host`. Returns deduplicated matches plus the distinct \
+                       host set — use on JS bundles to surface hidden API endpoints, on JSON \
+                       responses to find pivot URLs, on HTML to map link surfaces beyond `<a>`."
+    )]
+    async fn mantis_extract_links(
+        &self,
+        Parameters(args): Parameters<crate::utility_tools::ExtractLinksArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&crate::utility_tools::extract_links(&args))
+    }
+
+    #[tool(
         description = "Advance the engagement's FSM by one phase. \
                        Pipeline order: RECON -> AUTH -> HUNT -> CHAIN -> VERIFY -> GRADE -> REPORT. \
                        The daemon validates the transition against the persisted session state, \

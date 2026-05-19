@@ -1639,6 +1639,241 @@ fn is_mass_assign_name(name: &str) -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// mantis_extract_links
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ExtractLinksArgs {
+    /// Blob to scan — HTML, JS bundle, JSON response, error trace, etc.
+    pub blob: String,
+    /// Origin host used to classify each link as `same_origin` /
+    /// `external`. Optional; when omitted, the classifier returns
+    /// `unknown` for the origin field but still finds links.
+    #[serde(default)]
+    pub origin_host: Option<String>,
+    /// Cap on the number of unique links returned. Defaults to 200.
+    #[serde(default = "default_link_cap")]
+    pub max_links: usize,
+}
+
+fn default_link_cap() -> usize {
+    200
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct LinkMatch {
+    pub url: String,
+    pub kind: String,
+    /// `same_origin` / `external` / `unknown` (when origin_host
+    /// missing) / `relative` (relative path, no host).
+    pub origin: String,
+    pub host: Option<String>,
+    pub byte_offset: usize,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct ExtractLinksResult {
+    pub matches: Vec<LinkMatch>,
+    pub count: usize,
+    /// Set of distinct hosts seen (excluding `relative` / `data:` /
+    /// `javascript:`). Sorted.
+    pub distinct_hosts: Vec<String>,
+}
+
+/// Find absolute URLs, protocol-relative URLs, and quoted relative
+/// paths in a blob. Classifies each by `kind` (http / https / ws /
+/// wss / ftp / mailto / data / javascript / relative) and tags it
+/// `same_origin` / `external` / `relative` relative to `origin_host`.
+///
+/// This is intentionally simple — fast, no regex dependency, scans
+/// the blob once. Hunters use it on JS bundles to discover hidden
+/// endpoints, on JSON responses to find pivot URLs, on HTML to map
+/// link surfaces beyond just `<a href>`.
+pub fn extract_links(args: &ExtractLinksArgs) -> ExtractLinksResult {
+    let blob = args.blob.as_str();
+    let origin_host = args.origin_host.as_deref().map(str::to_ascii_lowercase);
+    let mut found: std::collections::BTreeMap<String, LinkMatch> = Default::default();
+
+    scan_url_schemes(blob, &origin_host, &mut found);
+    scan_protocol_relative(blob, &origin_host, &mut found);
+    scan_quoted_relative_paths(blob, &mut found);
+
+    let mut matches: Vec<LinkMatch> = found.into_values().collect();
+    matches.sort_by_key(|m| m.byte_offset);
+    let count = matches.len();
+    matches.truncate(args.max_links.max(1).min(10_000));
+
+    let mut distinct_hosts: std::collections::BTreeSet<String> = Default::default();
+    for m in &matches {
+        if let Some(h) = &m.host {
+            distinct_hosts.insert(h.clone());
+        }
+    }
+
+    ExtractLinksResult {
+        matches,
+        count,
+        distinct_hosts: distinct_hosts.into_iter().collect(),
+    }
+}
+
+fn scan_url_schemes(
+    blob: &str,
+    origin_host: &Option<String>,
+    found: &mut std::collections::BTreeMap<String, LinkMatch>,
+) {
+    let schemes: &[(&str, &str)] = &[
+        ("https://", "https"),
+        ("http://", "http"),
+        ("wss://", "wss"),
+        ("ws://", "ws"),
+        ("ftp://", "ftp"),
+        ("mailto:", "mailto"),
+        ("data:", "data"),
+        ("javascript:", "javascript"),
+    ];
+    let lowered = blob.to_ascii_lowercase();
+    for (needle, kind) in schemes {
+        let mut start = 0usize;
+        while let Some(rel) = lowered[start..].find(needle) {
+            let abs = start + rel;
+            // Walk forward until we hit a URL terminator.
+            let end = blob[abs..]
+                .find(|c: char| {
+                    c.is_whitespace()
+                        || matches!(c, '"' | '\'' | '`' | '<' | '>' | ')' | ',' | ';' | '\\')
+                })
+                .map(|e| abs + e)
+                .unwrap_or(blob.len());
+            let url = blob[abs..end].trim_end_matches(|c: char| matches!(c, '.' | '!' | '?'));
+            if url.len() > needle.len() {
+                let (host, origin) = classify_link(url, kind, origin_host.as_deref());
+                found.entry(url.to_string()).or_insert(LinkMatch {
+                    url: url.to_string(),
+                    kind: (*kind).to_string(),
+                    origin,
+                    host,
+                    byte_offset: abs,
+                });
+            }
+            start = end.max(abs + 1);
+        }
+    }
+}
+
+fn scan_protocol_relative(
+    blob: &str,
+    origin_host: &Option<String>,
+    found: &mut std::collections::BTreeMap<String, LinkMatch>,
+) {
+    // Match `//host.example.com/path` — quote-anchored to avoid
+    // matching every double-slash in JS code.
+    for anchor in ["\"//", "'//", "(//"] {
+        let mut start = 0usize;
+        while let Some(rel) = blob[start..].find(anchor) {
+            let abs = start + rel + 1; // skip the opening char
+            let after = abs + 2;
+            let end = blob[after..]
+                .find(|c: char| {
+                    c.is_whitespace()
+                        || matches!(c, '"' | '\'' | '`' | '<' | '>' | ')' | ',' | ';' | '\\')
+                })
+                .map(|e| after + e)
+                .unwrap_or(blob.len());
+            let url = &blob[abs..end];
+            if url.len() > 4 && url[2..].contains('/') {
+                let (host, origin) = classify_link(url, "protocol_relative", origin_host.as_deref());
+                found.entry(url.to_string()).or_insert(LinkMatch {
+                    url: url.to_string(),
+                    kind: "protocol_relative".into(),
+                    origin,
+                    host,
+                    byte_offset: abs,
+                });
+            }
+            start = end.max(abs + 1);
+        }
+    }
+}
+
+fn scan_quoted_relative_paths(
+    blob: &str,
+    found: &mut std::collections::BTreeMap<String, LinkMatch>,
+) {
+    // Match "/path/to/something" — a quoted token starting with /.
+    // Useful in JS bundles where API endpoints are bare paths.
+    for (open, close) in [('"', '"'), ('\'', '\''), ('`', '`')] {
+        let bytes = blob.as_bytes();
+        let mut i = 0;
+        while i + 2 < bytes.len() {
+            if bytes[i] == open as u8 && bytes[i + 1] == b'/' && bytes[i + 2] != b'/' {
+                let start_path = i + 1;
+                let mut j = start_path;
+                while j < bytes.len() && bytes[j] != close as u8 && !bytes[j].is_ascii_whitespace() {
+                    j += 1;
+                }
+                if j < bytes.len() && bytes[j] == close as u8 {
+                    let url = &blob[start_path..j];
+                    if !url.contains(' ')
+                        && url.len() > 1
+                        && url.len() <= 200
+                        && url.bytes().all(|b| {
+                            b == b'/' || b == b'-' || b == b'_' || b == b'.' || b == b'?'
+                                || b == b'&' || b == b'=' || b == b'%' || b == b'+'
+                                || b.is_ascii_alphanumeric()
+                        })
+                        && !url.contains("//")
+                    {
+                        found.entry(url.to_string()).or_insert(LinkMatch {
+                            url: url.to_string(),
+                            kind: "relative_path".into(),
+                            origin: "relative".into(),
+                            host: None,
+                            byte_offset: start_path,
+                        });
+                    }
+                }
+                i = j + 1;
+                continue;
+            }
+            i += 1;
+        }
+    }
+}
+
+fn classify_link(url: &str, kind: &str, origin_host: Option<&str>) -> (Option<String>, String) {
+    if matches!(kind, "data" | "javascript" | "mailto") {
+        return (None, "non-network".into());
+    }
+    // Extract host from the URL.
+    let host = if let Some(after_scheme) = url.find("://") {
+        let rest = &url[after_scheme + 3..];
+        rest.split(|c: char| matches!(c, '/' | '?' | '#'))
+            .next()
+            .map(|h| h.trim_start_matches("//").to_ascii_lowercase())
+            .map(|h| h.split('@').next_back().unwrap().to_string())
+    } else if url.starts_with("//") {
+        let rest = &url[2..];
+        rest.split(|c: char| matches!(c, '/' | '?' | '#'))
+            .next()
+            .map(str::to_ascii_lowercase)
+    } else {
+        None
+    };
+    let origin = match (host.as_deref(), origin_host) {
+        (Some(h), Some(o)) => {
+            // Strip :port for comparison.
+            let h_no_port = h.split(':').next().unwrap_or(h);
+            let o_no_port = o.split(':').next().unwrap_or(o);
+            if h_no_port == o_no_port { "same_origin" } else { "external" }.to_string()
+        }
+        (Some(_), None) => "unknown".to_string(),
+        (None, _) => "relative".to_string(),
+    };
+    (host, origin)
+}
+
+// ---------------------------------------------------------------------------
 // tests
 // ---------------------------------------------------------------------------
 
@@ -2047,6 +2282,49 @@ mod tests {
         assert_eq!(r.count, 2);
         assert_eq!(r.forms[0].action_raw, "");
         assert_eq!(r.forms[1].action_raw, "/x");
+    }
+
+    #[test]
+    fn extract_links_finds_absolute_and_relative() {
+        let blob = r#"
+            <html>
+              <a href="https://api.example.com/v1/users">api</a>
+              <script>fetch("/internal/admin?token=abc")</script>
+              <img src="//cdn.example.com/img.png" />
+              <a href="mailto:ops@example.com">mail</a>
+              <a href="javascript:alert(1)">js</a>
+            </html>
+        "#;
+        let r = extract_links(&ExtractLinksArgs {
+            blob: blob.into(),
+            origin_host: Some("api.example.com".into()),
+            max_links: 200,
+        });
+        let kinds: Vec<&str> = r.matches.iter().map(|m| m.kind.as_str()).collect();
+        assert!(kinds.contains(&"https"));
+        assert!(kinds.contains(&"protocol_relative"));
+        assert!(kinds.contains(&"relative_path"));
+        assert!(kinds.contains(&"mailto"));
+        let same_origin: Vec<&LinkMatch> = r.matches.iter().filter(|m| m.origin == "same_origin").collect();
+        assert!(!same_origin.is_empty(), "expected at least one same-origin match");
+        assert!(r.distinct_hosts.iter().any(|h| h == "cdn.example.com"));
+        assert!(r.distinct_hosts.iter().any(|h| h == "api.example.com"));
+    }
+
+    #[test]
+    fn extract_links_dedupes_same_url() {
+        let blob = r#"see https://api.example.com/x and again https://api.example.com/x done"#;
+        let r = extract_links(&ExtractLinksArgs {
+            blob: blob.into(),
+            origin_host: None,
+            max_links: 200,
+        });
+        let url_matches: Vec<&LinkMatch> = r
+            .matches
+            .iter()
+            .filter(|m| m.url == "https://api.example.com/x")
+            .collect();
+        assert_eq!(url_matches.len(), 1);
     }
 
     #[test]
