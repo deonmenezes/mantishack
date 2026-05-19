@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "mantis": {
+      "command": "${HOME}/.cargo/bin/mantis-mcp",
+      "args": [],
+      "env": {}
+    }
+  }
+}

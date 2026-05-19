@@ -27,7 +27,7 @@ yarn global add mantishack
 pnpm add    -g mantishack
 ```
 
-One of the per-platform binary packages (`@mantishack/cli-darwin-arm64`, `@mantishack/cli-darwin-x64`, `@mantishack/cli-linux-x64`, `@mantishack/cli-linux-arm64`) is selected automatically by your platform — no postinstall script, works in Bun's strict mode.
+One of the per-platform binary packages (`@deonmenezes/mantis-cli-darwin-arm64`, `@deonmenezes/mantis-cli-darwin-x64`, `@deonmenezes/mantis-cli-linux-x64`, `@deonmenezes/mantis-cli-linux-arm64`) is selected automatically by your platform — no postinstall script, works in Bun's strict mode.
 
 ## Quick start
 

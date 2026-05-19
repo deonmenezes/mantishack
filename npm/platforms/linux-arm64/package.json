@@ -1,6 +1,6 @@
 {
-  "name": "@mantishack/cli-linux-arm64",
-  "version": "0.0.1",
+  "name": "@deonmenezes/mantis-cli-linux-arm64",
+  "version": "0.0.2",
   "description": "AUTHORIZED security testing only. Prebuilt mantis binaries for Linux aarch64 / arm64. Auto-installed by the `mantishack` package.",
   "homepage": "https://github.com/deonmenezes/mantishack",
   "repository": {

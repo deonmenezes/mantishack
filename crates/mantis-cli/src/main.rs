@@ -303,6 +303,33 @@ enum Command {
         #[arg(long, env = "MANTIS_DAEMON", default_value = DEFAULT_DAEMON_ENDPOINT)]
         daemon: String,
     },
+    /// Wire Mantis into the local AI CLIs (idempotent).
+    ///
+    /// Copies the bundled Claude Code plugin to
+    /// `~/.claude/plugins/mantis/`, registers `mantis-mcp` as a
+    /// user-scope MCP server with the `claude` CLI, and (unless
+    /// `--no-daemon`) spawns the daemon in the background.
+    ///
+    /// Called automatically by the npm install path on first
+    /// invocation; safe to re-run any time.
+    Init {
+        /// Path to the `plugin/` directory bundled with this repo.
+        /// Defaults to `$MANTIS_PLUGIN_SRC`, then `./plugin`.
+        #[arg(long, env = "MANTIS_PLUGIN_SRC")]
+        plugin_src: Option<Utf8PathBuf>,
+        /// Skip spawning the daemon.
+        #[arg(long)]
+        no_daemon: bool,
+        /// Skip MCP registration.
+        #[arg(long)]
+        no_mcp: bool,
+        /// Skip plugin file copy.
+        #[arg(long)]
+        no_plugin: bool,
+        /// Daemon endpoint baked into the MCP registration.
+        #[arg(long, default_value = DEFAULT_DAEMON_ENDPOINT)]
+        daemon_endpoint: String,
+    },
     /// Interactive TUI — Claude-Code-style prompt box. Type a request
     /// (e.g. "hack example.com") and Mantis routes it to your chosen
     /// AI CLI (claude / codex / opencode / gemini). Tab cycles
@@ -442,6 +469,13 @@ fn main() -> Result<()> {
     };
     match command {
         Command::Tui => run_async(mantis_tui_ratatui::prompt::run()),
+        Command::Init {
+            plugin_src,
+            no_daemon,
+            no_mcp,
+            no_plugin,
+            daemon_endpoint,
+        } => handle_init(plugin_src, no_daemon, no_mcp, no_plugin, daemon_endpoint),
         Command::Setup => {
             setup::run();
             Ok(())
@@ -1378,6 +1412,121 @@ fn ensure_mantis_mcp_registered(claude_path: &std::path::Path, daemon_endpoint: 
         .context("invoke `claude mcp add`")?;
     if !status.success() {
         anyhow::bail!("`claude mcp add` exited with status {status}");
+    }
+    Ok(())
+}
+
+/// `mantis init` — wire plugin + MCP + daemon in one command. Used
+/// both manually and by the npm shim on first invocation.
+fn handle_init(
+    plugin_src: Option<Utf8PathBuf>,
+    no_daemon: bool,
+    no_mcp: bool,
+    no_plugin: bool,
+    daemon_endpoint: String,
+) -> Result<()> {
+    println!("Mantis init — wiring plugin + MCP + daemon");
+
+    if !no_plugin {
+        let src = resolve_plugin_src(plugin_src.as_ref())?;
+        copy_claude_plugin(&src)?;
+    } else {
+        println!("  plugin:  skipped (--no-plugin)");
+    }
+
+    if !no_mcp {
+        let claude = which_bin("claude").ok_or_else(|| {
+            anyhow::anyhow!(
+                "`claude` is not on PATH — install Claude Code from \
+                 https://claude.com/claude-code, then re-run `mantis init`."
+            )
+        })?;
+        ensure_mantis_mcp_registered(&claude, &daemon_endpoint)?;
+    } else {
+        println!("  mcp:     skipped (--no-mcp)");
+    }
+
+    if !no_daemon {
+        if daemon_is_up(&daemon_endpoint) {
+            println!("  daemon:  already running at {daemon_endpoint}");
+        } else {
+            let daemon_bin = which_bin("mantis-daemon").ok_or_else(|| {
+                anyhow::anyhow!(
+                    "`mantis-daemon` is not on PATH. Install via `npm i -g mantishack`, \
+                     `cargo install --path crates/mantis-daemon`, or curl-install."
+                )
+            })?;
+            spawn_daemon_detached(&daemon_bin, &daemon_endpoint)?;
+        }
+    } else {
+        println!("  daemon:  skipped (--no-daemon)");
+    }
+
+    println!();
+    println!("Ready.");
+    println!("  In Claude Code:   /mantishack <target>");
+    println!("  From the shell:   mantis hack <target> --i-have-authorization");
+    println!("  Re-run anytime:   mantis init");
+    Ok(())
+}
+
+/// Resolve the plugin source dir: env override → ./plugin → error.
+fn resolve_plugin_src(override_path: Option<&Utf8PathBuf>) -> Result<Utf8PathBuf> {
+    if let Some(p) = override_path {
+        if !p.as_std_path().is_dir() {
+            anyhow::bail!("plugin src {p} is not a directory");
+        }
+        return Ok(p.clone());
+    }
+    if let Ok(env) = std::env::var("MANTIS_PLUGIN_SRC") {
+        let p = Utf8PathBuf::from(env);
+        if p.as_std_path().is_dir() {
+            return Ok(p);
+        }
+    }
+    let cwd_plugin = Utf8PathBuf::from("./plugin");
+    if cwd_plugin.as_std_path().is_dir() {
+        return Ok(cwd_plugin);
+    }
+    anyhow::bail!(
+        "could not locate plugin source. Pass --plugin-src <path> or set MANTIS_PLUGIN_SRC."
+    )
+}
+
+/// Copy `<plugin_src>/claude-code/` into `~/.claude/plugins/mantis/`.
+/// Removes the previous install first so stale files don't linger.
+fn copy_claude_plugin(plugin_src: &Utf8PathBuf) -> Result<()> {
+    let src = plugin_src.join("claude-code");
+    if !src.as_std_path().is_dir() {
+        anyhow::bail!("plugin source has no `claude-code/` subdirectory: {plugin_src}");
+    }
+    let home = std::env::var("HOME").context("HOME not set")?;
+    let dest = std::path::PathBuf::from(format!("{home}/.claude/plugins/mantis"));
+    if dest.exists() {
+        std::fs::remove_dir_all(&dest)
+            .with_context(|| format!("remove existing plugin dir {}", dest.display()))?;
+    }
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("create plugin parent {}", parent.display()))?;
+    }
+    copy_dir_recursive(src.as_std_path(), &dest)
+        .with_context(|| format!("copy plugin -> {}", dest.display()))?;
+    println!("  plugin:  installed at {}", dest.display());
+    Ok(())
+}
+
+fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let dst_path = dst.join(entry.file_name());
+        if ty.is_dir() {
+            copy_dir_recursive(&entry.path(), &dst_path)?;
+        } else if ty.is_file() {
+            std::fs::copy(entry.path(), &dst_path)?;
+        }
     }
     Ok(())
 }

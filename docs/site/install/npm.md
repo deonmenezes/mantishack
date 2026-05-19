@@ -29,10 +29,10 @@ The `mantishack` package uses the **per-platform `optionalDependencies` pattern*
 When you install `mantishack`:
 
 1. Your package manager resolves the `optionalDependencies` and downloads exactly one platform-specific binary package matching your OS/arch:
-   - `@mantishack/cli-darwin-arm64` (Apple Silicon Mac)
-   - `@mantishack/cli-darwin-x64` (Intel Mac)
-   - `@mantishack/cli-linux-x64`
-   - `@mantishack/cli-linux-arm64`
+   - `@deonmenezes/mantis-cli-darwin-arm64` (Apple Silicon Mac)
+   - `@deonmenezes/mantis-cli-darwin-x64` (Intel Mac)
+   - `@deonmenezes/mantis-cli-linux-x64`
+   - `@deonmenezes/mantis-cli-linux-arm64`
 2. The main `mantishack` package's `bin/mantis.js` shim (~50 lines, Node 14+) resolves the platform binary via `require.resolve` and `exec`s it with your argv.
 3. The shim ad-hoc extends `PATH` with the platform package's `bin/` directory so the main CLI's lookups for sibling binaries (`mantis-daemon`, `mantis-mcp`) resolve from the same install.
 
@@ -66,11 +66,11 @@ If `mantis --version` works but `mantis hack <target>` doesn't, run `mantis doct
 
 | OS      | Arch   | Package                          | Status |
 |---------|--------|----------------------------------|--------|
-| macOS   | arm64  | `@mantishack/cli-darwin-arm64`   | ✅ |
-| macOS   | x64    | `@mantishack/cli-darwin-x64`     | ✅ |
-| Linux   | x64    | `@mantishack/cli-linux-x64`      | ✅ |
-| Linux   | arm64  | `@mantishack/cli-linux-arm64`    | ✅ |
-| Windows | x64    | `@mantishack/cli-win32-x64`      | 🚧 planned |
+| macOS   | arm64  | `@deonmenezes/mantis-cli-darwin-arm64`   | ✅ |
+| macOS   | x64    | `@deonmenezes/mantis-cli-darwin-x64`     | ✅ |
+| Linux   | x64    | `@deonmenezes/mantis-cli-linux-x64`      | ✅ |
+| Linux   | arm64  | `@deonmenezes/mantis-cli-linux-arm64`    | ✅ |
+| Windows | x64    | `@deonmenezes/mantis-cli-win32-x64`      | 🚧 planned |
 
 ## Troubleshooting
 
@@ -78,7 +78,7 @@ If `mantis --version` works but `mantis hack <target>` doesn't, run `mantis doct
 
 Your platform isn't on the supported list. Build from source — see [Install from source](./source.md).
 
-### `@mantishack/cli-… is not installed`
+### `@deonmenezes/mantis-cli-… is not installed`
 
 Your package manager skipped the optional dependency. Most likely you ran with `--no-optional` or similar. Re-install:
 
@@ -89,7 +89,7 @@ npm install -g mantishack --include=optional
 Or just install the platform package directly:
 
 ```sh
-npm install -g @mantishack/cli-darwin-arm64
+npm install -g @deonmenezes/mantis-cli-darwin-arm64
 ```
 
 ### macOS: `zsh: killed mantis`
@@ -109,5 +109,5 @@ The `mantishack` build script ad-hoc-signs binaries before packing, so this shou
 Bun installs `optionalDependencies` by default. If you used `bun install --production` (which skips optional), re-install without that flag, or:
 
 ```sh
-bun add -g @mantishack/cli-darwin-arm64    # add platform package directly
+bun add -g @deonmenezes/mantis-cli-darwin-arm64    # add platform package directly
 ```

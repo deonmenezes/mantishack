@@ -1,0 +1,19 @@
+{
+  "name": "mantis",
+  "version": "0.1.0",
+  "description": "Mantis offensive-security daemon — slash commands for the engagement lifecycle, scans, claims, and reporting.",
+  "author": {
+    "name": "Deon Menezes",
+    "url": "https://github.com/deonmenezes"
+  },
+  "repository": "https://github.com/deonmenezes/mantishack",
+  "license": "Apache-2.0 OR MIT",
+  "keywords": [
+    "security",
+    "pentest",
+    "bug-bounty",
+    "offensive-security",
+    "mantis"
+  ],
+  "commands": []
+}

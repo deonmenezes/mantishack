@@ -106,6 +106,18 @@ for target in "${TARGETS[@]}"; do
 done
 
 # --- Pack the main `mantishack` package -------------------------------
+# Bundle the Claude Code plugin (plugin/claude-code/) inside the
+# package so the JS shim can wire it into `~/.claude/plugins/mantis/`
+# on first invocation — no separate `mantis init` step needed after
+# `npm i mantishack`.
+echo
+echo "==> bundling Claude plugin into main package"
+plugin_dst="${NPM_DIR}/mantishack/plugin"
+rm -rf "${plugin_dst}"
+mkdir -p "${plugin_dst}"
+cp -R "${REPO_ROOT}/plugin/claude-code" "${plugin_dst}/claude-code"
+echo "  ✓ plugin copied to ${plugin_dst}/claude-code"
+
 echo
 echo "==> packing main mantishack package"
 pushd "${NPM_DIR}/mantishack" >/dev/null

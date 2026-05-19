@@ -1,24 +1,29 @@
 #!/usr/bin/env node
 // Thin launcher: resolves the prebuilt mantis binary from the
-// per-platform package installed via optionalDependencies, then
-// execs it with the operator's argv. No postinstall script — works
-// in Bun and pnpm strict mode.
+// per-platform package installed via optionalDependencies, runs a
+// one-shot `mantis init` on first invocation (wires the Claude
+// plugin into ~/.claude/plugins/mantis/ AND registers `mantis-mcp`
+// as a user-scope MCP server with the `claude` CLI), then execs the
+// requested binary with the operator's argv.
 //
-// To add a new platform: publish @mantishack/cli-<os>-<arch> with a
-// `bin/mantis` binary inside, and add it to optionalDependencies in
-// package.json.
+// No postinstall script (works in Bun and pnpm strict mode).
+// The first-run init is gated on a marker file under ~/.Mantis/ so
+// subsequent invocations skip straight to the exec — zero per-call
+// overhead after the first.
 "use strict";
 
 const { spawnSync } = require("node:child_process");
+const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 
 const BIN_NAME = path.basename(process.argv[1] || "mantis");
 
 const PLATFORM_MAP = {
-  "darwin-arm64": "@mantishack/cli-darwin-arm64",
-  "darwin-x64": "@mantishack/cli-darwin-x64",
-  "linux-x64": "@mantishack/cli-linux-x64",
-  "linux-arm64": "@mantishack/cli-linux-arm64",
+  "darwin-arm64": "@deonmenezes/mantis-cli-darwin-arm64",
+  "darwin-x64": "@deonmenezes/mantis-cli-darwin-x64",
+  "linux-x64": "@deonmenezes/mantis-cli-linux-x64",
+  "linux-arm64": "@deonmenezes/mantis-cli-linux-arm64",
 };
 
 const key = `${process.platform}-${process.arch}`;
@@ -35,8 +40,6 @@ if (!pkg) {
 
 let binaryPath;
 try {
-  // The platform package ships `bin/mantis`, `bin/mantis-daemon`,
-  // and `bin/mantis-mcp`. We pick whichever this shim was named for.
   binaryPath = require.resolve(`${pkg}/bin/${BIN_NAME}`);
 } catch (err) {
   console.error(
@@ -48,15 +51,97 @@ try {
   process.exit(1);
 }
 
+const mantisBinaryPath = require.resolve(`${pkg}/bin/mantis`);
+const childEnv = {
+  ...process.env,
+  PATH: `${path.dirname(binaryPath)}${path.delimiter}${process.env.PATH || ""}`,
+};
+
+// --- First-run init: install Claude plugin + register MCP server ----
+// The bundled plugin lives at <main-package-root>/plugin/claude-code.
+// We pass it as MANTIS_PLUGIN_SRC so `mantis init` knows where to
+// copy from without relying on the on-PATH binary's own search paths.
+// Gated on ~/.Mantis/.npm-init-done so this runs exactly once per
+// install (re-installs / version bumps update the file's contents,
+// re-triggering init by version).
+const stateDir = path.join(os.homedir(), ".Mantis");
+const markerPath = path.join(stateDir, ".npm-init-done");
+const pluginRoot = path.join(__dirname, "..", "plugin");
+
+function readMarker() {
+  try {
+    return fs.readFileSync(markerPath, "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
+function writeMarker(version) {
+  try {
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(markerPath, `${version}\n`, { mode: 0o600 });
+  } catch (e) {
+    // Non-fatal — init still ran. We'll just re-run next time.
+    console.error(`[mantishack] warn: could not write ${markerPath}: ${e.message}`);
+  }
+}
+
+function packageVersion() {
+  try {
+    return require("../package.json").version || "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+function shouldRunInit() {
+  // Skip when the operator is explicitly invoking `mantis init`
+  // themselves — no point auto-running it before the user-requested
+  // init.
+  const argv = process.argv.slice(2);
+  if (argv[0] === "init") return false;
+  // Skip when this isn't the main `mantis` binary (the daemon and
+  // mcp shims don't need plugin wiring).
+  if (BIN_NAME !== "mantis") return false;
+  // Skip when MANTIS_SKIP_AUTO_INIT=1.
+  if (process.env.MANTIS_SKIP_AUTO_INIT === "1") return false;
+  // Skip when the plugin directory wasn't bundled (e.g. an older
+  // tarball, source builds).
+  if (!fs.existsSync(path.join(pluginRoot, "claude-code"))) return false;
+  // Skip when the marker matches the current package version.
+  return readMarker() !== packageVersion();
+}
+
+function runFirstRunInit() {
+  process.stderr.write(
+    "[mantishack] first run — wiring Claude plugin + MCP server (one-time setup)\n"
+  );
+  const initEnv = { ...childEnv, MANTIS_PLUGIN_SRC: pluginRoot };
+  // We pass --no-daemon because the daemon's lifecycle is owned by
+  // the user (or by `mantis hack` preflight); we just want plugin +
+  // MCP wiring here.
+  const initResult = spawnSync(
+    mantisBinaryPath,
+    ["init", "--no-daemon", "--plugin-src", pluginRoot],
+    { stdio: "inherit", env: initEnv }
+  );
+  if (initResult.error || (initResult.status !== null && initResult.status !== 0)) {
+    process.stderr.write(
+      "[mantishack] warn: auto-init did not complete cleanly. Re-run later with `mantis init`.\n"
+    );
+    return;
+  }
+  writeMarker(packageVersion());
+}
+
+if (shouldRunInit()) {
+  runFirstRunInit();
+}
+
+// --- Main exec ------------------------------------------------------
 const result = spawnSync(binaryPath, process.argv.slice(2), {
   stdio: "inherit",
-  // Make the sibling binaries (mantis-daemon, mantis-mcp) discoverable
-  // on PATH so the main CLI's `which::which("mantis-daemon")` lookups
-  // resolve from this install.
-  env: {
-    ...process.env,
-    PATH: `${path.dirname(binaryPath)}${path.delimiter}${process.env.PATH || ""}`,
-  },
+  env: childEnv,
 });
 
 if (result.error) {

@@ -13,10 +13,10 @@ npm/
 │   ├── bin/mantis-mcp.js
 │   └── README.md
 ├── platforms/
-│   ├── darwin-arm64/package.json            # @mantishack/cli-darwin-arm64
-│   ├── darwin-x64/package.json              # @mantishack/cli-darwin-x64
-│   ├── linux-x64/package.json               # @mantishack/cli-linux-x64
-│   └── linux-arm64/package.json             # @mantishack/cli-linux-arm64
+│   ├── darwin-arm64/package.json            # @deonmenezes/mantis-cli-darwin-arm64
+│   ├── darwin-x64/package.json              # @deonmenezes/mantis-cli-darwin-x64
+│   ├── linux-x64/package.json               # @deonmenezes/mantis-cli-linux-x64
+│   └── linux-arm64/package.json             # @deonmenezes/mantis-cli-linux-arm64
 ├── build.sh                                 # compile + pack tarballs
 └── PUBLISH.md (you are here)
 ```
@@ -92,7 +92,7 @@ pnpm add    -g mantishack
 
 The npm package version mirrors the Cargo workspace version in the root `Cargo.toml`. When you bump Cargo, also bump:
 
-- `npm/mantishack/package.json` → `version` AND each `optionalDependencies.@mantishack/cli-*` value
+- `npm/mantishack/package.json` → `version` AND each `optionalDependencies.@deonmenezes/mantis-cli-*` value
 - Each `npm/platforms/*/package.json` → `version`
 
 A future helper (`npm/bump.sh`) can automate this.
