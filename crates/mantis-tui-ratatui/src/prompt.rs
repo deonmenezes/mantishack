@@ -375,33 +375,29 @@ const HIGH: Color = Color::Rgb(255, 200, 90);
 
 fn draw(f: &mut Frame<'_>, app: &App) {
     let area = f.area();
-    // Claude-Code-faithful layout:
+    // Layout — one divider, and it belongs to the input:
     //   top    : header (mascot + info, 4 rows)
-    //   top    : divider
     //   middle : output area, grows to fill — conversation flows
-    //            here, tail-trimmed so newest lines stay visible
-    //            right above the input
-    //   above  : divider
+    //            freely from the header down to the input divider
+    //   above  : single divider, visually anchoring the input
     //   near   : input row (anchored near the bottom)
     //   bottom : 2-line status bar pinned to the very bottom
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(4), // header
-            Constraint::Length(1), // divider
             Constraint::Min(0),    // output (fills available space)
-            Constraint::Length(1), // divider
+            Constraint::Length(1), // divider (above input)
             Constraint::Length(1), // input row
             Constraint::Length(2), // status (pinned bottom)
         ])
         .split(area);
 
     draw_header(f, layout[0], app);
-    draw_divider(f, layout[1]);
-    draw_output(f, layout[2], app);
-    draw_divider(f, layout[3]);
-    draw_input(f, layout[4], app);
-    draw_status(f, layout[5], app);
+    draw_output(f, layout[1], app);
+    draw_divider(f, layout[2]);
+    draw_input(f, layout[3], app);
+    draw_status(f, layout[4], app);
 }
 
 fn draw_header(f: &mut Frame<'_>, area: Rect, app: &App) {
