@@ -285,16 +285,17 @@ fn build_full_prompt(user_prompt: &str) -> String {
     )
 }
 
-/// Spawn `<provider> -p "<prompt>"` and stream its stdout lines into
-/// the shared output buffer. Returns the child's exit status code.
+/// Spawn `<provider> -p "<prompt>"` and stream its stdout AND stderr
+/// lines into the shared output buffer concurrently. Returns the
+/// child's exit status code. Piping stderr matters because providers
+/// often write progress / errors there, not stdout — without it the
+/// TUI looked frozen forever on any error.
 async fn stream_provider(
     provider: &str,
     user_prompt: &str,
     sink: &Arc<Mutex<Vec<String>>>,
 ) -> Result<i32> {
     let full = build_full_prompt(user_prompt);
-    // Per-provider invocation. All four CLIs honor `-p`/`--print` for
-    // non-interactive mode, but their permission flags differ.
     let mut cmd = Command::new(provider);
     match provider {
         "claude" => {
@@ -319,12 +320,32 @@ async fn stream_provider(
         .stdout
         .take()
         .ok_or_else(|| anyhow::anyhow!("{provider} child has no stdout"))?;
-    let mut lines = BufReader::new(stdout).lines();
-    while let Some(line) = lines.next_line().await? {
-        let mut buf = sink.lock().await;
-        buf.push(line);
-    }
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("{provider} child has no stderr"))?;
+
+    // Stream stdout and stderr concurrently. Each task appends every
+    // line to the shared buffer as soon as it arrives, so the next
+    // UI tick (50 ms) picks it up.
+    let stdout_sink = Arc::clone(sink);
+    let stderr_sink = Arc::clone(sink);
+    let stdout_task = tokio::spawn(async move {
+        let mut lines = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            stdout_sink.lock().await.push(line);
+        }
+    });
+    let stderr_task = tokio::spawn(async move {
+        let mut lines = BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            stderr_sink.lock().await.push(format!("[stderr] {line}"));
+        }
+    });
+
     let status = child.wait().await?;
+    let _ = stdout_task.await;
+    let _ = stderr_task.await;
     Ok(status.code().unwrap_or(0))
 }
 
@@ -351,24 +372,33 @@ const HIGH: Color = Color::Rgb(255, 200, 90);
 
 fn draw(f: &mut Frame<'_>, app: &App) {
     let area = f.area();
+    // Claude-Code-faithful layout:
+    //   top    : header (mascot + info, 4 rows)
+    //   top    : divider
+    //   middle : output area, grows to fill — conversation flows
+    //            here, tail-trimmed so newest lines stay visible
+    //            right above the input
+    //   above  : divider
+    //   near   : input row (anchored near the bottom)
+    //   bottom : 2-line status bar pinned to the very bottom
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(4), // header (4-row mascot + 3 info rows)
+            Constraint::Length(4), // header
+            Constraint::Length(1), // divider
+            Constraint::Min(0),    // output (fills available space)
             Constraint::Length(1), // divider
             Constraint::Length(1), // input row
-            Constraint::Length(1), // divider
-            Constraint::Length(2), // status (2 lines)
-            Constraint::Min(0),    // output area, fills the rest
+            Constraint::Length(2), // status (pinned bottom)
         ])
         .split(area);
 
     draw_header(f, layout[0], app);
     draw_divider(f, layout[1]);
-    draw_input(f, layout[2], app);
+    draw_output(f, layout[2], app);
     draw_divider(f, layout[3]);
-    draw_status(f, layout[4], app);
-    draw_output(f, layout[5], app);
+    draw_input(f, layout[4], app);
+    draw_status(f, layout[5], app);
 }
 
 fn draw_header(f: &mut Frame<'_>, area: Rect, app: &App) {
