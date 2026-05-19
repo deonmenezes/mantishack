@@ -2220,6 +2220,7 @@ dependencies = [
  "anyhow",
  "camino",
  "clap",
+ "crossterm",
  "mantis-auth",
  "mantis-auth-differential",
  "mantis-core",

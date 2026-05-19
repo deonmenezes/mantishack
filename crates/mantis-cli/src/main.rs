@@ -6,6 +6,7 @@
 
 mod banner;
 mod llm_pick;
+mod model_picker;
 mod setup;
 
 use anyhow::{Context, Result};
@@ -338,6 +339,34 @@ enum Command {
     /// `mantis` (no arguments) defaults to launching this TUI when a
     /// supported AI CLI is on PATH.
     Tui,
+    /// Pick / set the Claude model used by `mantis hack`. With no
+    /// args, opens an interactive picker (Tab / Shift+Tab to cycle,
+    /// Enter to confirm). The chosen model is persisted to
+    /// `~/.Mantis/model` and applied automatically on the next
+    /// `mantis hack` run, unless the user passes `-- --model …`
+    /// explicitly.
+    Model {
+        #[command(subcommand)]
+        action: Option<ModelAction>,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum ModelAction {
+    /// Print the currently-saved model preference.
+    Show,
+    /// Set the model to `<id>` (the value passed to `claude --model`).
+    /// Use `auto` or an empty string to clear.
+    Set {
+        /// `auto` to clear, or one of `claude-opus-4-7`,
+        /// `claude-sonnet-4-6`, `claude-haiku-4-5-20251001`, or any
+        /// custom id accepted by `claude --model`.
+        id: String,
+    },
+    /// Clear the saved preference (revert to claude's default).
+    Clear,
+    /// Open the interactive Tab / Shift+Tab picker (default).
+    Pick,
 }
 
 #[derive(Subcommand, Debug)]
@@ -469,6 +498,7 @@ fn main() -> Result<()> {
     };
     match command {
         Command::Tui => mantis_tui_ratatui::prompt::run(),
+        Command::Model { action } => handle_model(action),
         Command::Init {
             plugin_src,
             no_daemon,
@@ -1289,6 +1319,12 @@ async fn handle_hack(
     );
 
     eprintln!("[mantishack] orchestrator: inlined ({} chars)", orchestrator_body.len());
+
+    // Apply the saved-model preference unless the user already passed
+    // `--model …` themselves (or via `-m`). `mantis model` writes the
+    // chosen id to `~/.Mantis/model`; reading it here is the bridge.
+    let claude_extra_args = apply_saved_model(claude_extra_args);
+
     eprintln!(
         "[mantishack] handing off to the orchestrator — RECON → AUTH → HUNT → CHAIN → VERIFY → GRADE → REPORT"
     );
@@ -1314,6 +1350,72 @@ async fn handle_hack(
     eprintln!("[mantishack] artifacts (if produced) live under ./mantishack-<engagement-id>/");
     eprintln!("[mantishack]   See `summary.txt`, `events.jsonl`, `report.*` inside that folder.");
     Ok(())
+}
+
+/// Prepend `--model <id>` to the args forwarded to `claude --print`
+/// if the user has a saved preference and didn't already pass
+/// `--model …` (or `-m …`) themselves.
+fn apply_saved_model(claude_extra_args: Vec<String>) -> Vec<String> {
+    if claude_extra_args
+        .iter()
+        .any(|a| a == "--model" || a == "-m" || a.starts_with("--model="))
+    {
+        // User overrode; don't touch.
+        return claude_extra_args;
+    }
+    let Some(saved) = model_picker::load_saved() else {
+        return claude_extra_args;
+    };
+    eprintln!("[mantishack] model: {saved}  (from `mantis model`; override via `-- --model …`)");
+    let mut out = Vec::with_capacity(claude_extra_args.len() + 2);
+    out.push("--model".to_string());
+    out.push(saved);
+    out.extend(claude_extra_args);
+    out
+}
+
+fn handle_model(action: Option<ModelAction>) -> Result<()> {
+    match action.unwrap_or(ModelAction::Pick) {
+        ModelAction::Show => {
+            model_picker::print_show();
+            Ok(())
+        }
+        ModelAction::Clear => {
+            model_picker::save("")?;
+            println!("model preference cleared.");
+            Ok(())
+        }
+        ModelAction::Set { id } => {
+            // "auto" / empty → clear.
+            let id = id.trim();
+            if id.is_empty() || id.eq_ignore_ascii_case("auto") {
+                model_picker::save("")?;
+                println!("model preference cleared.");
+                return Ok(());
+            }
+            model_picker::save(id)?;
+            match model_picker::find_by_id(id) {
+                Some(m) => println!("model set to {} ({}).", m.label, id),
+                None => println!("model set to {id} (custom id — not in the built-in list)."),
+            }
+            Ok(())
+        }
+        ModelAction::Pick => match model_picker::pick_interactive()? {
+            Some(m) => {
+                model_picker::save(m.id)?;
+                if m.id.is_empty() {
+                    println!("model preference cleared — claude default applies.");
+                } else {
+                    println!("model set to {} ({}).", m.label, m.id);
+                }
+                Ok(())
+            }
+            None => {
+                println!("cancelled — preference unchanged.");
+                Ok(())
+            }
+        },
+    }
 }
 
 fn normalize_target_url(target: &str) -> String {
