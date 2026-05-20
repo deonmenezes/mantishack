@@ -13,7 +13,6 @@ use crate::tier::{Tier, TierKind, TierResult};
 use crate::verifier::{verify_finding, VerifierConfig};
 use crate::{Probe, TieredFinding};
 use serde::{Deserialize, Serialize};
-use std::pin::Pin;
 use std::sync::Arc;
 
 /// One run-result. Aggregates per-tier verdicts so operators see
@@ -253,6 +252,7 @@ mod tests {
     use super::*;
     use crate::adapter::{MockLlm, NullLlm, SubprocessSandbox};
     use crate::tier::TierResult;
+    use std::pin::Pin;
 
     struct AlwaysMissTier;
     impl Tier for AlwaysMissTier {

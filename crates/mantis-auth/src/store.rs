@@ -12,7 +12,6 @@ use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::profile::AuthProfile;
-use crate::redact::redact_value;
 
 // ---------------------------------------------------------------------------
 // Error
@@ -247,6 +246,7 @@ impl AuthStore {
 mod tests {
     use super::*;
     use crate::profile::{AuthCookie, AuthHeader};
+    use crate::redact::redact_value;
 
     fn make_profile(name: &str, token: &str) -> AuthProfile {
         AuthProfile {

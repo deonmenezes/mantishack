@@ -832,7 +832,7 @@ fn pick_tip() -> &'static str {
     use std::time::SystemTime;
     let idx = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
-        .map(|d| (d.as_nanos() as usize))
+        .map(|d| d.as_nanos() as usize)
         .unwrap_or(0)
         % TIPS.len();
     TIPS[idx]

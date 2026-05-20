@@ -25,7 +25,10 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: -D warnings
+  # NOTE: we deliberately do NOT set `RUSTFLAGS: -D warnings` here.
+  # Release builds should produce shipping binaries; warning-as-error
+  # lint enforcement belongs in ci.yml (dev branch gate), not in the
+  # publish path where a stray dead-code warning shouldn't block a tag.
 
 jobs:
   verify-version:
