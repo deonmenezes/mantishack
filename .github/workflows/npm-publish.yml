@@ -1,0 +1,218 @@
+name: npm-publish
+
+# Publishes the four per-platform npm packages and then the
+# main `mantishack` package whose optionalDependencies point at
+# them. Triggered by pushing a tag `v<semver>` to main.
+#
+# The workspace version in Cargo.toml (and the corresponding
+# npm package.json files under npm/) must already match the
+# tag — e.g. tag `v0.0.7` requires the package.json files to
+# say "0.0.7". `mantis verify-version` (the first job) enforces
+# this so a typo doesn't ship a mismatched tarball.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g. 0.0.7). Must match Cargo.toml + npm/**/package.json.'
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  verify-version:
+    name: Verify Cargo + npm versions match the tag
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.derive.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: derive
+        name: Derive version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            VER="${{ inputs.version }}"
+          else
+            VER="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "Publishing version: $VER"
+      - name: Verify all version sites agree
+        run: |
+          VER="${{ steps.derive.outputs.version }}"
+          fail() { echo "::error::$1"; exit 1; }
+          CARGO_VER=$(grep -A1 '^\[workspace.package\]' Cargo.toml | grep '^version' | sed -E 's/.*"([^"]+)".*/\1/')
+          [ "$CARGO_VER" = "$VER" ] || fail "Cargo.toml workspace version is $CARGO_VER, expected $VER"
+          for f in npm/mantishack/package.json npm/mantis-cli/package.json \
+                   npm/platforms/darwin-arm64/package.json npm/platforms/darwin-x64/package.json \
+                   npm/platforms/linux-x64/package.json npm/platforms/linux-arm64/package.json; do
+            PKG_VER=$(node -p "require('./$f').version")
+            [ "$PKG_VER" = "$VER" ] || fail "$f version is $PKG_VER, expected $VER"
+          done
+          # Cross-references inside mantishack/package.json
+          for plat in darwin-arm64 darwin-x64 linux-x64 linux-arm64; do
+            PIN=$(node -p "require('./npm/mantishack/package.json').optionalDependencies['@deonmenezes/mantis-cli-$plat']")
+            [ "$PIN" = "$VER" ] || fail "mantishack optionalDependency @deonmenezes/mantis-cli-$plat is pinned to $PIN, expected $VER"
+          done
+          echo "All version sites agree on $VER."
+
+  build-binaries:
+    name: Build ${{ matrix.npm_key }} binary
+    needs: verify-version
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - npm_key: darwin-arm64
+            runs_on: macos-14
+            cargo_target: aarch64-apple-darwin
+          - npm_key: darwin-x64
+            runs_on: macos-13
+            cargo_target: x86_64-apple-darwin
+          - npm_key: linux-x64
+            runs_on: ubuntu-22.04
+            cargo_target: x86_64-unknown-linux-gnu
+          - npm_key: linux-arm64
+            runs_on: ubuntu-24.04-arm
+            cargo_target: aarch64-unknown-linux-gnu
+    runs-on: ${{ matrix.runs_on }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.cargo_target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: publish-${{ matrix.cargo_target }}
+      - name: Build mantis, mantis-daemon, mantis-mcp
+        run: |
+          cargo build --release --target ${{ matrix.cargo_target }} \
+            -p mantis-cli -p mantis-daemon -p mantis-mcp
+      - name: Stage binaries into npm platform package
+        run: |
+          pkg_dir="npm/platforms/${{ matrix.npm_key }}"
+          mkdir -p "$pkg_dir/bin"
+          for b in mantis mantis-daemon mantis-mcp; do
+            cp "target/${{ matrix.cargo_target }}/release/$b" "$pkg_dir/bin/$b"
+            chmod +x "$pkg_dir/bin/$b"
+          done
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            for b in mantis mantis-daemon mantis-mcp; do
+              codesign --force --sign - "$pkg_dir/bin/$b" || true
+            done
+          fi
+          ls -la "$pkg_dir/bin"
+      - name: Upload platform package as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-${{ matrix.npm_key }}
+          path: npm/platforms/${{ matrix.npm_key }}
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-platforms:
+    name: Publish @deonmenezes/mantis-cli-${{ matrix.npm_key }}
+    needs: [verify-version, build-binaries]
+    permissions:
+      contents: read
+      id-token: write   # required for npm publish --provenance
+    strategy:
+      fail-fast: true
+      max-parallel: 4
+      matrix:
+        npm_key: [darwin-arm64, darwin-x64, linux-x64, linux-arm64]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: platform-${{ matrix.npm_key }}
+          path: pkg
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+      - name: npm publish (idempotent)
+        working-directory: pkg
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -e
+          VER="${{ needs.verify-version.outputs.version }}"
+          NAME="@deonmenezes/mantis-cli-${{ matrix.npm_key }}"
+          # Skip silently if this exact version is already on the registry.
+          if npm view "$NAME@$VER" version >/dev/null 2>&1; then
+            echo "$NAME@$VER already published, skipping."
+          else
+            npm publish --access public --provenance
+          fi
+
+  publish-main:
+    name: Publish mantishack
+    needs: [verify-version, publish-platforms]
+    permissions:
+      contents: read
+      id-token: write   # required for npm publish --provenance
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+      - name: Stage the Claude plugin into the main package
+        run: |
+          # Mirrors what npm/build.sh does locally.
+          rm -rf npm/mantishack/plugin
+          mkdir -p npm/mantishack/plugin
+          cp -R plugin/claude-code npm/mantishack/plugin/claude-code
+      - name: Wait for platform packages to be queryable
+        run: |
+          VER="${{ needs.verify-version.outputs.version }}"
+          for plat in darwin-arm64 darwin-x64 linux-x64 linux-arm64; do
+            for i in $(seq 1 30); do
+              if npm view "@deonmenezes/mantis-cli-$plat@$VER" version >/dev/null 2>&1; then
+                echo "  ✓ @deonmenezes/mantis-cli-$plat@$VER is live"
+                break
+              fi
+              echo "  …waiting for @deonmenezes/mantis-cli-$plat@$VER ($i/30)"
+              sleep 5
+            done
+            npm view "@deonmenezes/mantis-cli-$plat@$VER" version >/dev/null 2>&1 \
+              || { echo "::error::@deonmenezes/mantis-cli-$plat@$VER never appeared"; exit 1; }
+          done
+      - name: npm publish mantishack
+        working-directory: npm/mantishack
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -e
+          VER="${{ needs.verify-version.outputs.version }}"
+          if npm view "mantishack@$VER" version >/dev/null 2>&1; then
+            echo "mantishack@$VER already published, skipping."
+          else
+            npm publish --access public --provenance
+          fi
+      - name: npm publish mantis-cli (alias package)
+        working-directory: npm/mantis-cli
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -e
+          VER="${{ needs.verify-version.outputs.version }}"
+          if npm view "mantis-cli@$VER" version >/dev/null 2>&1; then
+            echo "mantis-cli@$VER already published, skipping."
+          else
+            npm publish --access public --provenance || \
+              echo "::warning::mantis-cli publish failed (alias package, non-fatal)"
+          fi
