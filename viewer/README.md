@@ -26,6 +26,33 @@ Daemon-side endpoints exposed by `mantis-web-ui`:
 | `GET /api/state` | Current `WebState` JSON snapshot                 |
 | `GET /api/events` | Server-Sent Events stream of `Event` records    |
 
+## Tooling
+
+This package uses **pnpm v11** via [corepack](https://nodejs.org/api/corepack.html)
+(Node 22+ ships it). The version is pinned via `packageManager` in
+`package.json`, so a fresh checkout just works:
+
+```sh
+corepack enable   # one-time, if not already done
+cd viewer && pnpm install
+```
+
+Two supply-chain guards are configured in `pnpm-workspace.yaml`:
+
+  * **`minimumReleaseAge: 4320`** — pnpm refuses to install any package
+    published less than 3 days ago (4320 minutes). Mitigates the
+    common pattern where a compromised maintainer token uploads a
+    malicious version that is detected and unpublished within 48
+    hours.
+  * **`allowBuilds`** — explicit whitelist of which postinstall scripts
+    may run. Currently only `esbuild` (Vite needs it). Everything
+    else is denied by default.
+
+When dependabot proposes a fresh-baked upgrade, the lockfile will be
+rejected on install until 3 days have passed — this is the intended
+behaviour. Reviewers can `pnpm clean --lockfile && pnpm install` after
+the cooldown to land the upgrade.
+
 ## Run
 
 In one terminal, start the daemon:
@@ -41,8 +68,8 @@ In another, run the Vite dev server:
 
 ```sh
 cd viewer
-npm install   # first time only
-npm run dev
+pnpm install   # first time only
+pnpm dev
 # Local: http://localhost:5173
 ```
 
@@ -53,7 +80,7 @@ initial snapshot, then subscribes to `/api/events` for live updates.
 ## Build (production)
 
 ```sh
-npm run build
+pnpm build
 # → viewer/dist/
 ```
 
