@@ -14,12 +14,12 @@ mod setup;
 use anyhow::{Context, Result};
 use camino::Utf8PathBuf;
 use clap::{Parser, Subcommand};
+use mantis_fsm::{Goal, GoalKind, GoalStatus};
 use mantis_proto::v1::engagement_client::EngagementClient;
 use mantis_proto::v1::{
     AuthorizeRequest, CreateRequest, EngagementInfo, EngagementState as ProtoEngagementState,
     ExportRequest, ListRequest, PauseRequest, ScanRequest, StartRequest, StatusRequest,
 };
-use mantis_fsm::{Goal, GoalKind, GoalStatus};
 use mantis_workspace::{default_workspace_root, run_doctor, OsKeyStore, Workspace};
 use tracing_subscriber::EnvFilter;
 
@@ -727,7 +727,13 @@ fn main() -> Result<()> {
             claude_bin,
             output_format,
             claude_extra_args,
-        } => run_async(handle_prompt(text, daemon, claude_bin, output_format, claude_extra_args)),
+        } => run_async(handle_prompt(
+            text,
+            daemon,
+            claude_bin,
+            output_format,
+            claude_extra_args,
+        )),
         Command::Investigate {
             subject,
             i_have_authorization,
@@ -754,7 +760,14 @@ fn main() -> Result<()> {
             no_plugin,
             daemon_endpoint,
             project,
-        } => handle_init(plugin_src, no_daemon, no_mcp, no_plugin, daemon_endpoint, project),
+        } => handle_init(
+            plugin_src,
+            no_daemon,
+            no_mcp,
+            no_plugin,
+            daemon_endpoint,
+            project,
+        ),
         Command::Setup => {
             setup::run();
             Ok(())
@@ -777,9 +790,11 @@ fn main() -> Result<()> {
             OperatorAction::Delete { id, root } => cmd_operator_delete(&id, root),
         },
         Command::Engagement { action } => run_async(handle_engagement(action)),
-        Command::Doctor { root, output_format, json } => {
-            cmd_doctor(root, json || output_format == "json")
-        }
+        Command::Doctor {
+            root,
+            output_format,
+            json,
+        } => cmd_doctor(root, json || output_format == "json"),
         Command::Export { id } => run_async(handle_engagement(EngagementAction::Export {
             id,
             output: None,
@@ -1206,7 +1221,8 @@ async fn handle_goal(
     //   2. We poll engagement status for total event count.
     //   3. We update the goal's pass bookkeeping.
     //   4. Evaluate. Stop when met OR budget elapsed.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(budget_seconds as u64);
+    let deadline =
+        std::time::Instant::now() + std::time::Duration::from_secs(budget_seconds as u64);
     let mut pass = 0u32;
     let mut total_surfaces = 0u32;
     while std::time::Instant::now() < deadline && !goal.is_done() {
@@ -1231,7 +1247,10 @@ async fn handle_goal(
             }
             _ => vec![seed_url.clone()],
         };
-        eprintln!("[mantis-goal]   {} candidate URL(s) this pass", candidates.len());
+        eprintln!(
+            "[mantis-goal]   {} candidate URL(s) this pass",
+            candidates.len()
+        );
 
         // Dispatch to the daemon. The daemon will record each
         // SurfaceDiscovered event into the merkle log.
@@ -1293,7 +1312,8 @@ async fn handle_goal(
 
     // Export the event log + render a report so the operator can
     // inspect.
-    let out_dir = output.unwrap_or_else(|| Utf8PathBuf::from(format!("./mantishack-{engagement_id}")));
+    let out_dir =
+        output.unwrap_or_else(|| Utf8PathBuf::from(format!("./mantishack-{engagement_id}")));
     std::fs::create_dir_all(&out_dir).context("create output dir")?;
     let export_resp = client
         .export(ExportRequest {
@@ -1331,15 +1351,13 @@ async fn handle_auth_diff(
 
     // Parse each `role=path` binding from disk.
     use mantis_auth::AuthProfile;
-    use mantis_auth_differential::{
-        run_differential, ProfileBinding, ProfileRole, RunnerConfig,
-    };
+    use mantis_auth_differential::{run_differential, ProfileBinding, ProfileRole, RunnerConfig};
 
     let mut loaded: Vec<(ProfileRole, AuthProfile)> = Vec::new();
     for entry in &profiles {
-        let (role_str, path_str) = entry.split_once('=').ok_or_else(|| {
-            anyhow::anyhow!("--profile expects ROLE=PATH; got `{entry}`")
-        })?;
+        let (role_str, path_str) = entry
+            .split_once('=')
+            .ok_or_else(|| anyhow::anyhow!("--profile expects ROLE=PATH; got `{entry}`"))?;
         let role = match role_str.to_ascii_lowercase().as_str() {
             "attacker" => ProfileRole::Attacker,
             "victim" => ProfileRole::Victim,
@@ -1380,10 +1398,16 @@ async fn handle_auth_diff(
     }
 
     eprintln!("[mantis-auth-diff] target URL: {url}");
-    eprintln!("[mantis-auth-diff] probing under {} profile(s)", bindings.len());
+    eprintln!(
+        "[mantis-auth-diff] probing under {} profile(s)",
+        bindings.len()
+    );
     for b in &bindings {
         let name = b.profile.map(|p| p.name.as_str()).unwrap_or("(none)");
-        eprintln!("[mantis-auth-diff]   role={:?} profile_name={}", b.role, name);
+        eprintln!(
+            "[mantis-auth-diff]   role={:?} profile_name={}",
+            b.role, name
+        );
     }
 
     let findings = run_differential(&url, &bindings, &RunnerConfig::default())
@@ -1400,7 +1424,12 @@ async fn handle_auth_diff(
     } else {
         for (i, f) in findings.iter().enumerate() {
             eprintln!();
-            eprintln!("[{}] {:?} (severity={})", i + 1, f.class, f.class.default_severity());
+            eprintln!(
+                "[{}] {:?} (severity={})",
+                i + 1,
+                f.class,
+                f.class.default_severity()
+            );
             eprintln!("    finding_id:    {}", f.finding_id);
             eprintln!("    finding_hash:  {}", f.finding_hash);
             eprintln!("    vuln_class:    {}", f.class.vuln_class());
@@ -1521,14 +1550,14 @@ async fn handle_preset(
         HackPreset::Ultra => (
             "ultra",
             "claude-opus-4-7",
-            u32::MAX,   // unlimited
-            true,       // turbo (implies deep + opus, but we set both explicitly below)
-            true,       // deep
+            u32::MAX, // unlimited
+            true,     // turbo (implies deep + opus, but we set both explicitly below)
+            true,     // deep
         ),
         HackPreset::Flash => (
             "flash",
             "claude-haiku-4-5-20251001",
-            1u32,       // one retry
+            1u32, // one retry
             false,
             false,
         ),
@@ -1537,7 +1566,9 @@ async fn handle_preset(
     // Only set MANTIS_MODEL if the operator hasn't already pinned
     // one — flags / env / .mantis.json / ~/.Mantis/model still win.
     // For presets the intent is "if nothing else is set, use this".
-    let prior_env = std::env::var("MANTIS_MODEL").ok().filter(|s| !s.trim().is_empty());
+    let prior_env = std::env::var("MANTIS_MODEL")
+        .ok()
+        .filter(|s| !s.trim().is_empty());
     let claude_args_have_model = claude_extra_args
         .iter()
         .any(|a| a == "--model" || a == "-m" || a.starts_with("--model="));
@@ -1636,8 +1667,14 @@ async fn handle_hack(
     // string-typed so we only override when the user kept the
     // default "default" value.
     let project_cfg = project_config::load().ok().flatten();
-    let project_deep = project_cfg.as_ref().and_then(|(_, c)| c.deep).unwrap_or(false);
-    let project_no_auth = project_cfg.as_ref().and_then(|(_, c)| c.no_auth).unwrap_or(false);
+    let project_deep = project_cfg
+        .as_ref()
+        .and_then(|(_, c)| c.deep)
+        .unwrap_or(false);
+    let project_no_auth = project_cfg
+        .as_ref()
+        .and_then(|(_, c)| c.no_auth)
+        .unwrap_or(false);
     let project_egress = project_cfg.as_ref().and_then(|(_, c)| c.egress.clone());
     if let Some((path, _)) = &project_cfg {
         eprintln!("[mantishack] config:    {}", path.display());
@@ -1687,7 +1724,7 @@ async fn handle_hack(
     let (daemon_res, claude_res, mcp_bin_res) = tokio::join!(
         tokio::task::spawn_blocking(move || ensure_daemon_for_hack(&daemon_for_task)),
         tokio::task::spawn_blocking(move || resolve_claude_binary(claude_bin_for_task.as_deref())),
-        tokio::task::spawn_blocking(|| which_bin("mantis-mcp")),
+        tokio::task::spawn_blocking(resolve_mantis_mcp_bin),
     );
     daemon_res.context("spawn_blocking(daemon-check)")??;
     let claude_path = claude_res.context("spawn_blocking(claude-resolve)")??;
@@ -1728,7 +1765,11 @@ async fn handle_hack(
     // 8 KB so an oversized guide can't blow the prompt budget.
     let guidance_block = match project_config::load_guidance(8 * 1024) {
         Some((path, body)) => {
-            eprintln!("[mantishack] guidance: {} ({} bytes)", path.display(), body.len());
+            eprintln!(
+                "[mantishack] guidance: {} ({} bytes)",
+                path.display(),
+                body.len()
+            );
             format!(
                 "\n\n=== REPO GUIDANCE (MANTIS.md from {}) ===\n\n{body}\n\n\
                  The orchestrator must consult this guidance when deciding scope, \
@@ -1800,7 +1841,10 @@ async fn handle_hack(
          Do NOT use Skill. Do NOT shell out to `mantis hack`."
     );
 
-    eprintln!("[mantishack] orchestrator: inlined ({} chars)", orchestrator_body.len());
+    eprintln!(
+        "[mantishack] orchestrator: inlined ({} chars)",
+        orchestrator_body.len()
+    );
 
     // Apply the saved-model preference unless the user already passed
     // `--model …` themselves (or via `-m`). `mantis model` writes the
@@ -1809,7 +1853,9 @@ async fn handle_hack(
     let claude_extra_args = apply_model_preference(claude_extra_args, turbo);
 
     if print_prompt {
-        eprintln!("[mantishack] --print-prompt: dumping assembled prompt and exiting (no `claude` exec)");
+        eprintln!(
+            "[mantishack] --print-prompt: dumping assembled prompt and exiting (no `claude` exec)"
+        );
         eprintln!();
         println!("=== SYSTEM PROMPT (append-system-prompt) ===\n");
         println!("{preauth_system_prompt}");
@@ -1835,7 +1881,10 @@ async fn handle_hack(
     let log_path = run_log::pick_log_path(Some(&target_url));
     let run_log = match run_log::RunLog::open(log_path.clone(), "mantis hack", &target_url) {
         Ok(l) => {
-            eprintln!("[mantishack] log:       {} (pretty markdown)", log_path.display());
+            eprintln!(
+                "[mantishack] log:       {} (pretty markdown)",
+                log_path.display()
+            );
             Some(l)
         }
         Err(e) => {
@@ -1897,7 +1946,9 @@ fn print_post_run_summary() {
         if !name.starts_with("mantishack-") {
             continue;
         }
-        let Ok(meta) = ent.metadata() else { continue; };
+        let Ok(meta) = ent.metadata() else {
+            continue;
+        };
         if !meta.is_dir() {
             continue;
         }
@@ -1944,7 +1995,10 @@ fn print_post_run_summary() {
     let grade_path = eng_dir.join("grade-verdict.json");
     if let Ok(raw) = std::fs::read_to_string(&grade_path) {
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
-            let verdict = v.get("verdict").and_then(|s| s.as_str()).unwrap_or("(unknown)");
+            let verdict = v
+                .get("verdict")
+                .and_then(|s| s.as_str())
+                .unwrap_or("(unknown)");
             let total = v.get("total_score").and_then(|s| s.as_i64()).unwrap_or(0);
             eprintln!("│ grade:      {verdict} (total_score={total})");
         }
@@ -2070,9 +2124,7 @@ fn handle_model(action: Option<ModelAction>) -> Result<()> {
 fn handle_version(output_format: String) -> Result<()> {
     let name = env!("CARGO_PKG_NAME");
     let version = env!("CARGO_PKG_VERSION");
-    let rust_target = std::env::consts::ARCH.to_string()
-        + "-"
-        + std::env::consts::OS;
+    let rust_target = std::env::consts::ARCH.to_string() + "-" + std::env::consts::OS;
     if output_format == "json" {
         let v = serde_json::json!({
             "name": name,
@@ -2105,7 +2157,7 @@ async fn handle_prompt(
     let claude_bin_for_task = claude_bin.clone();
     let (claude_res, mcp_bin_res) = tokio::join!(
         tokio::task::spawn_blocking(move || resolve_claude_binary(claude_bin_for_task.as_deref())),
-        tokio::task::spawn_blocking(|| which_bin("mantis-mcp")),
+        tokio::task::spawn_blocking(resolve_mantis_mcp_bin),
     );
     let claude_path = claude_res.context("spawn_blocking(claude-resolve)")??;
     let mcp_bin = mcp_bin_res.context("spawn_blocking(mantis-mcp lookup)")?;
@@ -2148,7 +2200,11 @@ async fn handle_prompt(
     );
     if let Some((path, body)) = project_config::load_guidance(8 * 1024) {
         if !json_mode {
-            eprintln!("[mantis prompt] guidance: {} ({} bytes)", path.display(), body.len());
+            eprintln!(
+                "[mantis prompt] guidance: {} ({} bytes)",
+                path.display(),
+                body.len()
+            );
         }
         system_prompt.push_str("\n\n=== REPO GUIDANCE (MANTIS.md from ");
         system_prompt.push_str(&path.display().to_string());
@@ -2165,7 +2221,10 @@ async fn handle_prompt(
     let run_log = match run_log::RunLog::open(log_path.clone(), "mantis prompt", &target_hint) {
         Ok(l) => {
             if !json_mode {
-                eprintln!("[mantis prompt] log:    {} (pretty markdown)", log_path.display());
+                eprintln!(
+                    "[mantis prompt] log:    {} (pretty markdown)",
+                    log_path.display()
+                );
             }
             Some(l)
         }
@@ -2327,7 +2386,7 @@ async fn handle_investigate(
     let claude_bin_for_task = claude_bin.clone();
     let (claude_res, mcp_bin_res, daemon_res) = tokio::join!(
         tokio::task::spawn_blocking(move || resolve_claude_binary(claude_bin_for_task.as_deref())),
-        tokio::task::spawn_blocking(|| which_bin("mantis-mcp")),
+        tokio::task::spawn_blocking(resolve_mantis_mcp_bin),
         {
             let daemon = daemon.clone();
             tokio::task::spawn_blocking(move || {
@@ -2375,24 +2434,36 @@ async fn handle_investigate(
     if !json_mode {
         eprintln!("[mantis investigate] subject: {subject_label}");
         eprintln!("[mantis investigate] claude:  {}", claude_path.display());
-        eprintln!("[mantis investigate] daemon:  {} ({})", daemon, if daemon_up { "up" } else { "down" });
+        eprintln!(
+            "[mantis investigate] daemon:  {} ({})",
+            daemon,
+            if daemon_up { "up" } else { "down" }
+        );
         eprintln!(
             "[mantis investigate] mode:    {}",
-            if drives_fsm { "FSM (RECON → AUTH → HUNT → CHAIN → VERIFY → GRADE → REPORT)" } else { "static (read-only)" }
+            if drives_fsm {
+                "FSM (RECON → AUTH → HUNT → CHAIN → VERIFY → GRADE → REPORT)"
+            } else {
+                "static (read-only)"
+            }
         );
     }
 
     // Open the markdown run log so every claude command is captured.
     let log_path = run_log::pick_log_path(extracted_target.as_deref());
-    let run_log = match run_log::RunLog::open(log_path.clone(), "mantis investigate", &subject_label) {
-        Ok(l) => {
-            if !json_mode {
-                eprintln!("[mantis investigate] log:     {} (pretty markdown)", log_path.display());
+    let run_log =
+        match run_log::RunLog::open(log_path.clone(), "mantis investigate", &subject_label) {
+            Ok(l) => {
+                if !json_mode {
+                    eprintln!(
+                        "[mantis investigate] log:     {} (pretty markdown)",
+                        log_path.display()
+                    );
+                }
+                Some(l)
             }
-            Some(l)
-        }
-        Err(_) => None,
-    };
+            Err(_) => None,
+        };
     if !json_mode {
         eprintln!();
     }
@@ -2459,12 +2530,13 @@ fn extract_first_url(s: &InvestigateSubject) -> Option<String> {
 /// of trailing punctuation common to prose contexts.
 fn first_url_in_text(text: &str) -> Option<String> {
     let lowered = text.to_ascii_lowercase();
-    let start = lowered.find("https://").or_else(|| lowered.find("http://"))?;
+    let start = lowered
+        .find("https://")
+        .or_else(|| lowered.find("http://"))?;
     let rest = &text[start..];
     let end = rest
         .find(|c: char| {
-            c.is_whitespace()
-                || matches!(c, '"' | '\'' | '`' | '<' | '>' | ')' | ',' | ';' | '\\')
+            c.is_whitespace() || matches!(c, '"' | '\'' | '`' | '<' | '>' | ')' | ',' | ';' | '\\')
         })
         .unwrap_or(rest.len());
     let url = rest[..end].trim_end_matches(|c: char| matches!(c, '.' | '!' | '?'));
@@ -2487,7 +2559,9 @@ fn build_fsm_investigator_prompts(
     // Reuse the same orchestrator role body and argument format
     // mantis hack uses — we want the FSM-driving behavior to be
     // identical except for the priority context we inject below.
-    let arguments = build_orchestrator_arguments(target_url, /* deep */ false, /* no_auth */ false, "default");
+    let arguments = build_orchestrator_arguments(
+        target_url, /* deep */ false, /* no_auth */ false, "default",
+    );
     let orchestrator_body = orchestrator_role_body(&arguments);
 
     let (label, priority_block) = match classified {
@@ -2500,8 +2574,16 @@ fn build_fsm_investigator_prompts(
                  brief is rooted at or under this URL."
             ),
         ),
-        InvestigateSubject::File { path, body, truncated } => {
-            let trunc = if *truncated { "\n(NOTE: file content was truncated at 64 KB.)" } else { "" };
+        InvestigateSubject::File {
+            path,
+            body,
+            truncated,
+        } => {
+            let trunc = if *truncated {
+                "\n(NOTE: file content was truncated at 64 KB.)"
+            } else {
+                ""
+            };
             (
                 format!("file:{}", path.display()),
                 format!(
@@ -2575,9 +2657,7 @@ fn build_fsm_investigator_prompts(
 /// Build the (subject_label, user_prompt, system_prompt) triple for
 /// the read-only investigation path (no target URL or no auth flag).
 /// Uses MCP read tools + Read / Grep over the working directory.
-fn build_static_investigator_prompts(
-    classified: &InvestigateSubject,
-) -> (String, String, String) {
+fn build_static_investigator_prompts(classified: &InvestigateSubject) -> (String, String, String) {
     let common_system = "You are running under `mantis investigate` in READ-ONLY mode \
                          — no target URL was supplied (or no authorization was given), so no \
                          offensive HTTP traffic will be issued. You have access to the full \
@@ -2656,7 +2736,6 @@ fn build_static_investigator_prompts(
     }
 }
 
-
 /// Like [`run_claude_slash_command`] but for the `mantis prompt`
 /// surface: skips `--disallowed-tools Skill` (the prompt path
 /// doesn't have an orchestrator that could be derailed by it), and
@@ -2702,10 +2781,8 @@ async fn run_slash_with_resume(
     let mut prompt = base_prompt.to_string();
     let mut attempt: u32 = 0;
     loop {
-        let (status, err) = run_claude_slash_command(
-            claude_path, &prompt, base_system, extra_args, log,
-        )
-        .await?;
+        let (status, err) =
+            run_claude_slash_command(claude_path, &prompt, base_system, extra_args, log).await?;
         if err.is_none() && status.success() {
             return Ok(status);
         }
@@ -2734,7 +2811,12 @@ async fn run_one_shot_with_resume(
     let mut attempt: u32 = 0;
     loop {
         let (status, err) = run_claude_one_shot(
-            claude_path, &prompt, base_system, extra_args, json_mode, log,
+            claude_path,
+            &prompt,
+            base_system,
+            extra_args,
+            json_mode,
+            log,
         )
         .await?;
         if err.is_none() && status.success() {
@@ -2902,7 +2984,7 @@ fn handle_status(output_format: String, daemon: String) -> Result<()> {
         (None, "claude default")
     };
     let claude_path = which_bin("claude");
-    let mcp_bin = which_bin("mantis-mcp");
+    let mcp_bin = resolve_mantis_mcp_bin();
     let daemon_bin = which_bin("mantis-daemon");
     let daemon_up = daemon_is_up(&daemon);
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
@@ -2962,7 +3044,10 @@ fn handle_status(output_format: String, daemon: String) -> Result<()> {
     println!();
     println!("  daemon:");
     println!("    endpoint:        {daemon}");
-    println!("    up:              {}", if daemon_up { "yes" } else { "no" });
+    println!(
+        "    up:              {}",
+        if daemon_up { "yes" } else { "no" }
+    );
     if let Some(p) = &daemon_bin {
         println!("    binary:          {}", p.display());
     } else {
@@ -2977,22 +3062,32 @@ fn handle_status(output_format: String, daemon: String) -> Result<()> {
         println!("    binary:          {}", p.display());
         println!(
             "    mantis MCP:      {}",
-            if mcp_registered { "registered" } else { "not registered (run `mantis init`)" }
+            if mcp_registered {
+                "registered"
+            } else {
+                "not registered (run `mantis init`)"
+            }
         );
     } else {
-        println!("    binary:          (not on PATH — install from https://claude.com/claude-code)");
+        println!(
+            "    binary:          (not on PATH — install from https://claude.com/claude-code)"
+        );
     }
     println!();
     println!("  mantis-mcp:");
     println!(
         "    binary:          {}",
-        mcp_bin.map(|p| p.display().to_string()).unwrap_or_else(|| "(not on PATH)".into())
+        mcp_bin
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "(not on PATH)".into())
     );
     println!();
     println!("  model:");
     match &effective_model {
         Some(id) => {
-            let label = model_picker::find_by_id(id).map(|m| m.label).unwrap_or("custom");
+            let label = model_picker::find_by_id(id)
+                .map(|m| m.label)
+                .unwrap_or("custom");
             println!("    effective:       {id} ({label})");
             println!("    source:          {effective_source}");
         }
@@ -3053,6 +3148,17 @@ fn ensure_daemon_for_hack(endpoint: &str) -> Result<()> {
     })?;
     spawn_daemon_detached(&daemon_bin, endpoint)
         .with_context(|| format!("spawning mantis-daemon at {endpoint}"))?;
+    // spawn_daemon_detached() already waited up to 5s. Extend the
+    // health gate to a total of ~15s so slow first-runs (cold-start
+    // sqlite init, codesigning gatekeeper on macOS) still get a green
+    // light before we hand off to the AI-CLI host.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    while !daemon_is_up(endpoint) {
+        if std::time::Instant::now() > deadline {
+            anyhow::bail!("daemon failed to start within 15s at {endpoint}");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
     Ok(())
 }
 
@@ -3079,9 +3185,49 @@ fn resolve_claude_binary(override_path: Option<&camino::Utf8Path>) -> Result<std
 /// Idempotent. Probe `claude mcp get mantis`; if it fails, register
 /// `mantis-mcp` as a user-scope MCP server pointing at the daemon
 /// endpoint we'll be using.
-fn ensure_mantis_mcp_registered(claude_path: &std::path::Path, daemon_endpoint: &str) -> Result<()> {
-    let mcp_bin_prefetched = which_bin("mantis-mcp");
-    ensure_mantis_mcp_registered_with_prefetched_helper(claude_path, daemon_endpoint, mcp_bin_prefetched)
+fn ensure_mantis_mcp_registered(
+    claude_path: &std::path::Path,
+    daemon_endpoint: &str,
+) -> Result<()> {
+    let mcp_bin_prefetched = resolve_mantis_mcp_bin();
+    ensure_mantis_mcp_registered_with_prefetched_helper(
+        claude_path,
+        daemon_endpoint,
+        mcp_bin_prefetched,
+    )
+}
+
+/// Idempotent. Register `mantis-mcp` with the `codex` CLI. Codex
+/// doesn't ship a `mcp get <name>` subcommand, so we always force the
+/// remove-then-add path (both are no-ops when the entry doesn't
+/// exist / already exists, which is fine).
+fn ensure_codex_mcp_registered(
+    codex_path: &std::path::Path,
+    mantis_mcp_path: &std::path::Path,
+    daemon_endpoint: &str,
+) -> Result<()> {
+    eprintln!("[mantishack] mcp:    registering `mantis` MCP server with codex");
+    let _ = std::process::Command::new(codex_path)
+        .args(["mcp", "remove", "mantis"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    let status = std::process::Command::new(codex_path)
+        .args([
+            "mcp",
+            "add",
+            "mantis",
+            "--",
+            mantis_mcp_path.to_string_lossy().as_ref(),
+            "--daemon",
+            daemon_endpoint,
+        ])
+        .status()
+        .context("invoke `codex mcp add`")?;
+    if !status.success() {
+        anyhow::bail!("`codex mcp add` exited with status {status}");
+    }
+    Ok(())
 }
 
 /// Same as [`ensure_mantis_mcp_registered`] but takes the
@@ -3147,23 +3293,102 @@ fn handle_init(
 ) -> Result<()> {
     println!("Mantis init — wiring plugin + MCP + daemon");
 
+    // Workspace gate: create `~/.mantis` (or $MANTIS_HOME) up front so
+    // downstream subcommands don't blow up on a missing workspace dir.
+    let home = std::env::var("HOME").context("HOME not set")?;
+    let ws_path = std::env::var("MANTIS_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from(format!("{home}/.mantis")));
+    if !ws_path.exists() {
+        println!("  workspace: initialising at {}", ws_path.display());
+        cmd_workspace_init(None).context("workspace init failed")?;
+    } else {
+        println!("  workspace: already exists at {}", ws_path.display());
+    }
+
+    // Detect installed AI-CLI hosts up front so each plugin / mcp step
+    // can soft-skip the ones the operator doesn't have. We treat both
+    // a binary on PATH OR a `~/.<host>` config dir as "present" since
+    // some installs (Claude Code GUI) drop the config dir without
+    // leaving the CLI on PATH.
+    let plugin_src_resolved = if !no_plugin || !no_mcp {
+        Some(resolve_plugin_src(plugin_src.as_ref())?)
+    } else {
+        None
+    };
+    let claude_present = which_bin("claude").is_some()
+        || std::path::PathBuf::from(format!("{home}/.claude")).is_dir();
+    let codex_present =
+        which_bin("codex").is_some() || std::path::PathBuf::from(format!("{home}/.codex")).is_dir();
+    let opencode_present = which_bin("opencode").is_some()
+        || std::path::PathBuf::from(format!("{home}/.config/opencode")).is_dir();
+
+    let mut any_host_wired = false;
+
     if !no_plugin {
-        let src = resolve_plugin_src(plugin_src.as_ref())?;
-        copy_claude_plugin(&src)?;
+        let src = plugin_src_resolved
+            .as_ref()
+            .expect("plugin_src_resolved set when !no_plugin");
+        if claude_present {
+            copy_claude_plugin(src)?;
+            any_host_wired = true;
+        } else {
+            println!("  plugin:  claude not detected — skipping claude plugin");
+        }
+        if codex_present {
+            copy_codex_plugin(src)?;
+            any_host_wired = true;
+        } else {
+            println!("  plugin:  codex not detected — skipping codex plugin");
+        }
+        if opencode_present {
+            copy_opencode_plugin(src)?;
+            any_host_wired = true;
+        } else {
+            println!("  plugin:  opencode not detected — skipping opencode plugin");
+        }
     } else {
         println!("  plugin:  skipped (--no-plugin)");
     }
 
     if !no_mcp {
-        let claude = which_bin("claude").ok_or_else(|| {
-            anyhow::anyhow!(
-                "`claude` is not on PATH — install Claude Code from \
-                 https://claude.com/claude-code, then re-run `mantis init`."
-            )
-        })?;
-        ensure_mantis_mcp_registered(&claude, &daemon_endpoint)?;
+        let claude_bin = which_bin("claude");
+        let codex_bin = which_bin("codex");
+        if claude_bin.is_none() && codex_bin.is_none() {
+            anyhow::bail!(
+                "no MCP-capable AI CLI detected (neither `claude` nor `codex` on PATH).\n\
+                 Install Claude Code (https://claude.com/claude-code) or Codex CLI, \
+                 then re-run `mantis init`. Use `--no-mcp` to skip MCP registration."
+            );
+        }
+        if let Some(claude) = claude_bin {
+            ensure_mantis_mcp_registered(&claude, &daemon_endpoint)?;
+            any_host_wired = true;
+        } else {
+            println!("  mcp:     claude not on PATH — skipping claude MCP registration");
+        }
+        if let Some(codex) = codex_bin {
+            if let Some(mcp_bin) = resolve_mantis_mcp_bin() {
+                ensure_codex_mcp_registered(&codex, &mcp_bin, &daemon_endpoint)?;
+                any_host_wired = true;
+            } else {
+                println!(
+                    "  mcp:     codex found but `mantis-mcp` is not installed — \
+                     skipping codex MCP registration"
+                );
+            }
+        } else {
+            println!("  mcp:     codex not on PATH — skipping codex MCP registration");
+        }
     } else {
         println!("  mcp:     skipped (--no-mcp)");
+    }
+
+    if !no_plugin && !no_mcp && !any_host_wired {
+        anyhow::bail!(
+            "no AI-CLI host detected (claude / codex / opencode). Install at least one \
+             and re-run, or pass `--no-plugin --no-mcp` to skip host wiring."
+        );
     }
 
     if !no_daemon {
@@ -3209,11 +3434,7 @@ fn scaffold_project_files() -> Result<()> {
         MANTIS_JSON_TEMPLATE,
         "  .mantis.json",
     )?;
-    write_if_missing(
-        &cwd.join("MANTIS.md"),
-        MANTIS_MD_TEMPLATE,
-        "  MANTIS.md",
-    )?;
+    write_if_missing(&cwd.join("MANTIS.md"), MANTIS_MD_TEMPLATE, "  MANTIS.md")?;
     Ok(())
 }
 
@@ -3222,8 +3443,7 @@ fn write_if_missing(path: &std::path::Path, contents: &str, label: &str) -> Resu
         println!("{label}:  skipped (already exists)");
         return Ok(());
     }
-    std::fs::write(path, contents)
-        .with_context(|| format!("write {}", path.display()))?;
+    std::fs::write(path, contents).with_context(|| format!("write {}", path.display()))?;
     println!("{label}:  created");
     Ok(())
 }
@@ -3288,7 +3508,6 @@ mantis prompt "summarize the recent findings"
 ```
 "#;
 
-
 /// Resolve the plugin source dir: env override → ./plugin → error.
 fn resolve_plugin_src(override_path: Option<&Utf8PathBuf>) -> Result<Utf8PathBuf> {
     if let Some(p) = override_path {
@@ -3314,6 +3533,10 @@ fn resolve_plugin_src(override_path: Option<&Utf8PathBuf>) -> Result<Utf8PathBuf
 
 /// Copy `<plugin_src>/claude-code/` into `~/.claude/plugins/mantis/`.
 /// Removes the previous install first so stale files don't linger.
+/// After copy, rewrites the staged `.mcp.json` so the `command` field
+/// points at the actually-installed `mantis-mcp` rather than the
+/// hardcoded `${HOME}/.cargo/bin/mantis-mcp` template (which is wrong
+/// for npm / Homebrew installs).
 fn copy_claude_plugin(plugin_src: &Utf8PathBuf) -> Result<()> {
     let src = plugin_src.join("claude-code");
     if !src.as_std_path().is_dir() {
@@ -3331,7 +3554,108 @@ fn copy_claude_plugin(plugin_src: &Utf8PathBuf) -> Result<()> {
     }
     copy_dir_recursive(src.as_std_path(), &dest)
         .with_context(|| format!("copy plugin -> {}", dest.display()))?;
+    rewrite_claude_mcp_json(&dest.join(".mcp.json"))?;
     println!("  plugin:  installed at {}", dest.display());
+    Ok(())
+}
+
+/// Copy `<plugin_src>/codex/` into `~/.codex/plugins/mantis/`.
+/// Mirrors [`copy_claude_plugin`] without any `.mcp.json` rewrite —
+/// the codex plugin is a `plugin.toml` + `prompts/` bundle today and
+/// MCP registration happens via `codex mcp add` instead.
+fn copy_codex_plugin(plugin_src: &Utf8PathBuf) -> Result<()> {
+    let src = plugin_src.join("codex");
+    if !src.as_std_path().is_dir() {
+        anyhow::bail!("plugin source has no `codex/` subdirectory: {plugin_src}");
+    }
+    let home = std::env::var("HOME").context("HOME not set")?;
+    let dest = std::path::PathBuf::from(format!("{home}/.codex/plugins/mantis"));
+    if dest.exists() {
+        std::fs::remove_dir_all(&dest)
+            .with_context(|| format!("remove existing plugin dir {}", dest.display()))?;
+    }
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("create plugin parent {}", parent.display()))?;
+    }
+    copy_dir_recursive(src.as_std_path(), &dest)
+        .with_context(|| format!("copy plugin -> {}", dest.display()))?;
+    println!("  plugin:  installed codex plugin at {}", dest.display());
+    Ok(())
+}
+
+/// Copy `<plugin_src>/opencode/` into `~/.config/opencode/plugins/mantis/`.
+/// OpenCode has no known `mcp add` CLI subcommand, so we just stage the
+/// plugin files (commands + opencode.json); no MCP registration step.
+fn copy_opencode_plugin(plugin_src: &Utf8PathBuf) -> Result<()> {
+    let src = plugin_src.join("opencode");
+    if !src.as_std_path().is_dir() {
+        anyhow::bail!("plugin source has no `opencode/` subdirectory: {plugin_src}");
+    }
+    let home = std::env::var("HOME").context("HOME not set")?;
+    let dest = std::path::PathBuf::from(format!("{home}/.config/opencode/plugins/mantis"));
+    if dest.exists() {
+        std::fs::remove_dir_all(&dest)
+            .with_context(|| format!("remove existing plugin dir {}", dest.display()))?;
+    }
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("create plugin parent {}", parent.display()))?;
+    }
+    copy_dir_recursive(src.as_std_path(), &dest)
+        .with_context(|| format!("copy plugin -> {}", dest.display()))?;
+    println!("  plugin:  installed opencode plugin at {}", dest.display());
+    Ok(())
+}
+
+/// Resolve the `mantis-mcp` binary path, preferring the npm-shim hint
+/// `MANTIS_MCP_BIN` if set (so npm installs point at the sibling
+/// binary rather than a stale `~/.cargo/bin/mantis-mcp`). Falls back
+/// to a `PATH` walk via [`which_bin`].
+fn resolve_mantis_mcp_bin() -> Option<std::path::PathBuf> {
+    if let Ok(env) = std::env::var("MANTIS_MCP_BIN") {
+        let pb = std::path::PathBuf::from(env);
+        if pb.is_file() {
+            return Some(pb);
+        }
+    }
+    which_bin("mantis-mcp")
+}
+
+/// Rewrite the staged Claude plugin's `.mcp.json` so the `command`
+/// points at the actually-installed `mantis-mcp` binary instead of
+/// the hardcoded `${HOME}/.cargo/bin/mantis-mcp` template baked into
+/// the source plugin. Best-effort: missing file or unresolved binary
+/// is logged but never fatal — the plugin is still usable once the
+/// user installs `mantis-mcp` separately.
+fn rewrite_claude_mcp_json(mcp_json_path: &std::path::Path) -> Result<()> {
+    if !mcp_json_path.is_file() {
+        return Ok(());
+    }
+    let Some(mcp_bin) = resolve_mantis_mcp_bin() else {
+        println!(
+            "  plugin:  warn — `mantis-mcp` not found; .mcp.json still points at the \
+             default template. Install mantis-mcp (npm i -g mantishack / cargo install \
+             --path crates/mantis-mcp) for the Claude plugin to work."
+        );
+        return Ok(());
+    };
+    let raw = std::fs::read_to_string(mcp_json_path)
+        .with_context(|| format!("read {}", mcp_json_path.display()))?;
+    let mut doc: serde_json::Value =
+        serde_json::from_str(&raw).with_context(|| format!("parse {}", mcp_json_path.display()))?;
+    let mcp_bin_str = mcp_bin.to_string_lossy().into_owned();
+    if let Some(cmd) = doc
+        .get_mut("mcpServers")
+        .and_then(|s| s.get_mut("mantis"))
+        .and_then(|m| m.get_mut("command"))
+    {
+        *cmd = serde_json::Value::String(mcp_bin_str);
+    }
+    let pretty = serde_json::to_string_pretty(&doc)
+        .with_context(|| format!("serialize {}", mcp_json_path.display()))?;
+    std::fs::write(mcp_json_path, format!("{pretty}\n"))
+        .with_context(|| format!("write {}", mcp_json_path.display()))?;
     Ok(())
 }
 
@@ -3451,11 +3775,20 @@ fn orchestrator_role_body(arguments: &str) -> String {
     let body = if raw.starts_with("---") {
         // Find the closing `---` of the frontmatter.
         let after_open = &raw[3..];
-        match after_open.find("\n---\n").or_else(|| after_open.find("\r\n---\r\n")) {
+        match after_open
+            .find("\n---\n")
+            .or_else(|| after_open.find("\r\n---\r\n"))
+        {
             Some(pos) => {
                 // pos is offset within after_open; advance past the closing fence + newline.
-                let close_len = if after_open[pos..].starts_with("\r\n") { 7 } else { 5 };
-                after_open[pos + close_len..].trim_start_matches('\n').to_string()
+                let close_len = if after_open[pos..].starts_with("\r\n") {
+                    7
+                } else {
+                    5
+                };
+                after_open[pos + close_len..]
+                    .trim_start_matches('\n')
+                    .to_string()
             }
             None => raw.to_string(),
         }
@@ -3467,7 +3800,12 @@ fn orchestrator_role_body(arguments: &str) -> String {
 
 /// Reconstruct the slash-command-style argument string the
 /// orchestrator references as `$ARGUMENTS`.
-fn build_orchestrator_arguments(target_url: &str, deep: bool, no_auth: bool, egress: &str) -> String {
+fn build_orchestrator_arguments(
+    target_url: &str,
+    deep: bool,
+    no_auth: bool,
+    egress: &str,
+) -> String {
     let mut parts = vec![target_url.to_string()];
     if deep {
         parts.push("--deep".to_string());
@@ -3712,7 +4050,9 @@ async fn handle_find_auth_bugs(
     }
 
     use mantis_auth::AuthProfile;
-    use mantis_orchestrator::{find_auth_bugs, find_auth_bugs_with_profiles, write_archive, AuthBugConfig};
+    use mantis_orchestrator::{
+        find_auth_bugs, find_auth_bugs_with_profiles, write_archive, AuthBugConfig,
+    };
 
     let cfg = AuthBugConfig {
         target_url: target.clone(),
@@ -3751,9 +4091,7 @@ async fn handle_find_auth_bugs(
 
     if using_byo {
         if supabase_signup.is_some() {
-            eprintln!(
-                "[mantis-find-auth-bugs] BYO profiles supplied — ignoring --supabase-signup"
-            );
+            eprintln!("[mantis-find-auth-bugs] BYO profiles supplied — ignoring --supabase-signup");
         }
     } else if supabase_signup.is_some()
         && supabase_apikey.as_deref().map(str::is_empty) != Some(false)
@@ -3794,7 +4132,10 @@ async fn handle_find_auth_bugs(
         eprintln!("Victim email:             {e}");
     }
     eprintln!("Endpoints probed:         {}", report.endpoints_probed);
-    eprintln!("Endpoints with findings:  {}", report.endpoints_with_findings);
+    eprintln!(
+        "Endpoints with findings:  {}",
+        report.endpoints_with_findings
+    );
     eprintln!("Findings total:           {}", report.findings_total);
     eprintln!("Elapsed:                  {:.2}s", elapsed.as_secs_f64());
     if !report.findings_by_severity.is_empty() {
@@ -3856,10 +4197,22 @@ async fn handle_find_auth_bugs(
     let reports_root = std::path::Path::new("reports");
     match write_archive(&report, &engagement_id, reports_root) {
         Ok(outcome) => {
-            eprintln!("[mantis-find-auth-bugs] archive root:        {}", outcome.root.display());
-            eprintln!("[mantis-find-auth-bugs] readme:              {}", outcome.readme.display());
-            eprintln!("[mantis-find-auth-bugs] vulnerability-report: {}", outcome.vuln_report.display());
-            eprintln!("[mantis-find-auth-bugs] findings written:    {}", outcome.finding_count);
+            eprintln!(
+                "[mantis-find-auth-bugs] archive root:        {}",
+                outcome.root.display()
+            );
+            eprintln!(
+                "[mantis-find-auth-bugs] readme:              {}",
+                outcome.readme.display()
+            );
+            eprintln!(
+                "[mantis-find-auth-bugs] vulnerability-report: {}",
+                outcome.vuln_report.display()
+            );
+            eprintln!(
+                "[mantis-find-auth-bugs] findings written:    {}",
+                outcome.finding_count
+            );
 
             // Optional LLM-augmented executive summary appended to
             // vulnerability-report.md. Best-effort; never blocks.
@@ -3869,7 +4222,8 @@ async fn handle_find_auth_bugs(
                     provider.label()
                 );
                 let summary = build_findings_summary(&target, &report, elapsed);
-                llm_pick::append_exec_summary(adapter.as_ref(), &outcome.vuln_report, &summary).await;
+                llm_pick::append_exec_summary(adapter.as_ref(), &outcome.vuln_report, &summary)
+                    .await;
             }
         }
         Err(e) => eprintln!("[mantis-find-auth-bugs] archive error: {e}"),
@@ -3916,7 +4270,11 @@ fn build_findings_summary(
     if !with_hits.is_empty() {
         s.push_str("Top endpoints with findings:\n");
         for ep in &with_hits {
-            s.push_str(&format!("  {} ({} finding(s))\n", ep.url, ep.findings.len()));
+            s.push_str(&format!(
+                "  {} ({} finding(s))\n",
+                ep.url,
+                ep.findings.len()
+            ));
         }
     }
     s
@@ -3937,7 +4295,8 @@ fn severity_counts(
 ) -> std::collections::BTreeMap<String, u32> {
     let mut out = std::collections::BTreeMap::new();
     for f in findings {
-        *out.entry(f.class.default_severity().to_string()).or_default() += 1;
+        *out.entry(f.class.default_severity().to_string())
+            .or_default() += 1;
     }
     out
 }
@@ -4345,7 +4704,11 @@ fn cmd_doctor(root: Option<Utf8PathBuf>, json: bool) -> Result<()> {
         println!();
         println!("Install hints for missing tools:");
         for tool in recon_inv.tools.iter().filter(|t| !t.installed) {
-            println!("  {}: {}", tool.kind.binary_name(), tool.kind.install_hint());
+            println!(
+                "  {}: {}",
+                tool.kind.binary_name(),
+                tool.kind.install_hint()
+            );
         }
     }
 
@@ -4497,7 +4860,11 @@ mod tests {
         let tmp = tempfile::NamedTempFile::new().unwrap();
         std::fs::write(tmp.path(), "let x = 1;\n").unwrap();
         match classify_subject(tmp.path().to_str().unwrap()) {
-            InvestigateSubject::File { path, body, truncated } => {
+            InvestigateSubject::File {
+                path,
+                body,
+                truncated,
+            } => {
                 assert_eq!(path, tmp.path());
                 assert!(body.contains("let x"));
                 assert!(!truncated);
@@ -4536,7 +4903,9 @@ mod tests {
         let big: String = "x".repeat(80 * 1024);
         std::fs::write(tmp.path(), &big).unwrap();
         match classify_subject(tmp.path().to_str().unwrap()) {
-            InvestigateSubject::File { truncated, body, .. } => {
+            InvestigateSubject::File {
+                truncated, body, ..
+            } => {
                 assert!(truncated);
                 assert_eq!(body.len(), 64 * 1024);
             }

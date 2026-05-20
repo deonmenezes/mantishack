@@ -111,13 +111,12 @@ pub async fn find_auth_bugs(config: &AuthBugConfig) -> Result<AuthBugReport, Orc
                     timeout_secs: 10,
                 };
                 info!("[orchestrator] signing up attacker");
-                let (att_out, att_profile) =
-                    signup_supabase(url, &sb, None, None, "attacker")
-                        .await
-                        .map_err(|e| OrchestratorError::Signup {
-                            profile_name: "attacker".into(),
-                            source: e,
-                        })?;
+                let (att_out, att_profile) = signup_supabase(url, &sb, None, None, "attacker")
+                    .await
+                    .map_err(|e| OrchestratorError::Signup {
+                        profile_name: "attacker".into(),
+                        source: e,
+                    })?;
                 info!("[orchestrator] signing up victim");
                 let (vic_out, vic_profile) = signup_supabase(url, &sb, None, None, "victim")
                     .await
@@ -224,11 +223,7 @@ async fn drive_pipeline(
         match run_differential(url, &bindings, &runner_config).await {
             Ok(findings) => {
                 if !findings.is_empty() {
-                    info!(
-                        "[orchestrator] {} → {} finding(s)",
-                        url,
-                        findings.len()
-                    );
+                    info!("[orchestrator] {} → {} finding(s)", url, findings.len());
                 }
                 per_endpoint.push(EndpointResult {
                     url: url.clone(),
@@ -332,7 +327,10 @@ fn supabase_default_paths() -> Vec<&'static str> {
 /// attacker + victim outcome. Useful when the operator captured
 /// profiles out-of-band (manual paste) and wants to drive the
 /// differential without re-running signup.
-pub fn pair_from_profiles(attacker: AuthProfile, victim: AuthProfile) -> (AuthProfile, AuthProfile) {
+pub fn pair_from_profiles(
+    attacker: AuthProfile,
+    victim: AuthProfile,
+) -> (AuthProfile, AuthProfile) {
     (attacker, victim)
 }
 
@@ -359,54 +357,54 @@ mod tests {
                     let req = String::from_utf8_lossy(&buf[..n]).to_string();
                     let req_lower = req.to_ascii_lowercase();
 
-                    let (status, body): (&str, String) = if req_lower.contains("post /auth/v1/signup")
-                    {
-                        // Pull email from JSON body roughly. Whichever
-                        // email we get, mint a stable per-email JWT.
-                        let token = if req.contains("\"email\":\"") {
-                            let idx = req.find("\"email\":\"").unwrap() + 9;
-                            let rest = &req[idx..];
-                            let end = rest.find('"').unwrap_or(rest.len());
-                            format!("JWT-{}", &rest[..end])
-                        } else {
-                            "JWT-anon".into()
-                        };
-                        (
-                            "HTTP/1.1 200 OK",
-                            serde_json::json!({
-                                "access_token": token,
-                                "token_type": "bearer",
-                                "expires_in": 3600,
-                                "refresh_token": "R",
-                                "user": {"id":"u-1"}
-                            })
-                            .to_string(),
-                        )
-                    } else if req_lower.contains("get /rest/v1/orders") {
-                        // Vulnerable endpoint: any Bearer wins. The
-                        // body shape is identical regardless of which
-                        // account asked.
-                        if req_lower.contains("authorization: bearer") {
+                    let (status, body): (&str, String) =
+                        if req_lower.contains("post /auth/v1/signup") {
+                            // Pull email from JSON body roughly. Whichever
+                            // email we get, mint a stable per-email JWT.
+                            let token = if req.contains("\"email\":\"") {
+                                let idx = req.find("\"email\":\"").unwrap() + 9;
+                                let rest = &req[idx..];
+                                let end = rest.find('"').unwrap_or(rest.len());
+                                format!("JWT-{}", &rest[..end])
+                            } else {
+                                "JWT-anon".into()
+                            };
                             (
                                 "HTTP/1.1 200 OK",
-                                serde_json::json!([
-                                    {"id":"o-1","organization_id":"victim-org","total":500},
-                                    {"id":"o-2","organization_id":"victim-org","total":750}
-                                ])
+                                serde_json::json!({
+                                    "access_token": token,
+                                    "token_type": "bearer",
+                                    "expires_in": 3600,
+                                    "refresh_token": "R",
+                                    "user": {"id":"u-1"}
+                                })
                                 .to_string(),
                             )
+                        } else if req_lower.contains("get /rest/v1/orders") {
+                            // Vulnerable endpoint: any Bearer wins. The
+                            // body shape is identical regardless of which
+                            // account asked.
+                            if req_lower.contains("authorization: bearer") {
+                                (
+                                    "HTTP/1.1 200 OK",
+                                    serde_json::json!([
+                                        {"id":"o-1","organization_id":"victim-org","total":500},
+                                        {"id":"o-2","organization_id":"victim-org","total":750}
+                                    ])
+                                    .to_string(),
+                                )
+                            } else {
+                                (
+                                    "HTTP/1.1 401 Unauthorized",
+                                    r#"{"message":"JWT expired"}"#.to_string(),
+                                )
+                            }
+                        } else if req_lower.contains("get /") {
+                            // Index / unknown paths → 404 quickly.
+                            ("HTTP/1.1 404 Not Found", "{}".into())
                         } else {
-                            (
-                                "HTTP/1.1 401 Unauthorized",
-                                r#"{"message":"JWT expired"}"#.to_string(),
-                            )
-                        }
-                    } else if req_lower.contains("get /") {
-                        // Index / unknown paths → 404 quickly.
-                        ("HTTP/1.1 404 Not Found", "{}".into())
-                    } else {
-                        ("HTTP/1.1 400 Bad Request", "{}".into())
-                    };
+                            ("HTTP/1.1 400 Bad Request", "{}".into())
+                        };
 
                     let response = format!(
                         "{status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
@@ -483,20 +481,21 @@ mod tests {
             report.findings_total >= 2,
             "expected at least 2 findings, got {report:?}"
         );
-        let any_cross_tenant = report
-            .per_endpoint
-            .iter()
-            .any(|e| e.findings.iter().any(|f| {
-                f.class == mantis_auth_differential::DivergenceClass::CrossTenantRead
-            }));
+        let any_cross_tenant = report.per_endpoint.iter().any(|e| {
+            e.findings
+                .iter()
+                .any(|f| f.class == mantis_auth_differential::DivergenceClass::CrossTenantRead)
+        });
         assert!(any_cross_tenant, "expected CrossTenantRead in: {report:?}");
         // The aggregate severity counts include `critical`.
-        assert!(report
-            .findings_by_severity
-            .get("critical")
-            .copied()
-            .unwrap_or(0)
-            >= 1);
+        assert!(
+            report
+                .findings_by_severity
+                .get("critical")
+                .copied()
+                .unwrap_or(0)
+                >= 1
+        );
     }
 
     #[tokio::test]

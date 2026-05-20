@@ -129,7 +129,10 @@ fn probe_target_rejects_malformed() {
 /// Capture the first request received and return its bytes via the
 /// channel. The fake server responds with the same hello-world body
 /// as `spawn_fake_http_server` so the scanner is happy.
-async fn spawn_capturing_server() -> (std::net::SocketAddr, tokio::sync::oneshot::Receiver<Vec<u8>>) {
+async fn spawn_capturing_server() -> (
+    std::net::SocketAddr,
+    tokio::sync::oneshot::Receiver<Vec<u8>>,
+) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let (tx, rx) = tokio::sync::oneshot::channel::<Vec<u8>>();
@@ -195,8 +198,7 @@ async fn auth_profile_injects_cookies_headers_and_query() {
         },
     )
     .unwrap();
-    let target =
-        ProbeTarget::parse(&format!("http://127.0.0.1:{}/v1/users", addr.port())).unwrap();
+    let target = ProbeTarget::parse(&format!("http://127.0.0.1:{}/v1/users", addr.port())).unwrap();
     let _ = scanner.probe(&target).await.unwrap();
 
     let bytes = captured.await.unwrap();

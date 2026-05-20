@@ -244,7 +244,10 @@ mod tests {
         p.representative_samples[0].payload = big;
         assert!(matches!(
             p.validate(),
-            Err(EvidenceError::TextTooLong { field: "representative_samples[].payload", .. })
+            Err(EvidenceError::TextTooLong {
+                field: "representative_samples[].payload",
+                ..
+            })
         ));
     }
 
@@ -254,7 +257,10 @@ mod tests {
         p.replay_summary = "x".repeat(MAX_REPLAY_SUMMARY_CHARS + 1);
         assert!(matches!(
             p.validate(),
-            Err(EvidenceError::TextTooLong { field: "replay_summary", .. })
+            Err(EvidenceError::TextTooLong {
+                field: "replay_summary",
+                ..
+            })
         ));
     }
 
@@ -265,8 +271,8 @@ mod tests {
 
     #[test]
     fn validate_coverage_missing_pack_for_reportable_fails() {
-        let err = validate_pack_coverage(&["F-1".into(), "F-2".into()], &[good_pack("F-1")])
-            .unwrap_err();
+        let err =
+            validate_pack_coverage(&["F-1".into(), "F-2".into()], &[good_pack("F-1")]).unwrap_err();
         if let EvidenceError::MissingForReportable(missing) = err {
             assert_eq!(missing, vec!["F-2".to_string()]);
         } else {
@@ -282,11 +288,8 @@ mod tests {
 
     #[test]
     fn validate_coverage_duplicate_pack_fails() {
-        let err = validate_pack_coverage(
-            &["F-1".into()],
-            &[good_pack("F-1"), good_pack("F-1")],
-        )
-        .unwrap_err();
+        let err = validate_pack_coverage(&["F-1".into()], &[good_pack("F-1"), good_pack("F-1")])
+            .unwrap_err();
         assert!(matches!(err, EvidenceError::Duplicate(s) if s == "F-1"));
     }
 

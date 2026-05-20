@@ -294,10 +294,7 @@ mod tests {
         let decision = r.route(&d).unwrap();
         assert_eq!(decision.pack_id, "web");
         assert_eq!(decision.confidence, RouteConfidence::Low);
-        assert!(decision
-            .reasons
-            .iter()
-            .any(|r| r.contains("fallback")));
+        assert!(decision.reasons.iter().any(|r| r.contains("fallback")));
     }
 
     #[test]
@@ -318,10 +315,7 @@ mod tests {
         let r = PackRegistry::default_v1();
         let d = descriptor(Some("web"), Some("https://example.com/"));
         let decision = r.route(&d).unwrap();
-        assert!(decision
-            .reasons
-            .iter()
-            .any(|r| r == "surface_type=web"));
+        assert!(decision.reasons.iter().any(|r| r == "surface_type=web"));
     }
 
     #[test]

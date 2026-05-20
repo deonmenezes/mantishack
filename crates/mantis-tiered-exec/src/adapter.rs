@@ -100,9 +100,7 @@ impl SandboxRunner for SubprocessSandbox {
     ) -> Pin<Box<dyn Future<Output = Result<SandboxOutput, TierError>> + Send + 'a>> {
         let script_owned = script.to_string();
         let env_owned: Vec<(String, String)> = env.to_vec();
-        Box::pin(async move {
-            run_subprocess(&script_owned, &env_owned, timeout_secs).await
-        })
+        Box::pin(async move { run_subprocess(&script_owned, &env_owned, timeout_secs).await })
     }
 }
 

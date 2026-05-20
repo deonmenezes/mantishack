@@ -218,10 +218,7 @@ mod tests {
         k1 = k1.with_auth_profile("attacker");
         let mut k2 = key("s-1", "/me", "idor");
         k2 = k2.with_auth_profile("victim");
-        let rows = vec![
-            CoverageRow::tested(k1, 10),
-            CoverageRow::requeue(k2, 20),
-        ];
+        let rows = vec![CoverageRow::tested(k1, 10), CoverageRow::requeue(k2, 20)];
         let latest = latest_by_key(&rows);
         assert_eq!(latest.len(), 2);
     }
@@ -272,8 +269,7 @@ mod tests {
     #[test]
     fn json_round_trip() {
         let row = CoverageRow::promising(
-            CoverageKey::new("s-1", "POST", "/login", "auth-bypass")
-                .with_auth_profile("attacker"),
+            CoverageKey::new("s-1", "POST", "/login", "auth-bypass").with_auth_profile("attacker"),
             1700,
         )
         .with_note("token rotated mid-test");

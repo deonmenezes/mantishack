@@ -66,8 +66,7 @@ impl Phase {
         }
         matches!(
             (from, to),
-            (Phase::Hunt, Phase::Hunt)
-                | (Phase::Grade, Phase::Hunt)
+            (Phase::Hunt, Phase::Hunt) | (Phase::Grade, Phase::Hunt)
         )
     }
 }
@@ -352,8 +351,7 @@ impl SessionState {
         // Wipe previously-recorded rounds — they were against an
         // older snapshot and are not valid for this attempt.
         self.verification_rounds.clear();
-        self.verification_attempt =
-            Some(VerificationAttempt::open(attempt_id, &self.findings));
+        self.verification_attempt = Some(VerificationAttempt::open(attempt_id, &self.findings));
         self.verification_attempt.as_ref().unwrap()
     }
 
@@ -447,10 +445,7 @@ impl SessionState {
             (Phase::Grade, Phase::Hunt) => GateOutcome::clean(), // HOLD re-hunt
             _ => GateOutcome::with_blockers(vec![Blocker::new(
                 BlockerCode::Inconsistent,
-                format!(
-                    "no gate defined for {} -> {}",
-                    self.phase, to
-                ),
+                format!("no gate defined for {} -> {}", self.phase, to),
             )]),
         }
     }
@@ -490,8 +485,7 @@ impl SessionState {
         }
 
         let explored: BTreeSet<&str> = self.explored.iter().map(|s| s.as_str()).collect();
-        let blocked: BTreeSet<&str> =
-            self.terminally_blocked.iter().map(|s| s.as_str()).collect();
+        let blocked: BTreeSet<&str> = self.terminally_blocked.iter().map(|s| s.as_str()).collect();
 
         let unexplored_high: Vec<String> = self
             .high_priority_surfaces
@@ -617,8 +611,7 @@ impl SessionState {
                     .filter(|r| r.reportable)
                     .map(|r| r.finding_id.clone())
                     .collect();
-                if let Err(err) = validate_pack_coverage(&reportable_ids, &self.evidence_packs)
-                {
+                if let Err(err) = validate_pack_coverage(&reportable_ids, &self.evidence_packs) {
                     return GateOutcome::with_blockers(vec![Blocker::new(
                         BlockerCode::EvidencePacksInvalid,
                         format!("{err}"),
@@ -635,9 +628,7 @@ impl SessionState {
 
     fn gate_grade_to_report(&self) -> GateOutcome {
         match &self.grade {
-            Some(g) if matches!(g.verdict, Verdict::Submit | Verdict::Skip) => {
-                GateOutcome::clean()
-            }
+            Some(g) if matches!(g.verdict, Verdict::Submit | Verdict::Skip) => GateOutcome::clean(),
             Some(_) => GateOutcome::with_blockers(vec![Blocker::new(
                 BlockerCode::GradeMissing,
                 "grade verdict is HOLD; re-hunt before reporting",
@@ -827,10 +818,7 @@ mod tests {
         )
         .unwrap();
         let err = s.transition_to(Phase::Auth, Some(reason)).unwrap_err();
-        assert!(matches!(
-            err,
-            TransitionError::OverrideNotPermitted { .. }
-        ));
+        assert!(matches!(err, TransitionError::OverrideNotPermitted { .. }));
     }
 
     #[test]
@@ -998,7 +986,10 @@ mod tests {
                 .with_plan_hash("doesnt-matter"),
         );
         let err = s.transition_to(Phase::Grade, None).unwrap_err();
-        assert!(format!("{err}").contains("adjudication not built"), "got: {err}");
+        assert!(
+            format!("{err}").contains("adjudication not built"),
+            "got: {err}"
+        );
     }
 
     #[test]
@@ -1060,11 +1051,21 @@ mod tests {
         let mut s = ready_session();
         s.findings = vec!["F-1".into()];
         s.open_verification_attempt("att-1");
-        let h1 = s.verification_attempt.as_ref().unwrap().snapshot_hash.clone();
+        let h1 = s
+            .verification_attempt
+            .as_ref()
+            .unwrap()
+            .snapshot_hash
+            .clone();
 
         s.findings = vec!["F-1".into(), "F-2".into()];
         s.open_verification_attempt("att-2");
-        let h2 = s.verification_attempt.as_ref().unwrap().snapshot_hash.clone();
+        let h2 = s
+            .verification_attempt
+            .as_ref()
+            .unwrap()
+            .snapshot_hash
+            .clone();
         assert_ne!(h1, h2, "different finding sets → different snapshot hashes");
     }
 
@@ -1091,8 +1092,7 @@ mod tests {
         let f = FindingGrade::new("F-1", Severity::High, axes).unwrap();
         s.write_grade(GradeVerdict::compute(vec![f], None));
         let err = s.transition_to(Phase::Report, None).unwrap_err();
-        assert!(format!("{err}").contains("grade_missing")
-            || format!("{err}").contains("HOLD"));
+        assert!(format!("{err}").contains("grade_missing") || format!("{err}").contains("HOLD"));
     }
 
     #[test]

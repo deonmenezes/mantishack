@@ -25,13 +25,13 @@ pub mod inventory;
 pub mod runners;
 
 pub use crate::intel::{
-    detect_tech, extract_js_endpoints, graphql_introspection_enabled, metadata_paths,
-    wayback_urls, well_known_paths, WaybackUrl,
+    detect_tech, extract_js_endpoints, graphql_introspection_enabled, metadata_paths, wayback_urls,
+    well_known_paths, WaybackUrl,
 };
 pub use crate::inventory::{ToolInfo, ToolInventory, ToolKind};
 pub use crate::runners::{
-    run_dnsx, run_httpx, run_jwt_tool_decode, run_katana, run_subfinder, run_tlsx, NucleiHit,
-    run_nuclei,
+    run_dnsx, run_httpx, run_jwt_tool_decode, run_katana, run_nuclei, run_subfinder, run_tlsx,
+    NucleiHit,
 };
 
 use serde::{Deserialize, Serialize};

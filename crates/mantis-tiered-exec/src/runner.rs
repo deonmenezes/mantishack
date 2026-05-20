@@ -215,12 +215,24 @@ fn build_env(probe: &Probe) -> Vec<(String, String)> {
     ];
     if let Some(p) = &probe.attacker_profile {
         for h in &p.headers {
-            env.push((format!("MANTIS_ATTACKER_{}", h.name.to_ascii_uppercase().replace('-', "_")), h.value.clone()));
+            env.push((
+                format!(
+                    "MANTIS_ATTACKER_{}",
+                    h.name.to_ascii_uppercase().replace('-', "_")
+                ),
+                h.value.clone(),
+            ));
         }
     }
     if let Some(p) = &probe.victim_profile {
         for h in &p.headers {
-            env.push((format!("MANTIS_VICTIM_{}", h.name.to_ascii_uppercase().replace('-', "_")), h.value.clone()));
+            env.push((
+                format!(
+                    "MANTIS_VICTIM_{}",
+                    h.name.to_ascii_uppercase().replace('-', "_")
+                ),
+                h.value.clone(),
+            ));
         }
     }
     env
@@ -326,8 +338,16 @@ mod tests {
         let out = runner.run(&probe()).await;
         assert_eq!(out.light_result.as_deref(), Some("miss"));
         // NullLlm returns an error, so medium and hard report errors.
-        assert!(out.medium_result.as_deref().unwrap_or("").starts_with("error"));
-        assert!(out.hard_result.as_deref().unwrap_or("").starts_with("error"));
+        assert!(out
+            .medium_result
+            .as_deref()
+            .unwrap_or("")
+            .starts_with("error"));
+        assert!(out
+            .hard_result
+            .as_deref()
+            .unwrap_or("")
+            .starts_with("error"));
         assert!(out.finding.is_none());
     }
 
@@ -380,13 +400,19 @@ mod tests {
 
     #[test]
     fn classify_objective_picks_idor() {
-        assert_eq!(classify_objective("test IDOR on /api"), "broken-access-control.idor");
+        assert_eq!(
+            classify_objective("test IDOR on /api"),
+            "broken-access-control.idor"
+        );
         assert_eq!(
             classify_objective("mass assignment via PATCH"),
             "broken-access-control.mass-assignment"
         );
         assert_eq!(classify_objective("test SSRF"), "ssrf");
-        assert_eq!(classify_objective("test cross-tenant access"), "broken-access-control.cross-tenant-read");
+        assert_eq!(
+            classify_objective("test cross-tenant access"),
+            "broken-access-control.cross-tenant-read"
+        );
         assert_eq!(classify_objective("random thing"), "unknown");
     }
 
@@ -407,6 +433,8 @@ mod tests {
         });
         let env = build_env(&p);
         assert!(env.iter().any(|(k, _)| k == "MANTIS_TARGET_URL"));
-        assert!(env.iter().any(|(k, v)| k == "MANTIS_ATTACKER_AUTHORIZATION" && v == "Bearer ATT"));
+        assert!(env
+            .iter()
+            .any(|(k, v)| k == "MANTIS_ATTACKER_AUTHORIZATION" && v == "Bearer ATT"));
     }
 }

@@ -25,7 +25,9 @@ struct Args {
 async fn main() -> Result<()> {
     // MCP servers reserve stdout for protocol traffic; logs go to stderr only.
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
         .with_writer(std::io::stderr)
         .with_ansi(false)
         .init();

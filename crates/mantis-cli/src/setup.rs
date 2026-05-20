@@ -61,9 +61,7 @@ pub(crate) fn run() {
     eprintln!();
 
     if ready_count == 0 {
-        eprintln!(
-            "    {b}No LLM is configured yet.{r} Configure at least one to run a scan:"
-        );
+        eprintln!("    {b}No LLM is configured yet.{r} Configure at least one to run a scan:");
         eprintln!();
         for s in &statuses {
             eprintln!("      {d}# {name}{r}", name = s.display);
@@ -74,34 +72,24 @@ pub(crate) fn run() {
             "    Then run {b}mantis{r} again — this screen will show {g}✓{r} next to the one you set up."
         );
     } else {
-        eprintln!(
-            "    {g}{ready_count} provider(s) ready.{r} Try a scan:"
-        );
+        eprintln!("    {g}{ready_count} provider(s) ready.{r} Try a scan:");
         eprintln!();
         eprintln!("      {b}mantis pentest https://example.com{r}");
         eprintln!("      {b}mantis hack    https://example.com{r}");
         eprintln!();
-        eprintln!(
-            "    Or verify the provider end-to-end with {d}1 token{r}:"
-        );
+        eprintln!("    Or verify the provider end-to-end with {d}1 token{r}:");
         eprintln!();
         for s in statuses.iter().filter(|s| s.ready) {
             eprintln!("      mantis llm probe --provider {id}", id = s.id);
         }
     }
     eprintln!();
-    eprintln!(
-        "    {d}docs: https://mantishack.com/docs{r}   {d}help: mantis --help{r}"
-    );
+    eprintln!("    {d}docs: https://mantishack.com/docs{r}   {d}help: mantis --help{r}");
     eprintln!();
 }
 
 fn detect() -> Vec<LlmStatus> {
-    vec![
-        detect_anthropic(),
-        detect_openai(),
-        detect_claude_cli(),
-    ]
+    vec![detect_anthropic(), detect_openai(), detect_claude_cli()]
 }
 
 fn detect_anthropic() -> LlmStatus {
@@ -111,14 +99,16 @@ fn detect_anthropic() -> LlmStatus {
             display: "Anthropic API",
             ready: true,
             detail: format!("ANTHROPIC_API_KEY set ({})", fingerprint(&k)),
-            setup_hint: "export ANTHROPIC_API_KEY=sk-ant-...   # from https://console.anthropic.com/",
+            setup_hint:
+                "export ANTHROPIC_API_KEY=sk-ant-...   # from https://console.anthropic.com/",
         },
         _ => LlmStatus {
             id: "anthropic",
             display: "Anthropic API",
             ready: false,
             detail: "ANTHROPIC_API_KEY not set".to_string(),
-            setup_hint: "export ANTHROPIC_API_KEY=sk-ant-...   # from https://console.anthropic.com/",
+            setup_hint:
+                "export ANTHROPIC_API_KEY=sk-ant-...   # from https://console.anthropic.com/",
         },
     }
 }
@@ -130,14 +120,16 @@ fn detect_openai() -> LlmStatus {
             display: "OpenAI API",
             ready: true,
             detail: format!("OPENAI_API_KEY set ({})", fingerprint(&k)),
-            setup_hint: "export OPENAI_API_KEY=sk-...          # from https://platform.openai.com/api-keys",
+            setup_hint:
+                "export OPENAI_API_KEY=sk-...          # from https://platform.openai.com/api-keys",
         },
         _ => LlmStatus {
             id: "openai",
             display: "OpenAI API",
             ready: false,
             detail: "OPENAI_API_KEY not set".to_string(),
-            setup_hint: "export OPENAI_API_KEY=sk-...          # from https://platform.openai.com/api-keys",
+            setup_hint:
+                "export OPENAI_API_KEY=sk-...          # from https://platform.openai.com/api-keys",
         },
     }
 }
@@ -149,14 +141,16 @@ fn detect_claude_cli() -> LlmStatus {
             display: "Claude Code CLI",
             ready: true,
             detail: format!("claude on PATH ({})", path.display()),
-            setup_hint: "npm install -g @anthropic-ai/claude-code   # then run `claude` once to log in",
+            setup_hint:
+                "npm install -g @anthropic-ai/claude-code   # then run `claude` once to log in",
         },
         None => LlmStatus {
             id: "claude-cli",
             display: "Claude Code CLI",
             ready: false,
             detail: "`claude` binary not on PATH".to_string(),
-            setup_hint: "npm install -g @anthropic-ai/claude-code   # then run `claude` once to log in",
+            setup_hint:
+                "npm install -g @anthropic-ai/claude-code   # then run `claude` once to log in",
         },
     }
 }

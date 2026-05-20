@@ -163,7 +163,13 @@ fn derive_fsm(id: EngagementId, target: String, events: &[Event]) -> FsmSessionS
     let mut s = FsmSessionState::new(id.to_string(), target);
     for event in events {
         match &event.kind {
-            EventKind::SurfaceDiscovered { host, port, scheme, path, .. } => {
+            EventKind::SurfaceDiscovered {
+                host,
+                port,
+                scheme,
+                path,
+                ..
+            } => {
                 let surface_id = format!("{scheme}://{host}:{port}{path}");
                 if !s.explored.iter().any(|x| x == &surface_id) {
                     s.explored.push(surface_id);
@@ -609,9 +615,10 @@ impl Engagement for EngagementServiceImpl {
         })?;
 
         let override_reason = match inner.override_reason.as_deref() {
-            Some(s) => Some(OverrideReason::new(s).map_err(|e| {
-                Status::invalid_argument(format!("override_reason: {e}"))
-            })?),
+            Some(s) => Some(
+                OverrideReason::new(s)
+                    .map_err(|e| Status::invalid_argument(format!("override_reason: {e}")))?,
+            ),
             None => None,
         };
         let override_reason_str = inner.override_reason.clone();
@@ -977,16 +984,18 @@ fn parse_round(s: &str) -> Option<VerificationRound> {
 
 fn transition_to_status(err: TransitionError) -> Status {
     match err {
-        TransitionError::InvalidEdge { from, to } => Status::failed_precondition(format!(
-            "invalid edge: {from} -> {to}"
-        )),
+        TransitionError::InvalidEdge { from, to } => {
+            Status::failed_precondition(format!("invalid edge: {from} -> {to}"))
+        }
         TransitionError::OverrideReasonTooShort => {
             Status::invalid_argument("override_reason must be at least 20 characters")
         }
-        TransitionError::OverrideNotPermitted { from, to } => Status::failed_precondition(
-            format!("override_reason not permitted for {from} -> {to}"),
-        ),
-        TransitionError::GateRefused(s) => Status::failed_precondition(format!("gate refused: {s}")),
+        TransitionError::OverrideNotPermitted { from, to } => {
+            Status::failed_precondition(format!("override_reason not permitted for {from} -> {to}"))
+        }
+        TransitionError::GateRefused(s) => {
+            Status::failed_precondition(format!("gate refused: {s}"))
+        }
     }
 }
 
@@ -1078,8 +1087,7 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let root = Utf8PathBuf::from_path_buf(tmp.path().to_path_buf()).expect("utf8");
         let ks = InMemoryKeyStore::new();
-        let workspace =
-            Arc::new(Workspace::init(&root, &ks).expect("init workspace"));
+        let workspace = Arc::new(Workspace::init(&root, &ks).expect("init workspace"));
         let event_store =
             Arc::new(EventStore::open(&root.join("events.rocksdb")).expect("event store"));
         let svc = EngagementServiceImpl::new(workspace, event_store).expect("svc");
@@ -1107,8 +1115,7 @@ mod tests {
             .await
             .expect("get session state");
         let payload = resp.into_inner().session_json;
-        let v: serde_json::Value =
-            serde_json::from_slice(&payload).expect("session json parses");
+        let v: serde_json::Value = serde_json::from_slice(&payload).expect("session json parses");
         assert_eq!(v["phase"], "RECON");
         assert_eq!(v["target"], "demo");
         assert_eq!(v["auth_status"], "pending");
@@ -1254,7 +1261,8 @@ mod tests {
                 engagement_id: id_str.clone(),
                 to_phase: "CHAIN".into(),
                 override_reason: Some(
-                    "operator accepted unexplored high surface for the next pass; tracked PR-1".into(),
+                    "operator accepted unexplored high surface for the next pass; tracked PR-1"
+                        .into(),
                 ),
                 auth_status: None,
             }))
@@ -1362,16 +1370,28 @@ mod tests {
             mantis_fsm::FindingVerdict::confirmed("F-1", mantis_fsm::Severity::High, "x"),
             mantis_fsm::FindingVerdict::confirmed("F-2", mantis_fsm::Severity::Medium, "x"),
         ];
-        write_round(&svc, &id_str, VerificationRound::Brutalist, verdicts.clone(), None).await;
-        write_round(&svc, &id_str, VerificationRound::Balanced, verdicts.clone(), None).await;
+        write_round(
+            &svc,
+            &id_str,
+            VerificationRound::Brutalist,
+            verdicts.clone(),
+            None,
+        )
+        .await;
+        write_round(
+            &svc,
+            &id_str,
+            VerificationRound::Balanced,
+            verdicts.clone(),
+            None,
+        )
+        .await;
 
         // Build adjudication → get plan hash.
         let adj = svc
-            .build_verification_adjudication(Request::new(
-                BuildVerificationAdjudicationRequest {
-                    engagement_id: id_str.clone(),
-                },
-            ))
+            .build_verification_adjudication(Request::new(BuildVerificationAdjudicationRequest {
+                engagement_id: id_str.clone(),
+            }))
             .await
             .expect("build adj")
             .into_inner();
@@ -1533,20 +1553,16 @@ mod tests {
         .await
         .unwrap();
         let a = svc
-            .build_verification_adjudication(Request::new(
-                BuildVerificationAdjudicationRequest {
-                    engagement_id: id_str.clone(),
-                },
-            ))
+            .build_verification_adjudication(Request::new(BuildVerificationAdjudicationRequest {
+                engagement_id: id_str.clone(),
+            }))
             .await
             .unwrap()
             .into_inner();
         let b = svc
-            .build_verification_adjudication(Request::new(
-                BuildVerificationAdjudicationRequest {
-                    engagement_id: id_str,
-                },
-            ))
+            .build_verification_adjudication(Request::new(BuildVerificationAdjudicationRequest {
+                engagement_id: id_str,
+            }))
             .await
             .unwrap()
             .into_inner();
@@ -1559,8 +1575,7 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let root = Utf8PathBuf::from_path_buf(tmp.path().to_path_buf()).expect("utf8");
         let ks = InMemoryKeyStore::new();
-        let workspace =
-            Arc::new(Workspace::init(&root, &ks).expect("init workspace"));
+        let workspace = Arc::new(Workspace::init(&root, &ks).expect("init workspace"));
         let event_store_path = root.join("events.rocksdb");
 
         // First service instance: create + transition.
@@ -1599,8 +1614,7 @@ mod tests {
             }))
             .await
             .expect("get session state");
-        let v: serde_json::Value =
-            serde_json::from_slice(&resp.into_inner().session_json).unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&resp.into_inner().session_json).unwrap();
         assert_eq!(v["phase"], "AUTH");
     }
 

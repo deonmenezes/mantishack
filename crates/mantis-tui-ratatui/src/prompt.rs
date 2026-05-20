@@ -208,9 +208,7 @@ fn print_banner(active: &str, providers: &[String]) {
     println!(
         "{DIM}Type a request and press Enter. Slash commands: /help, /doctor, /status, /model, /hack <target>, /exit.{RESET}"
     );
-    println!(
-        "{HIGH}⏵⏵ ethical hacking with authorization only{RESET}  {DIM}(ctrl-d exits){RESET}"
-    );
+    println!("{HIGH}⏵⏵ ethical hacking with authorization only{RESET}  {DIM}(ctrl-d exits){RESET}");
     println!();
     let _ = io::stdout().flush();
 }
@@ -222,8 +220,12 @@ fn print_help() {
     println!("  {MINT}/providers{RESET}         list AI CLIs detected on PATH");
     println!("  {DIM}—— mantis subcommands (run inline without leaving the REPL) ——{RESET}");
     println!("  {MINT}/doctor{RESET}            run `mantis doctor` and print results");
-    println!("  {MINT}/status{RESET}            run `mantis status` (daemon / claude / model snapshot)");
-    println!("  {MINT}/model{RESET} [id|clear]  open the Tab/Shift+Tab picker, set a model, or clear it");
+    println!(
+        "  {MINT}/status{RESET}            run `mantis status` (daemon / claude / model snapshot)"
+    );
+    println!(
+        "  {MINT}/model{RESET} [id|clear]  open the Tab/Shift+Tab picker, set a model, or clear it"
+    );
     println!("  {MINT}/version{RESET}           print the mantis version");
     println!("  {MINT}/init{RESET}              re-wire plugin + MCP + daemon");
     println!("  {MINT}/init-project{RESET}      scaffold .mantis.json + MANTIS.md in cwd");
@@ -266,7 +268,13 @@ fn handle_slash(cmd: &str, active: &mut String, providers: &[String]) -> bool {
             // never re-spawn the daemon / re-register MCP just to
             // create files. `--no-plugin --no-mcp --no-daemon` makes
             // `mantis init --project` a pure scaffold.
-            let mut argv = vec!["init", "--project", "--no-plugin", "--no-mcp", "--no-daemon"];
+            let mut argv = vec![
+                "init",
+                "--project",
+                "--no-plugin",
+                "--no-mcp",
+                "--no-daemon",
+            ];
             argv.extend_from_slice(rest);
             run_mantis_subcommand_argv(&argv);
         }
@@ -418,9 +426,7 @@ fn spawn_provider(provider: &str, user_prompt: &str) -> Result<()> {
             let msg = if tool.is_empty() {
                 format!("{HIGH}{verb}…{RESET} {DIM}({elapsed}s){RESET}")
             } else {
-                format!(
-                    "{HIGH}{verb}…{RESET} {DIM}({elapsed}s · {tool}){RESET}"
-                )
+                format!("{HIGH}{verb}…{RESET} {DIM}({elapsed}s · {tool}){RESET}")
             };
             pb_for_ticker.set_message(msg);
             thread::sleep(Duration::from_millis(200));
@@ -466,9 +472,7 @@ fn spawn_provider(provider: &str, user_prompt: &str) -> Result<()> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    let mut child = cmd
-        .spawn()
-        .with_context(|| format!("spawn {provider}"))?;
+    let mut child = cmd.spawn().with_context(|| format!("spawn {provider}"))?;
     // Publish the child PID so the SIGINT handler can route Ctrl+C
     // to it (instead of killing the whole REPL). Cleared right
     // after wait() returns.
@@ -520,13 +524,14 @@ fn spawn_provider(provider: &str, user_prompt: &str) -> Result<()> {
 
     let elapsed = start.elapsed().as_secs();
     if status.success() {
-        println!(
-            "{DIM}✓ {provider} done ({elapsed}s){RESET}"
-        );
+        println!("{DIM}✓ {provider} done ({elapsed}s){RESET}");
     } else {
         println!(
             "{HOT}✗ {provider} exited with status {} ({elapsed}s){RESET}",
-            status.code().map(|c| c.to_string()).unwrap_or_else(|| "?".into())
+            status
+                .code()
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "?".into())
         );
     }
     Ok(())

@@ -206,10 +206,7 @@ mod tests {
                             })
                             .to_string(),
                         ),
-                        "no-token" => (
-                            "HTTP/1.1 200 OK",
-                            r#"{"user":{"id":"u-1"}}"#.to_string(),
-                        ),
+                        "no-token" => ("HTTP/1.1 200 OK", r#"{"user":{"id":"u-1"}}"#.to_string()),
                         "rejected" => (
                             "HTTP/1.1 400 Bad Request",
                             r#"{"error":"weak password"}"#.to_string(),
@@ -256,15 +253,15 @@ mod tests {
     async fn happy_path_root_token() {
         let addr = spawn_supabase_like("ok-root").await;
         let url = format!("http://127.0.0.1:{}/auth/v1/signup", addr.port());
-        let (outcome, profile) =
-            signup_supabase(&url, &cfg(), None, None, "attacker").await.unwrap();
+        let (outcome, profile) = signup_supabase(&url, &cfg(), None, None, "attacker")
+            .await
+            .unwrap();
         assert_eq!(outcome.access_token, "JWT-ATTACKER-1");
         assert_eq!(outcome.token_type, "bearer");
         assert_eq!(outcome.refresh_token.as_deref(), Some("REFRESH-1"));
         assert_eq!(outcome.expires_in, Some(3600));
         // Profile carries the apikey + Bearer header.
-        let header_names: Vec<&str> =
-            profile.headers.iter().map(|h| h.name.as_str()).collect();
+        let header_names: Vec<&str> = profile.headers.iter().map(|h| h.name.as_str()).collect();
         assert!(header_names.contains(&"apikey"));
         assert!(header_names.contains(&"Authorization"));
         // Bearer value carries the token.
@@ -280,8 +277,9 @@ mod tests {
     async fn happy_path_session_nested_token() {
         let addr = spawn_supabase_like("ok-session").await;
         let url = format!("http://127.0.0.1:{}/auth/v1/signup", addr.port());
-        let (outcome, _profile) =
-            signup_supabase(&url, &cfg(), None, None, "victim").await.unwrap();
+        let (outcome, _profile) = signup_supabase(&url, &cfg(), None, None, "victim")
+            .await
+            .unwrap();
         assert_eq!(outcome.access_token, "JWT-SESSION-1");
         assert_eq!(outcome.expires_in, Some(7200));
     }

@@ -95,10 +95,7 @@ pub async fn discover(target_url: &str) -> DiscoveredAuthConfig {
 /// found) are cached on-disk under
 /// `~/.mantis/discovery-cache/<host>.json` so subsequent
 /// `mantis hack` invocations don't hammer the WAF.
-pub async fn discover_with_cookie(
-    target_url: &str,
-    cookie: Option<&str>,
-) -> DiscoveredAuthConfig {
+pub async fn discover_with_cookie(target_url: &str, cookie: Option<&str>) -> DiscoveredAuthConfig {
     // 0. Cache hit?
     if let Some(cached) = read_cache(target_url) {
         if cached.is_supabase_ready() {
@@ -118,10 +115,7 @@ pub async fn discover_with_cookie(
     result
 }
 
-async fn discover_uncached(
-    target_url: &str,
-    cookie: Option<&str>,
-) -> DiscoveredAuthConfig {
+async fn discover_uncached(target_url: &str, cookie: Option<&str>) -> DiscoveredAuthConfig {
     let mut out = DiscoveredAuthConfig::default();
     let mut builder = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
@@ -214,7 +208,10 @@ async fn discover_uncached(
         if let Some(parent) = parent {
             for sub in SUBDOMAIN_PROBES {
                 let candidate = format!("https://{sub}.{parent}/");
-                if bodies_scanned.iter().any(|(u, _)| u.starts_with(&candidate)) {
+                if bodies_scanned
+                    .iter()
+                    .any(|(u, _)| u.starts_with(&candidate))
+                {
                     continue;
                 }
                 if let Some((url, body)) = fetch_and_filter(&client, &candidate).await {
@@ -268,10 +265,7 @@ async fn fetch_and_filter(client: &reqwest::Client, url: &str) -> Option<(String
 /// Scan accumulated `(url, body)` pairs. Updates `out` and returns
 /// true iff BOTH supabase_url AND supabase_anon_key are now set
 /// (caller can short-circuit further probes).
-fn scan_bodies_for_config(
-    bodies: &[(String, String)],
-    out: &mut DiscoveredAuthConfig,
-) -> bool {
+fn scan_bodies_for_config(bodies: &[(String, String)], out: &mut DiscoveredAuthConfig) -> bool {
     for (_url, body) in bodies {
         if out.supabase_url.is_none() {
             if let Some(host) = find_supabase_host(body) {
@@ -492,7 +486,11 @@ fn base_origin(url: &str) -> String {
         .strip_prefix("https://")
         .or_else(|| url.strip_prefix("http://"))
         .unwrap_or(url);
-    let scheme = if url.starts_with("http://") { "http" } else { "https" };
+    let scheme = if url.starts_with("http://") {
+        "http"
+    } else {
+        "https"
+    };
     let host = s.split(['/', '?', '#']).next().unwrap_or(s);
     format!("{scheme}://{host}")
 }
@@ -587,7 +585,10 @@ mod tests {
 
     #[test]
     fn parent_domain_drops_first_label() {
-        assert_eq!(parent_domain("https://app.tenkara.ai/"), Some("tenkara.ai".into()));
+        assert_eq!(
+            parent_domain("https://app.tenkara.ai/"),
+            Some("tenkara.ai".into())
+        );
         assert_eq!(
             parent_domain("https://api.example.com/v1/users"),
             Some("example.com".into())
@@ -637,7 +638,8 @@ mod tests {
     fn cache_path_normalizes_host() {
         // Cache key strips www., lowercases, strips schemes/paths.
         let p1 = cache_path("https://app.example.com/").map(|p| p.file_name().unwrap().to_owned());
-        let p2 = cache_path("https://APP.example.com/x/y?z").map(|p| p.file_name().unwrap().to_owned());
+        let p2 =
+            cache_path("https://APP.example.com/x/y?z").map(|p| p.file_name().unwrap().to_owned());
         assert_eq!(p1, p2);
     }
 

@@ -50,7 +50,11 @@ impl std::fmt::Debug for AuthProfile {
             )
             .field(
                 "query_keys",
-                &self.query.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(),
+                &self
+                    .query
+                    .iter()
+                    .map(|(k, _)| k.as_str())
+                    .collect::<Vec<_>>(),
             )
             .field("expires_at_unix", &self.expires_at_unix)
             .field("created_at_unix", &self.created_at_unix)

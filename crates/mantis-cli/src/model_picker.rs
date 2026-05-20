@@ -101,7 +101,8 @@ pub(crate) fn save(id: &str) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).with_context(|| format!("mkdir {}", parent.display()))?;
     }
-    std::fs::write(&path, format!("{}\n", id)).with_context(|| format!("write {}", path.display()))?;
+    std::fs::write(&path, format!("{}\n", id))
+        .with_context(|| format!("write {}", path.display()))?;
     Ok(())
 }
 
@@ -144,9 +145,7 @@ fn pick_non_tty() -> Result<Option<&'static ClaudeModel>> {
     print!("Number [1-{}], or blank to cancel: ", MODELS.len());
     io::stdout().flush().ok();
     let mut line = String::new();
-    io::stdin()
-        .read_line(&mut line)
-        .context("read selection")?;
+    io::stdin().read_line(&mut line).context("read selection")?;
     let trimmed = line.trim();
     if trimmed.is_empty() {
         return Ok(None);
@@ -182,7 +181,13 @@ fn pick_tty() -> Result<Option<&'static ClaudeModel>> {
     execute!(stdout, cursor::MoveDown(total_rows as u16)).ok();
     println!();
 
-    result.map(|confirmed| if confirmed { Some(&MODELS[selected]) } else { None })
+    result.map(|confirmed| {
+        if confirmed {
+            Some(&MODELS[selected])
+        } else {
+            None
+        }
+    })
 }
 
 /// The actual key loop. Returns `Ok(true)` if the user pressed Enter,
@@ -291,7 +296,11 @@ fn render<W: Write>(stdout: &mut W, selected: usize, total_rows: usize) -> Resul
         let active = i == selected;
         let marker = if active { "❯" } else { " " };
         let color = if active { Color::Green } else { Color::Reset };
-        let dim = if active { Color::White } else { Color::DarkGrey };
+        let dim = if active {
+            Color::White
+        } else {
+            Color::DarkGrey
+        };
 
         queue!(
             stdout,
@@ -311,10 +320,7 @@ fn render<W: Write>(stdout: &mut W, selected: usize, total_rows: usize) -> Resul
         stdout,
         Print("\r\n"),
         SetForegroundColor(Color::DarkGrey),
-        Print(format!(
-            "  current: {}",
-            saved_label()
-        )),
+        Print(format!("  current: {}", saved_label())),
         ResetColor,
         Print("\r\n"),
     )?;
@@ -330,7 +336,11 @@ fn saved_label() -> String {
     match load_saved() {
         None => "(none — claude default applies)".to_string(),
         Some(id) => match find_by_id(&id) {
-            Some(m) => format!("{} ({})", m.label, if m.id.is_empty() { "auto" } else { m.id }),
+            Some(m) => format!(
+                "{} ({})",
+                m.label,
+                if m.id.is_empty() { "auto" } else { m.id }
+            ),
             None => format!("{} (custom)", id),
         },
     }

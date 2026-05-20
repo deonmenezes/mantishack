@@ -212,12 +212,21 @@ pub fn validate_cascade(
         return Err("third arg must be the final round".into());
     }
 
-    let brutalist_ids: std::collections::BTreeSet<&str> =
-        brutalist.results.iter().map(|r| r.finding_id.as_str()).collect();
-    let balanced_ids: std::collections::BTreeSet<&str> =
-        balanced.results.iter().map(|r| r.finding_id.as_str()).collect();
-    let final_ids: std::collections::BTreeSet<&str> =
-        final_round.results.iter().map(|r| r.finding_id.as_str()).collect();
+    let brutalist_ids: std::collections::BTreeSet<&str> = brutalist
+        .results
+        .iter()
+        .map(|r| r.finding_id.as_str())
+        .collect();
+    let balanced_ids: std::collections::BTreeSet<&str> = balanced
+        .results
+        .iter()
+        .map(|r| r.finding_id.as_str())
+        .collect();
+    let final_ids: std::collections::BTreeSet<&str> = final_round
+        .results
+        .iter()
+        .map(|r| r.finding_id.as_str())
+        .collect();
 
     if brutalist_ids != balanced_ids {
         return Err("balanced round must cover exactly the brutalist finding IDs".into());
@@ -301,11 +310,19 @@ mod tests {
         );
         let bal = VerificationRoundResult::new(
             VerificationRound::Balanced,
-            vec![FindingVerdict::confirmed("F-1", Severity::High, "pass-through")],
+            vec![FindingVerdict::confirmed(
+                "F-1",
+                Severity::High,
+                "pass-through",
+            )],
         );
         let fin = VerificationRoundResult::new(
             VerificationRound::Final,
-            vec![FindingVerdict::confirmed("F-1", Severity::High, "fresh replay")],
+            vec![FindingVerdict::confirmed(
+                "F-1",
+                Severity::High,
+                "fresh replay",
+            )],
         );
         validate_cascade(&b, &bal, &fin).unwrap();
     }
@@ -332,10 +349,8 @@ mod tests {
     fn cascade_rejects_state_sensitive_demotion() {
         let mut b = FindingVerdict::confirmed("F-1", Severity::High, "x");
         b.state_sensitive = true;
-        let brutalist =
-            VerificationRoundResult::new(VerificationRound::Brutalist, vec![b.clone()]);
-        let balanced =
-            VerificationRoundResult::new(VerificationRound::Balanced, vec![b.clone()]);
+        let brutalist = VerificationRoundResult::new(VerificationRound::Brutalist, vec![b.clone()]);
+        let balanced = VerificationRoundResult::new(VerificationRound::Balanced, vec![b.clone()]);
         let mut f = FindingVerdict::confirmed("F-1", Severity::High, "x");
         f.state_sensitive = false; // demoted — invalid
         let final_round = VerificationRoundResult::new(VerificationRound::Final, vec![f]);

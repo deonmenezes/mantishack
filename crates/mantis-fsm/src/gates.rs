@@ -85,7 +85,9 @@ pub struct GateOutcome {
 
 impl GateOutcome {
     pub fn clean() -> Self {
-        Self { blockers: Vec::new() }
+        Self {
+            blockers: Vec::new(),
+        }
     }
 
     pub fn with_blockers(blockers: Vec<Blocker>) -> Self {

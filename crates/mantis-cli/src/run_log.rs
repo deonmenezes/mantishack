@@ -44,10 +44,7 @@ impl RunLog {
             .open(&path)
             .with_context(|| format!("open log file {}", path.display()))?;
 
-        let exists_already = file
-            .metadata()
-            .map(|m| m.len() > 0)
-            .unwrap_or(false);
+        let exists_already = file.metadata().map(|m| m.len() > 0).unwrap_or(false);
         if !exists_already {
             writeln!(file, "# Mantis run log")?;
             writeln!(file)?;
@@ -75,7 +72,10 @@ impl RunLog {
     pub(crate) fn record(&self, event: &serde_json::Value) {
         if let Some(entry) = render_event(event, self.started_at.elapsed().as_secs_f64()) {
             if let Err(e) = self.append(&entry) {
-                eprintln!("[mantishack] log-write failed ({}): {e}", self.path.display());
+                eprintln!(
+                    "[mantishack] log-write failed ({}): {e}",
+                    self.path.display()
+                );
             }
         }
     }
@@ -110,13 +110,8 @@ fn render_event(event: &serde_json::Value, t_secs: f64) -> Option<String> {
     let ty = event.get("type")?.as_str()?;
     match ty {
         "system" => {
-            let subtype = event
-                .get("subtype")
-                .and_then(|s| s.as_str())
-                .unwrap_or("");
-            Some(format!(
-                "- `t={t_secs:6.1}s` · _system_ · `{subtype}`\n"
-            ))
+            let subtype = event.get("subtype").and_then(|s| s.as_str()).unwrap_or("");
+            Some(format!("- `t={t_secs:6.1}s` · _system_ · `{subtype}`\n"))
         }
         "assistant" => render_assistant(event, t_secs),
         "user" => render_user(event, t_secs),
@@ -126,10 +121,7 @@ fn render_event(event: &serde_json::Value, t_secs: f64) -> Option<String> {
                 .get("total_cost_usd")
                 .and_then(|s| s.as_f64())
                 .unwrap_or(0.0);
-            let turns = event
-                .get("num_turns")
-                .and_then(|s| s.as_u64())
-                .unwrap_or(0);
+            let turns = event.get("num_turns").and_then(|s| s.as_u64()).unwrap_or(0);
             Some(format!(
                 "\n### Final result — `{subtype}`\n\n- turns: **{turns}**\n- cost: **${cost:.4}**\n"
             ))
@@ -150,7 +142,11 @@ fn render_assistant(event: &serde_json::Value, t_secs: f64) -> Option<String> {
                 out.push_str(&format_tool_call(name, input, t_secs));
             }
             "text" => {
-                let txt = block.get("text").and_then(|s| s.as_str()).unwrap_or("").trim();
+                let txt = block
+                    .get("text")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("")
+                    .trim();
                 if !txt.is_empty() {
                     out.push_str(&format!("- `t={t_secs:6.1}s` · _assistant_:\n\n"));
                     for line in txt.lines() {
@@ -245,8 +241,14 @@ fn head_args_inline(name: &str, input: Option<&serde_json::Value>) -> String {
     };
     match name {
         "Task" => {
-            let subtype = input.get("subagent_type").and_then(|s| s.as_str()).unwrap_or("?");
-            let bg = input.get("run_in_background").and_then(|s| s.as_bool()).unwrap_or(false);
+            let subtype = input
+                .get("subagent_type")
+                .and_then(|s| s.as_str())
+                .unwrap_or("?");
+            let bg = input
+                .get("run_in_background")
+                .and_then(|s| s.as_bool())
+                .unwrap_or(false);
             format!(
                 "spawn **{subtype}**{}",
                 if bg { " (background)" } else { "" }
@@ -326,7 +328,20 @@ fn unix_to_ymdhms(secs: i64) -> (i32, u32, u32, u32, u32, u32) {
         days -= year_days;
         y += 1;
     }
-    let months = [31, if is_leap(y) { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let months = [
+        31,
+        if is_leap(y) { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
     let mut mo = 0usize;
     while mo < 12 && days >= months[mo] {
         days -= months[mo];
@@ -355,10 +370,7 @@ pub(crate) fn detect_api_error(event: &serde_json::Value) -> Option<String> {
     if event.get("type").and_then(|t| t.as_str()) != Some("result") {
         return None;
     }
-    let subtype = event
-        .get("subtype")
-        .and_then(|s| s.as_str())
-        .unwrap_or("");
+    let subtype = event.get("subtype").and_then(|s| s.as_str()).unwrap_or("");
     let is_error = event
         .get("is_error")
         .and_then(|v| v.as_bool())
@@ -446,7 +458,13 @@ fn host_from_target(t: &str) -> String {
         .unwrap_or(after_scheme);
     let cleaned: String = host
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     if cleaned.is_empty() {
         "run".to_string()
@@ -549,9 +567,15 @@ mod tests {
 
     #[test]
     fn host_from_target_strips_scheme_and_path() {
-        assert_eq!(host_from_target("https://app.example.com/foo"), "app.example.com");
+        assert_eq!(
+            host_from_target("https://app.example.com/foo"),
+            "app.example.com"
+        );
         assert_eq!(host_from_target("api.example.com"), "api.example.com");
-        assert_eq!(host_from_target("https://with:port.example/"), "with_port.example");
+        assert_eq!(
+            host_from_target("https://with:port.example/"),
+            "with_port.example"
+        );
     }
 
     #[test]

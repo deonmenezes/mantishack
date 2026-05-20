@@ -88,10 +88,33 @@ pub const DEFAULT_PATHS: &[&str] = &[
 
 /// Default subdomain wordlist for bare-host expansion.
 pub const DEFAULT_SUBDOMAINS: &[&str] = &[
-    "www", "api", "app", "auth", "admin", "dashboard", "preview", "staging",
-    "stage", "dev", "test", "internal", "private", "secure", "portal", "login",
-    "console", "docs", "status", "graphql", "ws", "cdn", "static", "assets",
-    "mail", "support", "help",
+    "www",
+    "api",
+    "app",
+    "auth",
+    "admin",
+    "dashboard",
+    "preview",
+    "staging",
+    "stage",
+    "dev",
+    "test",
+    "internal",
+    "private",
+    "secure",
+    "portal",
+    "login",
+    "console",
+    "docs",
+    "status",
+    "graphql",
+    "ws",
+    "cdn",
+    "static",
+    "assets",
+    "mail",
+    "support",
+    "help",
 ];
 
 #[derive(Debug, Clone)]
@@ -162,7 +185,11 @@ pub fn generate_candidates(seed_url: &str, config: &EnumerationConfig) -> Vec<St
             .chain(config.extra_subdomains.iter().cloned());
         for sub in sub_iter {
             let sub_host = format!("{sub}.{}", parsed.host);
-            push(parsed.with_host(&sub_host).canonical_root(), &mut out, &mut order);
+            push(
+                parsed.with_host(&sub_host).canonical_root(),
+                &mut out,
+                &mut order,
+            );
         }
     }
 
@@ -287,8 +314,12 @@ mod tests {
     fn expands_subdomains_on_bare_apex() {
         let cfg = EnumerationConfig::default();
         let cands = generate_candidates("https://example.com/", &cfg);
-        assert!(cands.iter().any(|c| c.starts_with("https://api.example.com")));
-        assert!(cands.iter().any(|c| c.starts_with("https://www.example.com")));
+        assert!(cands
+            .iter()
+            .any(|c| c.starts_with("https://api.example.com")));
+        assert!(cands
+            .iter()
+            .any(|c| c.starts_with("https://www.example.com")));
     }
 
     #[test]
@@ -330,8 +361,12 @@ mod tests {
             ..Default::default()
         };
         let cands = generate_candidates("https://example.com/", &cfg);
-        assert!(cands.iter().any(|c| c.starts_with("https://graphql.example.com")));
-        assert!(cands.iter().any(|c| c.starts_with("https://billing.example.com")));
+        assert!(cands
+            .iter()
+            .any(|c| c.starts_with("https://graphql.example.com")));
+        assert!(cands
+            .iter()
+            .any(|c| c.starts_with("https://billing.example.com")));
     }
 
     #[test]

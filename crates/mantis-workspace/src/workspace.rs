@@ -120,9 +120,9 @@ impl Workspace {
             ))
         })?;
         let secret_bytes = hex::decode(hex_key.trim()).map_err(|e| {
-            WorkspaceError::KeyStore(crate::keystore::KeyStoreError::Unavailable(
-                format!("MANTIS_SIGNING_KEY hex decode: {e}"),
-            ))
+            WorkspaceError::KeyStore(crate::keystore::KeyStoreError::Unavailable(format!(
+                "MANTIS_SIGNING_KEY hex decode: {e}"
+            )))
         })?;
         let config_path = root.join(CONFIG_FILENAME);
         let config_str = std::fs::read_to_string(&config_path)?;
@@ -137,7 +137,11 @@ impl Workspace {
             return Err(WorkspaceError::KeyMismatch);
         }
         info!(workspace_id = %config.id, "opened workspace via MANTIS_SIGNING_KEY env");
-        Ok(Self { root: root.to_path_buf(), config, keypair })
+        Ok(Self {
+            root: root.to_path_buf(),
+            config,
+            keypair,
+        })
     }
 
     /// Open an existing workspace at `root`. Loads the config from disk

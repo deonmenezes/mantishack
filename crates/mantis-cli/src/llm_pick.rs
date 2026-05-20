@@ -78,8 +78,7 @@ pub(crate) fn pick() -> Option<(Arc<dyn LlmAdapter>, PickedProvider)> {
 fn force(id: &str) -> Option<(Arc<dyn LlmAdapter>, PickedProvider)> {
     match id {
         "anthropic" => nonempty_env("ANTHROPIC_API_KEY").map(|k| {
-            let a: Arc<dyn LlmAdapter> =
-                Arc::new(AnthropicAdapter::new(k).with_max_tokens(1024));
+            let a: Arc<dyn LlmAdapter> = Arc::new(AnthropicAdapter::new(k).with_max_tokens(1024));
             (a, PickedProvider::Anthropic)
         }),
         "openai" => nonempty_env("OPENAI_API_KEY").map(|k| {
@@ -159,7 +158,11 @@ pub(crate) async fn suggest_paths(
             .collect::<Vec<_>>()
             .join("\n")
     };
-    let backend = if supabase_detected { "Supabase" } else { "unknown / none detected" };
+    let backend = if supabase_detected {
+        "Supabase"
+    } else {
+        "unknown / none detected"
+    };
     let prompt = format!(
         "You are an offensive-security recon assistant. Based on this target's \
          discovered surface, list up to 25 high-signal API endpoint paths to probe \
@@ -191,7 +194,9 @@ fn parse_paths(text: &str) -> Vec<String> {
             .trim()
             .trim_start_matches("```")
             .trim_start_matches(|c: char| {
-                c.is_whitespace() || matches!(c, '-' | '*' | '•' | '.' | ')' | '(') || c.is_ascii_digit()
+                c.is_whitespace()
+                    || matches!(c, '-' | '*' | '•' | '.' | ')' | '(')
+                    || c.is_ascii_digit()
             })
             .trim();
         // Some models wrap paths in backticks.

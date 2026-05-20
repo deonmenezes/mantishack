@@ -96,7 +96,10 @@ pub fn write_archive(
     let mut sorted_endpoints: Vec<_> = report.per_endpoint.iter().collect();
     sorted_endpoints.sort_by(|a, b| {
         // Endpoints with more findings first, then by URL.
-        b.findings.len().cmp(&a.findings.len()).then(a.url.cmp(&b.url))
+        b.findings
+            .len()
+            .cmp(&a.findings.len())
+            .then(a.url.cmp(&b.url))
     });
     let mut idx = 0usize;
     for ep in &sorted_endpoints {
@@ -289,7 +292,9 @@ fn bullets_kv(map: &std::collections::BTreeMap<String, u32>) -> String {
     if map.is_empty() {
         return "_(empty)_\n".into();
     }
-    map.iter().map(|(k, v)| format!("- `{k}` × {v}\n")).collect()
+    map.iter()
+        .map(|(k, v)| format!("- `{k}` × {v}\n"))
+        .collect()
 }
 
 fn render_finding_md(n: usize, f: &DiffFinding) -> String {
@@ -335,12 +340,18 @@ fn render_vulnerability_report(
     if let Some(e) = &report.victim_email {
         s.push_str(&format!("- **Victim account:** `{e}`\n"));
     }
-    s.push_str(&format!("- **Endpoints probed:** {}\n", report.endpoints_probed));
+    s.push_str(&format!(
+        "- **Endpoints probed:** {}\n",
+        report.endpoints_probed
+    ));
     s.push_str(&format!(
         "- **Endpoints with findings:** {}\n",
         report.endpoints_with_findings
     ));
-    s.push_str(&format!("- **Findings total:** {}\n", report.findings_total));
+    s.push_str(&format!(
+        "- **Findings total:** {}\n",
+        report.findings_total
+    ));
     s.push_str("\n## Severity breakdown\n\n");
     s.push_str("| Severity | Count |\n|---|---|\n");
     for sev in ["critical", "high", "medium", "low", "info"] {
@@ -380,7 +391,9 @@ fn render_readme(
     numbered: &[(usize, &DiffFinding, &str)],
 ) -> String {
     let mut s = String::new();
-    s.push_str(&format!("# {host} — `find-auth-bugs` engagement `{engagement_id}`\n\n"));
+    s.push_str(&format!(
+        "# {host} — `find-auth-bugs` engagement `{engagement_id}`\n\n"
+    ));
     s.push_str(&format!("- **Target URL:** `{}`\n", report.target_url));
     if let Some(e) = &report.attacker_email {
         s.push_str(&format!("- **Attacker:** `{e}`\n"));
@@ -388,12 +401,18 @@ fn render_readme(
     if let Some(e) = &report.victim_email {
         s.push_str(&format!("- **Victim:** `{e}`\n"));
     }
-    s.push_str(&format!("- **Endpoints probed:** {}\n", report.endpoints_probed));
+    s.push_str(&format!(
+        "- **Endpoints probed:** {}\n",
+        report.endpoints_probed
+    ));
     s.push_str(&format!(
         "- **Endpoints with findings:** {}\n",
         report.endpoints_with_findings
     ));
-    s.push_str(&format!("- **Findings total:** {}\n", report.findings_total));
+    s.push_str(&format!(
+        "- **Findings total:** {}\n",
+        report.findings_total
+    ));
     s.push_str("\n## Severity breakdown\n\n");
     s.push_str("| Severity | Count |\n|---|---|\n");
     for sev in ["critical", "high", "medium", "low", "info"] {
@@ -478,7 +497,10 @@ mod tests {
     fn host_extraction_strips_www_and_lowercases() {
         assert_eq!(host_from_url("https://www.Example.COM/x"), "example.com");
         assert_eq!(host_from_url("http://localhost:8080/"), "localhost");
-        assert_eq!(host_from_url("https://api.example.com:443/v1"), "api.example.com");
+        assert_eq!(
+            host_from_url("https://api.example.com:443/v1"),
+            "api.example.com"
+        );
     }
 
     #[test]
@@ -502,7 +524,8 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let report = report_with_findings();
         write_archive(&report, "ENG-1", tmp.path()).unwrap();
-        let md = std::fs::read_to_string(tmp.path().join("app.example.com/ENG-1/findings/F-01.md")).unwrap();
+        let md = std::fs::read_to_string(tmp.path().join("app.example.com/ENG-1/findings/F-01.md"))
+            .unwrap();
         assert!(md.contains("shape match across attacker+victim"));
         assert!(md.contains("mantis auth-diff"));
         assert!(md.contains("CrossTenantRead"));

@@ -111,7 +111,10 @@ fn list_redacted_exposes_names_not_values() {
 fn delete_true_on_existing_false_on_missing() {
     let (_dir, store) = make_store();
     store.put("eng-del", profile("victim", "tok")).unwrap();
-    assert!(store.delete("eng-del", "victim").unwrap(), "should return true when deleting existing profile");
+    assert!(
+        store.delete("eng-del", "victim").unwrap(),
+        "should return true when deleting existing profile"
+    );
     assert!(
         !store.delete("eng-del", "victim").unwrap(),
         "should return false when deleting already-deleted profile"
@@ -235,8 +238,14 @@ fn auth_profile_debug_redacts_values() {
     let debug = format!("{p:?}");
 
     // Names must appear in Debug output.
-    assert!(debug.contains("Authorization"), "header name must appear in Debug");
-    assert!(debug.contains("session"), "cookie name must appear in Debug");
+    assert!(
+        debug.contains("Authorization"),
+        "header name must appear in Debug"
+    );
+    assert!(
+        debug.contains("session"),
+        "cookie name must appear in Debug"
+    );
 
     // Raw values must NOT appear.
     assert!(

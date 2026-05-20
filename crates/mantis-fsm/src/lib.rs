@@ -28,8 +28,8 @@ pub mod state;
 pub mod verification;
 
 pub use crate::adjudication::{
-    build_adjudication, canonical_hash, snapshot_hash, Adjudication, FindingDiff,
-    ReplayReason, ReplayRequired, QA_SAMPLE_MAX, SMALL_REPORTABLE_THRESHOLD,
+    build_adjudication, canonical_hash, snapshot_hash, Adjudication, FindingDiff, ReplayReason,
+    ReplayRequired, QA_SAMPLE_MAX, SMALL_REPORTABLE_THRESHOLD,
 };
 pub use crate::coverage::{
     latest_by_key, open_requeue_surface_ids, CoverageKey, CoverageRow, CoverageStatus,
@@ -41,8 +41,7 @@ pub use crate::evidence::{
 pub use crate::gates::{Blocker, BlockerCode, GateOutcome};
 pub use crate::goal::{FindingSummary, Goal, GoalKind, GoalStatus};
 pub use crate::grade::{
-    AxisScores, FindingGrade, GradeVerdict, Verdict, GRADE_HOLD_MIN_SCORE,
-    GRADE_SUBMIT_MIN_SCORE,
+    AxisScores, FindingGrade, GradeVerdict, Verdict, GRADE_HOLD_MIN_SCORE, GRADE_SUBMIT_MIN_SCORE,
 };
 pub use crate::severity::{Severity, SeverityFloor};
 pub use crate::state::{
