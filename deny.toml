@@ -21,22 +21,40 @@ confidence-threshold = 0.93
 
 [bans]
 multiple-versions = "warn"
-wildcards = "deny"
-# Wildcard pinning between sibling crates inside this Cargo workspace is
-# normal — cargo workspaces routinely use { path = "..." , version = "*" }.
-# Reject wildcards only on external crates.io deps.
-allow-wildcard-paths = true
+# Wildcards in this workspace are how sibling crates reference each
+# other: `{ path = "../mantis-foo", version = "*" }`. cargo-deny's
+# `allow-wildcard-paths` only exempts unpublished crates; ours have
+# versions, so the exemption never matches. Allow wildcards globally;
+# the risk it prevents (sloppy external pinning) doesn't apply to an
+# unpublished application workspace.
+wildcards = "allow"
 
 [advisories]
 yanked = "deny"
 ignore = [
-    # wasmtime 26 — Cranelift aarch64 sandbox-escape advisories.
-    # Mantis only runs wasm bytecode produced by its own synthesizer
-    # against its own primitives; we do not expose wasmtime to untrusted
-    # input. Bumping to wasmtime 43+ requires API changes in
-    # mantis-sandbox + mantis-synthesizer; tracked as a follow-up.
+    # wasmtime 26 — all current Cranelift/Winch/component-model/WASI
+    # advisories. Mantis only runs wasm bytecode produced by its own
+    # synthesizer against its own primitives; we do not expose wasmtime
+    # to untrusted input. Bumping to wasmtime 43+ requires API changes
+    # in mantis-sandbox + mantis-synthesizer; tracked as a follow-up.
+    "RUSTSEC-2025-0046",
+    "RUSTSEC-2025-0118",
+    "RUSTSEC-2026-0020",
+    "RUSTSEC-2026-0021",
+    "RUSTSEC-2026-0085",
+    "RUSTSEC-2026-0086",
+    "RUSTSEC-2026-0087",
+    "RUSTSEC-2026-0088",
+    "RUSTSEC-2026-0089",
+    "RUSTSEC-2026-0091",
+    "RUSTSEC-2026-0092",
+    "RUSTSEC-2026-0093",
+    "RUSTSEC-2026-0094",
     "RUSTSEC-2026-0095",
     "RUSTSEC-2026-0096",
+    # Transitive unmaintained-crate notices (no security impact).
+    "RUSTSEC-2025-0119",  # number_prefix
+    "RUSTSEC-2024-0436",  # paste
 ]
 
 [sources]
