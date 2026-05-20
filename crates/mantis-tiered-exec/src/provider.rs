@@ -104,8 +104,8 @@ pub fn build_llm_adapter(provider: ProviderKind) -> Option<Arc<dyn LlmAdapter>> 
         }
         ProviderKind::Ollama => {
             // Ollama exposes an OpenAI-compatible endpoint at /v1.
-            let base = std::env::var("OLLAMA_HOST")
-                .unwrap_or_else(|_| "http://127.0.0.1:11434".into());
+            let base =
+                std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "http://127.0.0.1:11434".into());
             let mut a = OpenAIAdapter::new("ollama-dummy-key").with_base_url(base);
             if let Some(m) = model {
                 a = a.with_model(m);
@@ -157,11 +157,17 @@ mod tests {
 
     #[test]
     fn parse_known_aliases() {
-        assert_eq!(ProviderKind::parse("anthropic"), Some(ProviderKind::Anthropic));
+        assert_eq!(
+            ProviderKind::parse("anthropic"),
+            Some(ProviderKind::Anthropic)
+        );
         assert_eq!(ProviderKind::parse("CLAUDE"), Some(ProviderKind::Anthropic));
         assert_eq!(ProviderKind::parse("openai"), Some(ProviderKind::OpenAi));
         assert_eq!(ProviderKind::parse("gpt"), Some(ProviderKind::OpenAi));
-        assert_eq!(ProviderKind::parse("claude-cli"), Some(ProviderKind::ClaudeCli));
+        assert_eq!(
+            ProviderKind::parse("claude-cli"),
+            Some(ProviderKind::ClaudeCli)
+        );
         assert_eq!(ProviderKind::parse("groq"), Some(ProviderKind::Groq));
         assert_eq!(ProviderKind::parse("ollama"), Some(ProviderKind::Ollama));
         assert_eq!(ProviderKind::parse("null"), Some(ProviderKind::Null));

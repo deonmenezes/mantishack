@@ -194,8 +194,7 @@ mod tests {
 
     #[test]
     fn submit_requires_high_score_and_medium_or_higher() {
-        let f =
-            FindingGrade::new("F-1", Severity::High, perfect_axes()).unwrap();
+        let f = FindingGrade::new("F-1", Severity::High, perfect_axes()).unwrap();
         let v = GradeVerdict::compute(vec![f], None);
         assert!(v.is_submit());
         assert_eq!(v.total_score, 100);

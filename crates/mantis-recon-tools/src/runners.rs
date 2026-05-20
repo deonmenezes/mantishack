@@ -11,7 +11,7 @@
 //! not analysis. The orchestrator folds their results into Mantis's
 //! own surface set + hypothesis catalog.
 
-use crate::inventory::{ToolInfo, ToolKind, ToolInventory};
+use crate::inventory::{ToolInfo, ToolInventory, ToolKind};
 use crate::ToolError;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -116,7 +116,11 @@ pub async fn run_httpx(hosts: &[String]) -> Result<Vec<HttpxResult>, ToolError> 
             Err(_) => continue,
         };
         out.push(HttpxResult {
-            url: v.get("url").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+            url: v
+                .get("url")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
             status_code: v
                 .get("status_code")
                 .or_else(|| v.get("status-code"))
@@ -173,15 +177,27 @@ pub async fn run_nuclei(urls: &[String]) -> Result<Vec<NucleiHit>, ToolError> {
             Err(_) => continue,
         };
         out.push(NucleiHit {
-            template_id: v.get("template-id").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+            template_id: v
+                .get("template-id")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
             severity: v
                 .get("info")
                 .and_then(|i| i.get("severity"))
                 .and_then(|x| x.as_str())
                 .unwrap_or("")
                 .to_string(),
-            host: v.get("host").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-            matched_at: v.get("matched-at").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+            host: v
+                .get("host")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
+            matched_at: v
+                .get("matched-at")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
             info_name: v
                 .get("info")
                 .and_then(|i| i.get("name"))
@@ -223,17 +239,28 @@ pub async fn run_dnsx(domains: &[String]) -> Result<Vec<DnsRecord>, ToolError> {
             Err(_) => continue,
         };
         out.push(DnsRecord {
-            host: v.get("host").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-            a: v.get("a").and_then(|x| x.as_array()).map(|a| {
-                a.iter()
-                    .filter_map(|t| t.as_str().map(str::to_string))
-                    .collect()
-            }).unwrap_or_default(),
-            cname: v.get("cname").and_then(|x| x.as_array()).map(|a| {
-                a.iter()
-                    .filter_map(|t| t.as_str().map(str::to_string))
-                    .collect()
-            }).unwrap_or_default(),
+            host: v
+                .get("host")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
+            a: v.get("a")
+                .and_then(|x| x.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|t| t.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            cname: v
+                .get("cname")
+                .and_then(|x| x.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|t| t.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default(),
         });
     }
     Ok(out)
@@ -272,7 +299,11 @@ pub async fn run_tlsx(hosts: &[String]) -> Result<Vec<TlsRecord>, ToolError> {
             Err(_) => continue,
         };
         out.push(TlsRecord {
-            host: v.get("host").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+            host: v
+                .get("host")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
             issuer: v
                 .get("issuer_cn")
                 .or_else(|| v.get("issuer-cn"))
@@ -332,8 +363,7 @@ pub struct JwtDecode {
 pub async fn run_jwt_tool_decode(jwt: &str) -> Result<JwtDecode, ToolError> {
     let info = require(ToolKind::JwtTool)?;
     let path = info.path.as_deref().unwrap_or("jwt_tool");
-    let (_exit, stdout, _stderr) =
-        run_with_stdin(path, &[jwt], None, DEFAULT_TIMEOUT).await?;
+    let (_exit, stdout, _stderr) = run_with_stdin(path, &[jwt], None, DEFAULT_TIMEOUT).await?;
     let raw = String::from_utf8_lossy(&stdout).to_string();
     // jwt_tool prints prose. We capture the whole thing and let the
     // caller pattern-match. We also try to pull header/payload JSON
@@ -389,7 +419,10 @@ mod tests {
     fn extract_json_block_handles_nested() {
         let s = "Token header: {\"alg\":\"HS256\",\"nested\":{\"k\":\"v\"}} more text";
         let block = extract_json_block(s, "Token header:");
-        assert_eq!(block.as_deref(), Some("{\"alg\":\"HS256\",\"nested\":{\"k\":\"v\"}}"));
+        assert_eq!(
+            block.as_deref(),
+            Some("{\"alg\":\"HS256\",\"nested\":{\"k\":\"v\"}}")
+        );
     }
 
     #[test]

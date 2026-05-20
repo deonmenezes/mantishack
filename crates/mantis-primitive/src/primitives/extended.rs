@@ -55,8 +55,13 @@ impl Primitive for SsrfReflection {
         s: &Surface,
         client: &Client,
     ) -> Result<PrimitiveResult, PrimitiveError> {
-        let canaries = ["http://127.0.0.1:80/", "http://169.254.169.254/latest/meta-data/"];
-        let params = ["url", "uri", "image", "src", "callback", "webhook", "fetch", "import"];
+        let canaries = [
+            "http://127.0.0.1:80/",
+            "http://169.254.169.254/latest/meta-data/",
+        ];
+        let params = [
+            "url", "uri", "image", "src", "callback", "webhook", "fetch", "import",
+        ];
         for canary in canaries.iter() {
             for p in params.iter() {
                 let url = format!(
@@ -129,9 +134,7 @@ impl Primitive for SstiBasic {
         client: &Client,
     ) -> Result<PrimitiveResult, PrimitiveError> {
         // Common SSTI canaries — each evaluates to "49" when reflected.
-        let payloads = [
-            "{{7*7}}", "${7*7}", "<%=7*7%>", "#{7*7}", "*{7*7}", "{7*7}",
-        ];
+        let payloads = ["{{7*7}}", "${7*7}", "<%=7*7%>", "#{7*7}", "*{7*7}", "{7*7}"];
         let names = ["name", "q", "search", "msg", "input", "title", "content"];
         for payload in payloads.iter() {
             for n in names.iter() {
@@ -284,8 +287,7 @@ impl Primitive for XxeBasic {
         "xxe"
     }
     fn matches_surface(&self, s: &Surface) -> bool {
-        (200..500).contains(&s.status)
-            && s.target.path.to_ascii_lowercase().contains("xml")
+        (200..500).contains(&s.status) && s.target.path.to_ascii_lowercase().contains("xml")
     }
     async fn execute(
         &self,
@@ -386,7 +388,13 @@ impl Primitive for CrlfInjection {
             let curl = format!("curl -sI '{url}' | grep -i x-mantis-crlf");
             return Ok(PrimitiveResult::Confirmed {
                 evidence,
-                reproducer: Reproducer::from_curl_and_raw(curl, format!("GET {}?{} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n", s.target.path, payload, s.target.host)),
+                reproducer: Reproducer::from_curl_and_raw(
+                    curl,
+                    format!(
+                        "GET {}?{} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
+                        s.target.path, payload, s.target.host
+                    ),
+                ),
             });
         }
         Ok(PrimitiveResult::Denied {
@@ -550,11 +558,19 @@ impl Primitive for LdapInjection {
         );
         let body_a = match client.get(&url_a).send().await {
             Ok(r) => r.text().await.unwrap_or_default(),
-            Err(_) => return Ok(PrimitiveResult::Inconclusive { reason: "ldap probe a failed".into() }),
+            Err(_) => {
+                return Ok(PrimitiveResult::Inconclusive {
+                    reason: "ldap probe a failed".into(),
+                })
+            }
         };
         let body_b = match client.get(&url_b).send().await {
             Ok(r) => r.text().await.unwrap_or_default(),
-            Err(_) => return Ok(PrimitiveResult::Inconclusive { reason: "ldap probe b failed".into() }),
+            Err(_) => {
+                return Ok(PrimitiveResult::Inconclusive {
+                    reason: "ldap probe b failed".into(),
+                })
+            }
         };
         if body_a.len() != body_b.len() && body_a.contains("uid=") {
             let evidence = vec![EvidenceItem {
@@ -700,10 +716,7 @@ impl Primitive for CachePoisoning {
         s: &Surface,
         client: &Client,
     ) -> Result<PrimitiveResult, PrimitiveError> {
-        let url = format!(
-            "{}://{}:{}/",
-            s.target.scheme, s.target.host, s.target.port
-        );
+        let url = format!("{}://{}:{}/", s.target.scheme, s.target.host, s.target.port);
         let canary = "mantis-cache-canary-1";
         let resp = match client
             .get(&url)
@@ -806,7 +819,13 @@ impl Primitive for SubdomainTakeoverDanglingCname {
                 let curl = format!("curl -s '{url}' | head -c 600");
                 return Ok(PrimitiveResult::Confirmed {
                     evidence,
-                    reproducer: Reproducer::from_curl_and_raw(curl, format!("GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n", s.target.path, s.target.host)),
+                    reproducer: Reproducer::from_curl_and_raw(
+                        curl,
+                        format!(
+                            "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
+                            s.target.path, s.target.host
+                        ),
+                    ),
                 });
             }
         }
@@ -891,7 +910,11 @@ mod tests {
         let mut sorted: Vec<&str> = classes.to_vec();
         sorted.sort();
         sorted.dedup();
-        assert_eq!(sorted.len(), classes.len(), "duplicate vuln_class: {classes:?}");
+        assert_eq!(
+            sorted.len(),
+            classes.len(),
+            "duplicate vuln_class: {classes:?}"
+        );
     }
 
     // -------- matches_surface heuristic tests --------
@@ -1057,7 +1080,10 @@ mod tests {
             CachePoisoning.id(),
             SubdomainTakeoverDanglingCname.id(),
         ] {
-            assert!(id.chars().all(|c| !c.is_ascii_uppercase()), "uppercase in {id}");
+            assert!(
+                id.chars().all(|c| !c.is_ascii_uppercase()),
+                "uppercase in {id}"
+            );
         }
     }
 
@@ -1095,11 +1121,20 @@ mod tests {
             (PathTraversal.id(), PathTraversal.vuln_class()),
             (LdapInjection.id(), LdapInjection.vuln_class()),
             (CommandInjection.id(), CommandInjection.vuln_class()),
-            (FileUploadExtensionBypass.id(), FileUploadExtensionBypass.vuln_class()),
+            (
+                FileUploadExtensionBypass.id(),
+                FileUploadExtensionBypass.vuln_class(),
+            ),
             (CachePoisoning.id(), CachePoisoning.vuln_class()),
-            (SubdomainTakeoverDanglingCname.id(), SubdomainTakeoverDanglingCname.vuln_class()),
+            (
+                SubdomainTakeoverDanglingCname.id(),
+                SubdomainTakeoverDanglingCname.vuln_class(),
+            ),
         ] {
-            assert!(id.starts_with(vc), "id {id} does not start with vuln_class {vc}");
+            assert!(
+                id.starts_with(vc),
+                "id {id} does not start with vuln_class {vc}"
+            );
         }
     }
 }

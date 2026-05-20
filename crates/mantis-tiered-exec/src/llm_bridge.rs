@@ -93,9 +93,8 @@ impl LlmCodegen for SynthesizerLlmCodegen {
         &'a self,
         probe: &'a Probe,
         previous_attempts: &'a [LlmAttempt],
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<String, TierError>> + Send + 'a>,
-    > {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, TierError>> + Send + 'a>>
+    {
         Box::pin(async move {
             let prompt = Self::build_prompt(probe, previous_attempts);
             let raw = self
@@ -104,7 +103,12 @@ impl LlmCodegen for SynthesizerLlmCodegen {
                 .await
                 .map_err(|e| TierError::Llm(e.to_string()))?;
             let cleaned = strip_markdown_fences(&raw);
-            if !cleaned.lines().next().map(|l| l.starts_with("#!")).unwrap_or(false) {
+            if !cleaned
+                .lines()
+                .next()
+                .map(|l| l.starts_with("#!"))
+                .unwrap_or(false)
+            {
                 // If the LLM forgot the shebang, prepend a default.
                 return Ok(format!("#!/usr/bin/env python3\n{cleaned}"));
             }
@@ -157,10 +161,7 @@ fn strip_markdown_fences(raw: &str) -> String {
         .or_else(|| trimmed.strip_prefix("```sh"))
         .or_else(|| trimmed.strip_prefix("```"))
         .unwrap_or(trimmed);
-    let after_close = after_open
-        .strip_suffix("```")
-        .unwrap_or(after_open)
-        .trim();
+    let after_close = after_open.strip_suffix("```").unwrap_or(after_open).trim();
     after_close.to_string()
 }
 

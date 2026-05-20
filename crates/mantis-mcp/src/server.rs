@@ -23,9 +23,9 @@ use serde_json::json;
 use mantis_pack::{PackRegistry, SurfaceDescriptor};
 use mantis_proto::v1::{
     AuthorizeRequest, BuildVerificationAdjudicationRequest, CreateRequest,
-    EngagementState as ProtoState, ExportRequest, ListRequest,
-    OpenVerificationAttemptRequest, ScanRequest, SessionStateRequest, StartRequest,
-    StatusRequest, TransitionPhaseRequest, WriteGradeVerdictRequest, WriteVerificationRoundRequest,
+    EngagementState as ProtoState, ExportRequest, ListRequest, OpenVerificationAttemptRequest,
+    ScanRequest, SessionStateRequest, StartRequest, StatusRequest, TransitionPhaseRequest,
+    WriteGradeVerdictRequest, WriteVerificationRoundRequest,
 };
 
 use crate::daemon;
@@ -475,8 +475,8 @@ fn to_invalid<E: std::fmt::Display>(label: &str, e: E) -> McpError {
 }
 
 fn json_ok<T: Serialize>(value: &T) -> Result<CallToolResult, McpError> {
-    let text = serde_json::to_string_pretty(value)
-        .map_err(|e| to_internal("serialize response", e))?;
+    let text =
+        serde_json::to_string_pretty(value).map_err(|e| to_internal("serialize response", e))?;
     Ok(CallToolResult::success(vec![Content::text(text)]))
 }
 
@@ -742,15 +742,13 @@ impl MantisMcpServer {
         json_ok(&crate::utility_tools::extract_links(&args))
     }
 
-    #[tool(
-        description = "Advance the engagement's FSM by one phase. \
+    #[tool(description = "Advance the engagement's FSM by one phase. \
                        Pipeline order: RECON -> AUTH -> HUNT -> CHAIN -> VERIFY -> GRADE -> REPORT. \
                        The daemon validates the transition against the persisted session state, \
                        appends a `PhaseTransitioned` event to the merkle log, and returns the \
                        new phase plus any blockers. When a gate refuses, the response contains \
                        the blocker codes; the operator may retry with `override_reason` (≥20 \
-                       chars) for `HUNT -> CHAIN` and `CHAIN -> VERIFY` only."
-    )]
+                       chars) for `HUNT -> CHAIN` and `CHAIN -> VERIFY` only.")]
     async fn mantis_transition_phase(
         &self,
         Parameters(args): Parameters<TransitionPhaseArgs>,
@@ -838,12 +836,13 @@ impl MantisMcpServer {
         // JSON string (Value::String) rather than a native object. Parse it
         // back to a Value so to_vec produces valid object bytes for the daemon.
         let round_value = match args.round_json {
-            serde_json::Value::String(ref s) => serde_json::from_str(s)
-                .map_err(|e| to_invalid("round_json parse", e))?,
+            serde_json::Value::String(ref s) => {
+                serde_json::from_str(s).map_err(|e| to_invalid("round_json parse", e))?
+            }
             other => other,
         };
-        let round_bytes = serde_json::to_vec(&round_value)
-            .map_err(|e| to_invalid("round_json serialize", e))?;
+        let round_bytes =
+            serde_json::to_vec(&round_value).map_err(|e| to_invalid("round_json serialize", e))?;
         let mut client = daemon::connect(&self.daemon_endpoint)
             .await
             .map_err(|e| to_internal("daemon connect", e))?;
@@ -1250,8 +1249,7 @@ impl MantisMcpServer {
         &self,
         Parameters(args): Parameters<RecordChainAttemptArgs>,
     ) -> Result<CallToolResult, McpError> {
-        wave::validate_chain_outcome(&args.outcome)
-            .map_err(|e| to_invalid("chain outcome", e))?;
+        wave::validate_chain_outcome(&args.outcome).map_err(|e| to_invalid("chain outcome", e))?;
         wave::validate_chain_severity(
             &args.severity,
             &args.input_severities,
@@ -1333,15 +1331,24 @@ impl MantisMcpServer {
         }
         // Convert each input profile into a fully-owned AuthProfile so
         // the `ProfileBinding`s can hold &'a references against it.
-        let mut owned: Vec<(mantis_auth_differential::ProfileRole, Option<mantis_auth::AuthProfile>)> =
-            Vec::with_capacity(args.profiles.len());
+        let mut owned: Vec<(
+            mantis_auth_differential::ProfileRole,
+            Option<mantis_auth::AuthProfile>,
+        )> = Vec::with_capacity(args.profiles.len());
         for p in args.profiles.iter() {
             let role = match p.role.to_ascii_lowercase().as_str() {
-                "unauthenticated" | "unauth" => mantis_auth_differential::ProfileRole::Unauthenticated,
+                "unauthenticated" | "unauth" => {
+                    mantis_auth_differential::ProfileRole::Unauthenticated
+                }
                 "attacker" => mantis_auth_differential::ProfileRole::Attacker,
                 "victim" => mantis_auth_differential::ProfileRole::Victim,
                 "admin" => mantis_auth_differential::ProfileRole::Admin,
-                other => return Err(McpError::invalid_request(format!("unknown role: {other}"), None)),
+                other => {
+                    return Err(McpError::invalid_request(
+                        format!("unknown role: {other}"),
+                        None,
+                    ))
+                }
             };
             let profile = if p.profile_name.as_deref().map(str::is_empty).unwrap_or(true)
                 && p.headers.is_empty()
@@ -1449,10 +1456,7 @@ impl MantisMcpServer {
             .send()
             .await
             .map_err(|e| to_invalid("js fetch", e))?;
-        let body = resp
-            .text()
-            .await
-            .map_err(|e| to_internal("js body", e))?;
+        let body = resp.text().await.map_err(|e| to_internal("js body", e))?;
         let endpoints = mantis_recon_tools::extract_js_endpoints(&body);
         json_ok(&json!({
             "engagement_id": args.engagement_id,
@@ -1614,76 +1618,158 @@ impl MantisMcpServer {
 
     // ---------- read-only inspectors (28 tools) ----------
 
-    #[tool(description = "Return a one-page summary of the engagement's current state — phase, surface count, finding count, claim verdicts, wave count, event count. Read-only.")]
-    async fn mantis_read_session_summary(&self, Parameters(args): Parameters<EngagementIdArgs>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Return a one-page summary of the engagement's current state — phase, surface count, finding count, claim verdicts, wave count, event count. Read-only."
+    )]
+    async fn mantis_read_session_summary(
+        &self,
+        Parameters(args): Parameters<EngagementIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
         let info = engagement_status(&self.daemon_endpoint, &args.engagement_id).await?;
         let jsonl = export_events(&self.daemon_endpoint, &args.engagement_id).await?;
         let event_count = jsonl.lines().count();
         let state = info.state.clone();
-        json_ok(&json!({"engagement_id": args.engagement_id, "summary": info, "event_count": event_count, "state": state}))
+        json_ok(
+            &json!({"engagement_id": args.engagement_id, "summary": info, "event_count": event_count, "state": state}),
+        )
     }
 
-    #[tool(description = "Return the most recent state summary distilled from the merkle event log: phases visited, blockers, override reasons.")]
-    async fn mantis_read_state_summary(&self, Parameters(args): Parameters<EngagementIdArgs>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Return the most recent state summary distilled from the merkle event log: phases visited, blockers, override reasons."
+    )]
+    async fn mantis_read_state_summary(
+        &self,
+        Parameters(args): Parameters<EngagementIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
         let jsonl = export_events(&self.daemon_endpoint, &args.engagement_id).await?;
         let mut phase_transitions: usize = 0;
         for line in jsonl.lines() {
-            let v: serde_json::Value = match serde_json::from_str(line) { Ok(x) => x, Err(_) => continue };
-            if v.get("kind").and_then(|k| k.get("kind")).and_then(|k| k.as_str()) == Some("PhaseTransitioned") {
+            let v: serde_json::Value = match serde_json::from_str(line) {
+                Ok(x) => x,
+                Err(_) => continue,
+            };
+            if v.get("kind")
+                .and_then(|k| k.get("kind"))
+                .and_then(|k| k.as_str())
+                == Some("PhaseTransitioned")
+            {
                 phase_transitions += 1;
             }
         }
-        json_ok(&json!({"engagement_id": args.engagement_id, "phase_transitions": phase_transitions, "total_events": jsonl.lines().count()}))
+        json_ok(
+            &json!({"engagement_id": args.engagement_id, "phase_transitions": phase_transitions, "total_events": jsonl.lines().count()}),
+        )
     }
 
-    #[tool(description = "Read the latest auth-differential results recorded against this engagement. Read-only inspector.")]
-    async fn mantis_read_auth_differential_results(&self, Parameters(args): Parameters<EngagementIdArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&deferred_read_response("read_auth_differential_results", &args.engagement_id))
+    #[tool(
+        description = "Read the latest auth-differential results recorded against this engagement. Read-only inspector."
+    )]
+    async fn mantis_read_auth_differential_results(
+        &self,
+        Parameters(args): Parameters<EngagementIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&deferred_read_response(
+            "read_auth_differential_results",
+            &args.engagement_id,
+        ))
     }
 
-    #[tool(description = "Read the latest doc-delta results (documented behavior vs actual response divergences).")]
-    async fn mantis_read_doc_delta_results(&self, Parameters(args): Parameters<EngagementIdArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&deferred_read_response("read_doc_delta_results", &args.engagement_id))
+    #[tool(
+        description = "Read the latest doc-delta results (documented behavior vs actual response divergences)."
+    )]
+    async fn mantis_read_doc_delta_results(
+        &self,
+        Parameters(args): Parameters<EngagementIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&deferred_read_response(
+            "read_doc_delta_results",
+            &args.engagement_id,
+        ))
     }
 
     #[tool(description = "Read the captured HTTP traffic audit for this engagement.")]
-    async fn mantis_read_http_audit(&self, Parameters(args): Parameters<EngagementIdArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&deferred_read_response("read_http_audit", &args.engagement_id))
+    async fn mantis_read_http_audit(
+        &self,
+        Parameters(args): Parameters<EngagementIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&deferred_read_response(
+            "read_http_audit",
+            &args.engagement_id,
+        ))
     }
 
     #[tool(description = "List every finding recorded against this engagement.")]
-    async fn mantis_list_findings(&self, Parameters(args): Parameters<EngagementIdArgs>) -> Result<CallToolResult, McpError> {
+    async fn mantis_list_findings(
+        &self,
+        Parameters(args): Parameters<EngagementIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
         let jsonl = export_events(&self.daemon_endpoint, &args.engagement_id).await?;
         let mut findings = Vec::<serde_json::Value>::new();
         for line in jsonl.lines() {
-            let v: serde_json::Value = match serde_json::from_str(line) { Ok(x) => x, Err(_) => continue };
-            let kind = v.get("kind").and_then(|k| k.get("kind")).and_then(|k| k.as_str()).unwrap_or("");
+            let v: serde_json::Value = match serde_json::from_str(line) {
+                Ok(x) => x,
+                Err(_) => continue,
+            };
+            let kind = v
+                .get("kind")
+                .and_then(|k| k.get("kind"))
+                .and_then(|k| k.as_str())
+                .unwrap_or("");
             if kind == "ClaimVerified" || kind == "TieredFindingProduced" {
                 findings.push(v);
             }
         }
-        json_ok(&json!({"engagement_id": args.engagement_id, "findings": findings, "count": findings.len()}))
+        json_ok(
+            &json!({"engagement_id": args.engagement_id, "findings": findings, "count": findings.len()}),
+        )
     }
 
-    #[tool(description = "Read all verification rounds for the given engagement (brutalist / balanced / final).")]
-    async fn mantis_read_verification_round(&self, Parameters(args): Parameters<EngagementIdArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&deferred_read_response("read_verification_round", &args.engagement_id))
+    #[tool(
+        description = "Read all verification rounds for the given engagement (brutalist / balanced / final)."
+    )]
+    async fn mantis_read_verification_round(
+        &self,
+        Parameters(args): Parameters<EngagementIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&deferred_read_response(
+            "read_verification_round",
+            &args.engagement_id,
+        ))
     }
 
-    #[tool(description = "Read the verification context (snapshot hash, attempt id, finding ids bound).")]
-    async fn mantis_read_verification_context(&self, Parameters(args): Parameters<EngagementIdArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&deferred_read_response("read_verification_context", &args.engagement_id))
+    #[tool(
+        description = "Read the verification context (snapshot hash, attempt id, finding ids bound)."
+    )]
+    async fn mantis_read_verification_context(
+        &self,
+        Parameters(args): Parameters<EngagementIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&deferred_read_response(
+            "read_verification_context",
+            &args.engagement_id,
+        ))
     }
 
     #[tool(description = "Read evidence packs stored against this engagement's findings.")]
-    async fn mantis_read_evidence_packs(&self, Parameters(args): Parameters<EngagementIdArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&deferred_read_response("read_evidence_packs", &args.engagement_id))
+    async fn mantis_read_evidence_packs(
+        &self,
+        Parameters(args): Parameters<EngagementIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&deferred_read_response(
+            "read_evidence_packs",
+            &args.engagement_id,
+        ))
     }
 
-    #[tool(description = "Read the grader's SUBMIT/HOLD/SKIP verdict and 5-axis scores. \
+    #[tool(
+        description = "Read the grader's SUBMIT/HOLD/SKIP verdict and 5-axis scores. \
                           Returns the stored GradeVerdict from the daemon's FSM session state, \
-                          or null when no verdict has been written yet.")]
-    async fn mantis_read_grade_verdict(&self, Parameters(args): Parameters<EngagementIdArgs>) -> Result<CallToolResult, McpError> {
+                          or null when no verdict has been written yet."
+    )]
+    async fn mantis_read_grade_verdict(
+        &self,
+        Parameters(args): Parameters<EngagementIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
         let mut client = daemon::connect(&self.daemon_endpoint)
             .await
             .map_err(|e| to_internal("daemon connect", e))?;
@@ -1696,152 +1782,317 @@ impl MantisMcpServer {
             .into_inner();
         let session: serde_json::Value = serde_json::from_slice(&resp.session_json)
             .map_err(|e| to_internal("decode session_json", e))?;
-        let grade = session.get("grade").cloned().unwrap_or(serde_json::Value::Null);
+        let grade = session
+            .get("grade")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
         json_ok(&json!({
             "engagement_id": args.engagement_id,
             "grade": grade,
         }))
     }
 
-    #[tool(description = "Read per-capability metrics aggregated across this engagement (hit/miss rates by technique pack).")]
-    async fn mantis_read_capability_metrics(&self, Parameters(args): Parameters<EngagementIdArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&deferred_read_response("read_capability_metrics", &args.engagement_id))
+    #[tool(
+        description = "Read per-capability metrics aggregated across this engagement (hit/miss rates by technique pack)."
+    )]
+    async fn mantis_read_capability_metrics(
+        &self,
+        Parameters(args): Parameters<EngagementIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&deferred_read_response(
+            "read_capability_metrics",
+            &args.engagement_id,
+        ))
     }
 
-    #[tool(description = "Read a capability playbook (Cn_*) by id, returning its workflow steps and stop conditions.")]
-    async fn mantis_read_capability_playbook(&self, Parameters(args): Parameters<PlaybookIdArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&json!({"engagement_id": args.engagement_id, "playbook_id": args.playbook_id, "status": "deferred_read_from_disk", "lookup_path": format!("prompts/playbooks/{}.md", args.playbook_id)}))
+    #[tool(
+        description = "Read a capability playbook (Cn_*) by id, returning its workflow steps and stop conditions."
+    )]
+    async fn mantis_read_capability_playbook(
+        &self,
+        Parameters(args): Parameters<PlaybookIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(
+            &json!({"engagement_id": args.engagement_id, "playbook_id": args.playbook_id, "status": "deferred_read_from_disk", "lookup_path": format!("prompts/playbooks/{}.md", args.playbook_id)}),
+        )
     }
 
-    #[tool(description = "Read the hunter brief assembled for this wave (assigned techniques, budget, prior coverage).")]
-    async fn mantis_read_hunter_brief(&self, Parameters(args): Parameters<EngagementIdArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&deferred_read_response("read_hunter_brief", &args.engagement_id))
+    #[tool(
+        description = "Read the hunter brief assembled for this wave (assigned techniques, budget, prior coverage)."
+    )]
+    async fn mantis_read_hunter_brief(
+        &self,
+        Parameters(args): Parameters<EngagementIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&deferred_read_response(
+            "read_hunter_brief",
+            &args.engagement_id,
+        ))
     }
 
-    #[tool(description = "Read the current surface leads (high-prior surfaces queued for the next wave).")]
-    async fn mantis_read_surface_leads(&self, Parameters(args): Parameters<EngagementIdArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&deferred_read_response("read_surface_leads", &args.engagement_id))
+    #[tool(
+        description = "Read the current surface leads (high-prior surfaces queued for the next wave)."
+    )]
+    async fn mantis_read_surface_leads(
+        &self,
+        Parameters(args): Parameters<EngagementIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&deferred_read_response(
+            "read_surface_leads",
+            &args.engagement_id,
+        ))
     }
 
     #[tool(description = "Read the surface routes (capability-pack assignments per surface).")]
-    async fn mantis_read_surface_routes(&self, Parameters(args): Parameters<EngagementIdArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&deferred_read_response("read_surface_routes", &args.engagement_id))
+    async fn mantis_read_surface_routes(
+        &self,
+        Parameters(args): Parameters<EngagementIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&deferred_read_response(
+            "read_surface_routes",
+            &args.engagement_id,
+        ))
     }
 
-    #[tool(description = "Read a technique pack (e.g. `auth-differential`, `idor-burst`, `ssrf-imds`) by id.")]
-    async fn mantis_read_technique_pack(&self, Parameters(args): Parameters<TechniquePackArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&json!({"engagement_id": args.engagement_id, "pack_id": args.pack_id, "status": "deferred_read_from_disk", "lookup_path": ".mantis/knowledge/hunter-techniques.json"}))
+    #[tool(
+        description = "Read a technique pack (e.g. `auth-differential`, `idor-burst`, `ssrf-imds`) by id."
+    )]
+    async fn mantis_read_technique_pack(
+        &self,
+        Parameters(args): Parameters<TechniquePackArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(
+            &json!({"engagement_id": args.engagement_id, "pack_id": args.pack_id, "status": "deferred_read_from_disk", "lookup_path": ".mantis/knowledge/hunter-techniques.json"}),
+        )
     }
 
-    #[tool(description = "Read tool-call telemetry: per-tool invocation count, latency, error rate.")]
-    async fn mantis_read_tool_telemetry(&self, Parameters(args): Parameters<EngagementIdArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&deferred_read_response("read_tool_telemetry", &args.engagement_id))
+    #[tool(
+        description = "Read tool-call telemetry: per-tool invocation count, latency, error rate."
+    )]
+    async fn mantis_read_tool_telemetry(
+        &self,
+        Parameters(args): Parameters<EngagementIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&deferred_read_response(
+            "read_tool_telemetry",
+            &args.engagement_id,
+        ))
     }
 
-    #[tool(description = "Read pipeline analytics: phase durations, gate refusals, override reasons, throughput.")]
-    async fn mantis_read_pipeline_analytics(&self, Parameters(args): Parameters<EngagementIdArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&deferred_read_response("read_pipeline_analytics", &args.engagement_id))
+    #[tool(
+        description = "Read pipeline analytics: phase durations, gate refusals, override reasons, throughput."
+    )]
+    async fn mantis_read_pipeline_analytics(
+        &self,
+        Parameters(args): Parameters<EngagementIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&deferred_read_response(
+            "read_pipeline_analytics",
+            &args.engagement_id,
+        ))
     }
 
     #[tool(description = "Read invariant-replay runs for the given engagement.")]
-    async fn mantis_read_invariant_runs(&self, Parameters(args): Parameters<EngagementIdArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&deferred_read_response("read_invariant_runs", &args.engagement_id))
+    async fn mantis_read_invariant_runs(
+        &self,
+        Parameters(args): Parameters<EngagementIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&deferred_read_response(
+            "read_invariant_runs",
+            &args.engagement_id,
+        ))
     }
 
     #[tool(description = "Query the content-addressed chain tree by node id or finding id.")]
-    async fn mantis_query_chain_tree(&self, Parameters(args): Parameters<ChainQueryArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&json!({"engagement_id": args.engagement_id, "node_id": args.node_id, "status": "deferred_query"}))
+    async fn mantis_query_chain_tree(
+        &self,
+        Parameters(args): Parameters<ChainQueryArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(
+            &json!({"engagement_id": args.engagement_id, "node_id": args.node_id, "status": "deferred_query"}),
+        )
     }
 
     #[tool(description = "Query the findings index by vuln_class / severity / surface / status.")]
-    async fn mantis_query_findings_index(&self, Parameters(args): Parameters<EngagementIdArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&deferred_read_response("query_findings_index", &args.engagement_id))
+    async fn mantis_query_findings_index(
+        &self,
+        Parameters(args): Parameters<EngagementIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&deferred_read_response(
+            "query_findings_index",
+            &args.engagement_id,
+        ))
     }
 
-    #[tool(description = "Query the schema contracts (OpenAPI / GraphQL schema) indexed for this engagement.")]
-    async fn mantis_query_schema_contracts(&self, Parameters(args): Parameters<EngagementIdArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&deferred_read_response("query_schema_contracts", &args.engagement_id))
+    #[tool(
+        description = "Query the schema contracts (OpenAPI / GraphQL schema) indexed for this engagement."
+    )]
+    async fn mantis_query_schema_contracts(
+        &self,
+        Parameters(args): Parameters<EngagementIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&deferred_read_response(
+            "query_schema_contracts",
+            &args.engagement_id,
+        ))
     }
 
     #[tool(description = "Query the surface graph built from the symbol index.")]
-    async fn mantis_query_surface_graph(&self, Parameters(args): Parameters<EngagementIdArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&deferred_read_response("query_surface_graph", &args.engagement_id))
+    async fn mantis_query_surface_graph(
+        &self,
+        Parameters(args): Parameters<EngagementIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&deferred_read_response(
+            "query_surface_graph",
+            &args.engagement_id,
+        ))
     }
 
     #[tool(description = "Query previously-ingested third-party audit reports for context.")]
-    async fn mantis_query_audit_reports(&self, Parameters(args): Parameters<EngagementIdArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&deferred_read_response("query_audit_reports", &args.engagement_id))
+    async fn mantis_query_audit_reports(
+        &self,
+        Parameters(args): Parameters<EngagementIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&deferred_read_response(
+            "query_audit_reports",
+            &args.engagement_id,
+        ))
     }
 
-    #[tool(description = "Walk the chain ancestry from a given chain-node back to its root findings.")]
-    async fn mantis_chain_ancestry(&self, Parameters(args): Parameters<ChainQueryArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&json!({"engagement_id": args.engagement_id, "node_id": args.node_id, "status": "deferred_walk"}))
+    #[tool(
+        description = "Walk the chain ancestry from a given chain-node back to its root findings."
+    )]
+    async fn mantis_chain_ancestry(
+        &self,
+        Parameters(args): Parameters<ChainQueryArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(
+            &json!({"engagement_id": args.engagement_id, "node_id": args.node_id, "status": "deferred_walk"}),
+        )
     }
 
-    #[tool(description = "Compute the chain frontier — unexplored chain extensions ranked by prior probability.")]
-    async fn mantis_chain_frontier(&self, Parameters(args): Parameters<EngagementIdArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&deferred_read_response("chain_frontier", &args.engagement_id))
+    #[tool(
+        description = "Compute the chain frontier — unexplored chain extensions ranked by prior probability."
+    )]
+    async fn mantis_chain_frontier(
+        &self,
+        Parameters(args): Parameters<EngagementIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&deferred_read_response(
+            "chain_frontier",
+            &args.engagement_id,
+        ))
     }
 
     #[tool(description = "Return the current context budget remaining for the calling subagent.")]
-    async fn mantis_get_context_budget(&self, Parameters(args): Parameters<EngagementIdArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&json!({"engagement_id": args.engagement_id, "context_budget_tokens": 60_000, "soft_cap": 50_000}))
+    async fn mantis_get_context_budget(
+        &self,
+        Parameters(args): Parameters<EngagementIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(
+            &json!({"engagement_id": args.engagement_id, "context_budget_tokens": 60_000, "soft_cap": 50_000}),
+        )
     }
 
     #[tool(description = "Return the replay-context schema used by the verifier cascade.")]
-    async fn mantis_replay_context_schema(&self, Parameters(args): Parameters<EngagementIdArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&json!({"engagement_id": args.engagement_id, "schema_version": 1, "fields": ["attempt_id", "snapshot_hash", "finding_ids", "plan_hash"]}))
+    async fn mantis_replay_context_schema(
+        &self,
+        Parameters(args): Parameters<EngagementIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(
+            &json!({"engagement_id": args.engagement_id, "schema_version": 1, "fields": ["attempt_id", "snapshot_hash", "finding_ids", "plan_hash"]}),
+        )
     }
 
-    #[tool(description = "Read the list of stored auth profiles (names only — secret values are zeroized in transit).")]
-    async fn mantis_list_auth_profiles(&self, Parameters(args): Parameters<EngagementIdArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&deferred_read_response("list_auth_profiles", &args.engagement_id))
+    #[tool(
+        description = "Read the list of stored auth profiles (names only — secret values are zeroized in transit)."
+    )]
+    async fn mantis_list_auth_profiles(
+        &self,
+        Parameters(args): Parameters<EngagementIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&deferred_read_response(
+            "list_auth_profiles",
+            &args.engagement_id,
+        ))
     }
 
     // ---------- write tools (32 tools) ----------
 
-    #[tool(description = "Record a finding (vuln_class, severity, surface, evidence, reproducer) into the merkle log.")]
-    async fn mantis_record_finding(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Record a finding (vuln_class, severity, surface, evidence, reproducer) into the merkle log."
+    )]
+    async fn mantis_record_finding(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("record_finding", &args))
     }
 
     #[tool(description = "Index a finding into the queryable findings index.")]
-    async fn mantis_index_finding(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    async fn mantis_index_finding(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("index_finding", &args))
     }
 
-    #[tool(description = "Log per-technique coverage telemetry: which surface×technique pairs ran with what verdict.")]
-    async fn mantis_log_coverage(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Log per-technique coverage telemetry: which surface×technique pairs ran with what verdict."
+    )]
+    async fn mantis_log_coverage(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("log_coverage", &args))
     }
 
     #[tool(description = "Log dead-end attempts so a future wave doesn't repeat them.")]
-    async fn mantis_log_dead_ends(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    async fn mantis_log_dead_ends(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("log_dead_ends", &args))
     }
 
-    #[tool(description = "Log a technique attempt (which technique pack, what surface, what verdict).")]
-    async fn mantis_log_technique_attempt(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Log a technique attempt (which technique pack, what surface, what verdict)."
+    )]
+    async fn mantis_log_technique_attempt(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("log_technique_attempt", &args))
     }
 
-    #[tool(description = "Write evidence packs (curl + raw + python reproducers, sanitized headers) for a verified finding.")]
-    async fn mantis_write_evidence_packs(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Write evidence packs (curl + raw + python reproducers, sanitized headers) for a verified finding."
+    )]
+    async fn mantis_write_evidence_packs(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("write_evidence_packs", &args))
     }
 
-    #[tool(description = "Write the grader's SUBMIT/HOLD/SKIP verdict with 5-axis scores. Required before GRADE → REPORT. \
+    #[tool(
+        description = "Write the grader's SUBMIT/HOLD/SKIP verdict with 5-axis scores. Required before GRADE → REPORT. \
                           `data` must contain at minimum `verdict` (SUBMIT|HOLD|SKIP). \
                           Full GradeVerdict shape: { verdict, total_score, findings, feedback? }. \
                           Agent-shorthand shape also accepted: { verdict, findings_count?, five_axis?, rationale? }. \
-                          Persists the verdict into the daemon's FSM so the GRADE → REPORT gate can open.")]
-    async fn mantis_write_grade_verdict(&self, Parameters(args): Parameters<WriteGradeVerdictArgs>) -> Result<CallToolResult, McpError> {
+                          Persists the verdict into the daemon's FSM so the GRADE → REPORT gate can open."
+    )]
+    async fn mantis_write_grade_verdict(
+        &self,
+        Parameters(args): Parameters<WriteGradeVerdictArgs>,
+    ) -> Result<CallToolResult, McpError> {
         // Normalise data: MCP transports may deliver it as a pre-encoded
         // JSON string (Value::String) rather than a native object. Parse it
         // back to a Value so to_vec produces valid object bytes for the daemon.
         let verdict_value = match args.data {
-            serde_json::Value::String(ref s) => serde_json::from_str(s)
-                .map_err(|e| to_invalid("verdict data parse", e))?,
+            serde_json::Value::String(ref s) => {
+                serde_json::from_str(s).map_err(|e| to_invalid("verdict data parse", e))?
+            }
             other => other,
         };
         // Normalise agent-shorthand payload → typed GradeVerdict shape.
@@ -1870,8 +2121,14 @@ impl MantisMcpServer {
                 .and_then(|v| v.as_str())
                 .map(|s| serde_json::Value::String(s.to_string()));
             let mut obj = serde_json::Map::new();
-            obj.insert("verdict".to_string(), serde_json::Value::String(verdict_str.to_string()));
-            obj.insert("total_score".to_string(), serde_json::Value::Number(total_score.into()));
+            obj.insert(
+                "verdict".to_string(),
+                serde_json::Value::String(verdict_str.to_string()),
+            );
+            obj.insert(
+                "total_score".to_string(),
+                serde_json::Value::Number(total_score.into()),
+            );
             obj.insert("findings".to_string(), findings);
             if let Some(fb) = feedback {
                 obj.insert("feedback".to_string(), fb);
@@ -1901,285 +2158,530 @@ impl MantisMcpServer {
         }))
     }
 
-    #[tool(description = "Write a chain attempt (linked prerequisite findings, observed outcome, technique chain).")]
-    async fn mantis_write_chain_attempt(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Write a chain attempt (linked prerequisite findings, observed outcome, technique chain)."
+    )]
+    async fn mantis_write_chain_attempt(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("write_chain_attempt", &args))
     }
 
     #[tool(description = "Append a node to the content-addressed chain tree.")]
-    async fn mantis_append_chain_node(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    async fn mantis_append_chain_node(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("append_chain_node", &args))
     }
 
     #[tool(description = "Build the surface graph by linking surfaces through the symbol index.")]
-    async fn mantis_build_surface_graph(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    async fn mantis_build_surface_graph(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("build_surface_graph", &args))
     }
 
     #[tool(description = "Build the symbol → surface index by parsing JS / OpenAPI / GraphQL.")]
-    async fn mantis_build_symbol_surface_index(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    async fn mantis_build_symbol_surface_index(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("build_symbol_surface_index", &args))
     }
 
-    #[tool(description = "Extract routes from a discovered surface (URLs, params, methods) for downstream targeting.")]
-    async fn mantis_extract_routes(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Extract routes from a discovered surface (URLs, params, methods) for downstream targeting."
+    )]
+    async fn mantis_extract_routes(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("extract_routes", &args))
     }
 
-    #[tool(description = "Public-intel lookup (DNS / CT logs / GitHub / Shodan) for a host. Stateless, no scope side-effects.")]
-    async fn mantis_public_intel(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Public-intel lookup (DNS / CT logs / GitHub / Shodan) for a host. Stateless, no scope side-effects."
+    )]
+    async fn mantis_public_intel(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("public_intel", &args))
     }
 
     #[tool(description = "Run a static scan (SAST) on an imported source/binary artifact.")]
-    async fn mantis_static_scan(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    async fn mantis_static_scan(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("static_scan", &args))
     }
 
     #[tool(description = "Detect a signup form on a target page and capture its field layout.")]
-    async fn mantis_signup_detect(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    async fn mantis_signup_detect(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("signup_detect", &args))
     }
 
-    #[tool(description = "Allocate a temporary inbox + address for an auto-signup or password-reset flow.")]
-    async fn mantis_temp_email(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Allocate a temporary inbox + address for an auto-signup or password-reset flow."
+    )]
+    async fn mantis_temp_email(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("temp_email", &args))
     }
 
-    #[tool(description = "Suggest replay invariants for a verified finding (what must hold for the bug to remain present).")]
-    async fn mantis_suggest_invariants(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Suggest replay invariants for a verified finding (what must hold for the bug to remain present)."
+    )]
+    async fn mantis_suggest_invariants(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("suggest_invariants", &args))
     }
 
-    #[tool(description = "Summarize the diff impact between a pre/post state for a verified finding.")]
-    async fn mantis_summarize_diff_impact(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Summarize the diff impact between a pre/post state for a verified finding."
+    )]
+    async fn mantis_summarize_diff_impact(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("summarize_diff_impact", &args))
     }
 
     #[tool(description = "Record candidate surface leads discovered by recon or hunter agents.")]
-    async fn mantis_record_surface_leads(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    async fn mantis_record_surface_leads(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("record_surface_leads", &args))
     }
 
     #[tool(description = "Promote a surface lead to a probed surface (enters HUNT-ready state).")]
-    async fn mantis_promote_surface_leads(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    async fn mantis_promote_surface_leads(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("promote_surface_leads", &args))
     }
 
     #[tool(description = "Open the next wave with a new set of hunter assignments.")]
-    async fn mantis_start_next_wave(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    async fn mantis_start_next_wave(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("start_next_wave", &args))
     }
 
-    #[tool(description = "Select technique packs for a given wave (pack ids by surface fingerprint).")]
-    async fn mantis_select_technique_packs(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Select technique packs for a given wave (pack ids by surface fingerprint)."
+    )]
+    async fn mantis_select_technique_packs(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("select_technique_packs", &args))
     }
 
-    #[tool(description = "Backfill capability metrics for the engagement (per-pack hit/miss rates).")]
-    async fn mantis_evaluate_capabilities(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Backfill capability metrics for the engagement (per-pack hit/miss rates)."
+    )]
+    async fn mantis_evaluate_capabilities(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("evaluate_capabilities", &args))
     }
 
     #[tool(description = "Diff two verification attempts to detect drift between rounds.")]
-    async fn mantis_diff_verification_attempts(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    async fn mantis_diff_verification_attempts(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("diff_verification_attempts", &args))
     }
 
     #[tool(description = "Run the documented-behavior vs actual-response delta scanner.")]
-    async fn mantis_run_doc_delta(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    async fn mantis_run_doc_delta(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("run_doc_delta", &args))
     }
 
-    #[tool(description = "Run a replay invariant against a verified finding to catch silent regressions.")]
-    async fn mantis_run_invariant_for_finding(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Run a replay invariant against a verified finding to catch silent regressions."
+    )]
+    async fn mantis_run_invariant_for_finding(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("run_invariant_for_finding", &args))
     }
 
     #[tool(description = "Merge per-hunter wave handoffs into a single consolidated wave report.")]
-    async fn mantis_merge_wave_handoffs(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    async fn mantis_merge_wave_handoffs(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("merge_wave_handoffs", &args))
     }
 
-    #[tool(description = "Write a single hunter wave handoff (assigned surfaces, verdicts, dead-ends, next-wave seeds).")]
-    async fn mantis_write_wave_handoff(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Write a single hunter wave handoff (assigned surfaces, verdicts, dead-ends, next-wave seeds)."
+    )]
+    async fn mantis_write_wave_handoff(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("write_wave_handoff", &args))
     }
 
     #[tool(description = "Apply a previously-prepared wave merge (idempotent).")]
-    async fn mantis_apply_wave_merge(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    async fn mantis_apply_wave_merge(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("apply_wave_merge", &args))
     }
 
-    #[tool(description = "Finalize a hunter run, emit a wave-handoff candidate, and free its budget.")]
-    async fn mantis_finalize_hunter_run(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Finalize a hunter run, emit a wave-handoff candidate, and free its budget."
+    )]
+    async fn mantis_finalize_hunter_run(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("finalize_hunter_run", &args))
     }
 
     #[tool(description = "Report aggregate wave-handoff status across the engagement.")]
-    async fn mantis_wave_handoff_status(&self, Parameters(args): Parameters<EngagementIdArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&deferred_read_response("wave_handoff_status", &args.engagement_id))
+    async fn mantis_wave_handoff_status(
+        &self,
+        Parameters(args): Parameters<EngagementIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&deferred_read_response(
+            "wave_handoff_status",
+            &args.engagement_id,
+        ))
     }
 
     #[tool(description = "Mark a report as written (ack from the report-writer agent).")]
-    async fn mantis_report_written(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    async fn mantis_report_written(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("report_written", &args))
     }
 
-    #[tool(description = "Set an operator note on the engagement (text annotation surfaced in the report).")]
-    async fn mantis_set_operator_note(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Set an operator note on the engagement (text annotation surfaced in the report)."
+    )]
+    async fn mantis_set_operator_note(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("set_operator_note", &args))
     }
 
     #[tool(description = "Clear the operator note.")]
-    async fn mantis_clear_operator_note(&self, Parameters(args): Parameters<EngagementIdArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&deferred_read_response("clear_operator_note", &args.engagement_id))
+    async fn mantis_clear_operator_note(
+        &self,
+        Parameters(args): Parameters<EngagementIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&deferred_read_response(
+            "clear_operator_note",
+            &args.engagement_id,
+        ))
     }
 
-    #[tool(description = "Clear a terminal block (e.g. a refused gate's blocker code) so the operator can retry.")]
-    async fn mantis_clear_terminal_block(&self, Parameters(args): Parameters<EngagementIdArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&deferred_read_response("clear_terminal_block", &args.engagement_id))
+    #[tool(
+        description = "Clear a terminal block (e.g. a refused gate's blocker code) so the operator can retry."
+    )]
+    async fn mantis_clear_terminal_block(
+        &self,
+        Parameters(args): Parameters<EngagementIdArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&deferred_read_response(
+            "clear_terminal_block",
+            &args.engagement_id,
+        ))
     }
 
     #[tool(description = "Persist an auth profile (cookies / headers / query) under a named role.")]
-    async fn mantis_auth_store(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    async fn mantis_auth_store(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("auth_store", &args))
     }
 
-    #[tool(description = "Auto-signup browser flow (deferred — Mantis v1 requires manual auth profile paste).")]
-    async fn mantis_auto_signup(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Auto-signup browser flow (deferred — Mantis v1 requires manual auth profile paste)."
+    )]
+    async fn mantis_auto_signup(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&deferred_browser_response("auto_signup", &args))
     }
 
-    #[tool(description = "Ingest a third-party audit report (PDF / markdown / SARIF) for context-aware hunting.")]
-    async fn mantis_ingest_audit_report(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Ingest a third-party audit report (PDF / markdown / SARIF) for context-aware hunting."
+    )]
+    async fn mantis_ingest_audit_report(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("ingest_audit_report", &args))
     }
 
-    #[tool(description = "Ingest an OpenAPI / GraphQL schema document for schema-vs-implementation hunting.")]
-    async fn mantis_ingest_schema_doc(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Ingest an OpenAPI / GraphQL schema document for schema-vs-implementation hunting."
+    )]
+    async fn mantis_ingest_schema_doc(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("ingest_schema_doc", &args))
     }
 
-    #[tool(description = "Import captured HTTP traffic (HAR / Burp XML / pcap) for replay analysis.")]
-    async fn mantis_import_http_traffic(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Import captured HTTP traffic (HAR / Burp XML / pcap) for replay analysis."
+    )]
+    async fn mantis_import_http_traffic(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("import_http_traffic", &args))
     }
 
-    #[tool(description = "Import a static artifact (source tarball / binary / JS bundle) for SAST.")]
-    async fn mantis_import_static_artifact(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Import a static artifact (source tarball / binary / JS bundle) for SAST."
+    )]
+    async fn mantis_import_static_artifact(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("import_static_artifact", &args))
     }
 
-    #[tool(description = "Initialize a session (alias for `mantis_create_engagement` for bob-compatibility).")]
-    async fn mantis_init_session(&self, Parameters(args): Parameters<PayloadToolArgs>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Initialize a session (alias for `mantis_create_engagement` for bob-compatibility)."
+    )]
+    async fn mantis_init_session(
+        &self,
+        Parameters(args): Parameters<PayloadToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&recorded_response("init_session", &args))
     }
 
     // ---------- smart-contract toolset (24 tools) ----------
 
     #[tool(description = "EVM eth_call against a contract address on the configured RPC ladder.")]
-    async fn mantis_evm_call(&self, Parameters(args): Parameters<ChainToolArgs>) -> Result<CallToolResult, McpError> {
+    async fn mantis_evm_call(
+        &self,
+        Parameters(args): Parameters<ChainToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&chain_deferred_response("evm_call", "evm", &args))
     }
 
     #[tool(description = "EVM eth_getStorageAt for a contract slot.")]
-    async fn mantis_evm_storage_read(&self, Parameters(args): Parameters<ChainToolArgs>) -> Result<CallToolResult, McpError> {
+    async fn mantis_evm_storage_read(
+        &self,
+        Parameters(args): Parameters<ChainToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&chain_deferred_response("evm_storage_read", "evm", &args))
     }
 
     #[tool(description = "Fetch verified EVM contract source from Etherscan-compatible explorers.")]
-    async fn mantis_evm_fetch_source(&self, Parameters(args): Parameters<ChainToolArgs>) -> Result<CallToolResult, McpError> {
+    async fn mantis_evm_fetch_source(
+        &self,
+        Parameters(args): Parameters<ChainToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&chain_deferred_response("evm_fetch_source", "evm", &args))
     }
 
-    #[tool(description = "Render the EVM role table (who has DEFAULT_ADMIN_ROLE, MINTER_ROLE, etc.) for a contract.")]
-    async fn mantis_evm_role_table(&self, Parameters(args): Parameters<ChainToolArgs>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Render the EVM role table (who has DEFAULT_ADMIN_ROLE, MINTER_ROLE, etc.) for a contract."
+    )]
+    async fn mantis_evm_role_table(
+        &self,
+        Parameters(args): Parameters<ChainToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&chain_deferred_response("evm_role_table", "evm", &args))
     }
 
     #[tool(description = "Run Foundry test / forge script against a target contract.")]
-    async fn mantis_foundry_run(&self, Parameters(args): Parameters<ChainToolArgs>) -> Result<CallToolResult, McpError> {
+    async fn mantis_foundry_run(
+        &self,
+        Parameters(args): Parameters<ChainToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&chain_deferred_response("foundry_run", "evm", &args))
     }
 
     #[tool(description = "Run Halmos symbolic execution against a Solidity target.")]
-    async fn mantis_halmos_run(&self, Parameters(args): Parameters<ChainToolArgs>) -> Result<CallToolResult, McpError> {
+    async fn mantis_halmos_run(
+        &self,
+        Parameters(args): Parameters<ChainToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&chain_deferred_response("halmos_run", "evm", &args))
     }
 
     #[tool(description = "Fetch a Solana account by pubkey.")]
-    async fn mantis_svm_fetch_account(&self, Parameters(args): Parameters<ChainToolArgs>) -> Result<CallToolResult, McpError> {
+    async fn mantis_svm_fetch_account(
+        &self,
+        Parameters(args): Parameters<ChainToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&chain_deferred_response("svm_fetch_account", "svm", &args))
     }
 
     #[tool(description = "Fetch a Solana program (executable) by pubkey.")]
-    async fn mantis_svm_fetch_program(&self, Parameters(args): Parameters<ChainToolArgs>) -> Result<CallToolResult, McpError> {
+    async fn mantis_svm_fetch_program(
+        &self,
+        Parameters(args): Parameters<ChainToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&chain_deferred_response("svm_fetch_program", "svm", &args))
     }
 
     #[tool(description = "Run an Anchor test suite against a Solana program.")]
-    async fn mantis_anchor_run(&self, Parameters(args): Parameters<ChainToolArgs>) -> Result<CallToolResult, McpError> {
+    async fn mantis_anchor_run(
+        &self,
+        Parameters(args): Parameters<ChainToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&chain_deferred_response("anchor_run", "svm", &args))
     }
 
     #[tool(description = "Fetch an Aptos Move module by address::name.")]
-    async fn mantis_aptos_fetch_module(&self, Parameters(args): Parameters<ChainToolArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&chain_deferred_response("aptos_fetch_module", "aptos", &args))
+    async fn mantis_aptos_fetch_module(
+        &self,
+        Parameters(args): Parameters<ChainToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&chain_deferred_response(
+            "aptos_fetch_module",
+            "aptos",
+            &args,
+        ))
     }
 
     #[tool(description = "Fetch an Aptos on-chain resource by address::type.")]
-    async fn mantis_aptos_fetch_resource(&self, Parameters(args): Parameters<ChainToolArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&chain_deferred_response("aptos_fetch_resource", "aptos", &args))
+    async fn mantis_aptos_fetch_resource(
+        &self,
+        Parameters(args): Parameters<ChainToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&chain_deferred_response(
+            "aptos_fetch_resource",
+            "aptos",
+            &args,
+        ))
     }
 
     #[tool(description = "Run an Aptos Move test suite.")]
-    async fn mantis_aptos_run(&self, Parameters(args): Parameters<ChainToolArgs>) -> Result<CallToolResult, McpError> {
+    async fn mantis_aptos_run(
+        &self,
+        Parameters(args): Parameters<ChainToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&chain_deferred_response("aptos_run", "aptos", &args))
     }
 
     #[tool(description = "Fetch a Sui object by object id.")]
-    async fn mantis_sui_fetch_object(&self, Parameters(args): Parameters<ChainToolArgs>) -> Result<CallToolResult, McpError> {
+    async fn mantis_sui_fetch_object(
+        &self,
+        Parameters(args): Parameters<ChainToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&chain_deferred_response("sui_fetch_object", "sui", &args))
     }
 
     #[tool(description = "Fetch a Sui Move package by package id.")]
-    async fn mantis_sui_fetch_package(&self, Parameters(args): Parameters<ChainToolArgs>) -> Result<CallToolResult, McpError> {
+    async fn mantis_sui_fetch_package(
+        &self,
+        Parameters(args): Parameters<ChainToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&chain_deferred_response("sui_fetch_package", "sui", &args))
     }
 
     #[tool(description = "Run a Sui Move test suite.")]
-    async fn mantis_sui_run(&self, Parameters(args): Parameters<ChainToolArgs>) -> Result<CallToolResult, McpError> {
+    async fn mantis_sui_run(
+        &self,
+        Parameters(args): Parameters<ChainToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&chain_deferred_response("sui_run", "sui", &args))
     }
 
     #[tool(description = "Fetch a Substrate runtime storage entry by SCALE-encoded key.")]
-    async fn mantis_substrate_fetch_storage(&self, Parameters(args): Parameters<ChainToolArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&chain_deferred_response("substrate_fetch_storage", "substrate", &args))
+    async fn mantis_substrate_fetch_storage(
+        &self,
+        Parameters(args): Parameters<ChainToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&chain_deferred_response(
+            "substrate_fetch_storage",
+            "substrate",
+            &args,
+        ))
     }
 
     #[tool(description = "Fetch the Substrate runtime metadata for a chain.")]
-    async fn mantis_substrate_fetch_runtime(&self, Parameters(args): Parameters<ChainToolArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&chain_deferred_response("substrate_fetch_runtime", "substrate", &args))
+    async fn mantis_substrate_fetch_runtime(
+        &self,
+        Parameters(args): Parameters<ChainToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&chain_deferred_response(
+            "substrate_fetch_runtime",
+            "substrate",
+            &args,
+        ))
     }
 
     #[tool(description = "Run a Substrate / ink! cargo test suite.")]
-    async fn mantis_substrate_run(&self, Parameters(args): Parameters<ChainToolArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&chain_deferred_response("substrate_run", "substrate", &args))
+    async fn mantis_substrate_run(
+        &self,
+        Parameters(args): Parameters<ChainToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&chain_deferred_response(
+            "substrate_run",
+            "substrate",
+            &args,
+        ))
     }
 
     #[tool(description = "Fetch a CosmWasm contract's wasm by address.")]
-    async fn mantis_cosmwasm_fetch_contract(&self, Parameters(args): Parameters<ChainToolArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&chain_deferred_response("cosmwasm_fetch_contract", "cosmwasm", &args))
+    async fn mantis_cosmwasm_fetch_contract(
+        &self,
+        Parameters(args): Parameters<ChainToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&chain_deferred_response(
+            "cosmwasm_fetch_contract",
+            "cosmwasm",
+            &args,
+        ))
     }
 
     #[tool(description = "Issue a CosmWasm smart-query against a contract.")]
-    async fn mantis_cosmwasm_smart_query(&self, Parameters(args): Parameters<ChainToolArgs>) -> Result<CallToolResult, McpError> {
-        json_ok(&chain_deferred_response("cosmwasm_smart_query", "cosmwasm", &args))
+    async fn mantis_cosmwasm_smart_query(
+        &self,
+        Parameters(args): Parameters<ChainToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        json_ok(&chain_deferred_response(
+            "cosmwasm_smart_query",
+            "cosmwasm",
+            &args,
+        ))
     }
 
     #[tool(description = "Run a CosmWasm cw-multi-test suite.")]
-    async fn mantis_cosmwasm_run(&self, Parameters(args): Parameters<ChainToolArgs>) -> Result<CallToolResult, McpError> {
+    async fn mantis_cosmwasm_run(
+        &self,
+        Parameters(args): Parameters<ChainToolArgs>,
+    ) -> Result<CallToolResult, McpError> {
         json_ok(&chain_deferred_response("cosmwasm_run", "cosmwasm", &args))
     }
 }
@@ -2281,7 +2783,10 @@ fn parse_surfaces(jsonl: &str) -> Vec<Surface> {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
             continue;
         };
-        let kind = value.get("kind").and_then(|k| k.get("kind")).and_then(|k| k.as_str());
+        let kind = value
+            .get("kind")
+            .and_then(|k| k.get("kind"))
+            .and_then(|k| k.as_str());
         if kind != Some("SurfaceDiscovered") {
             continue;
         }
@@ -2292,10 +2797,22 @@ fn parse_surfaces(jsonl: &str) -> Vec<Surface> {
         };
         out.push(Surface {
             seq,
-            host: k.get("host").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            host: k
+                .get("host")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
             port: k.get("port").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-            scheme: k.get("scheme").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            path: k.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+            scheme: k
+                .get("scheme")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            path: k
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
             status: k.get("status").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
             server: k.get("server").and_then(|v| v.as_str()).map(str::to_string),
             tech_hints: k
@@ -2349,8 +2866,12 @@ pub fn load_verification_rounds(
     let rounds_dir = dir.join("verification-rounds");
     for round in ["brutalist", "balanced", "final"] {
         let path = rounds_dir.join(format!("{round}.json"));
-        let Ok(bytes) = std::fs::read(&path) else { continue };
-        let Ok(v) = serde_json::from_slice::<serde_json::Value>(&bytes) else { continue };
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        let Ok(v) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+            continue;
+        };
         out.insert(round.to_string(), v);
     }
     out
@@ -2490,10 +3011,7 @@ fn render_verification_cascade_section(
                         .and_then(|x| x.as_bool())
                         .map(|b| if b { "✅ true" } else { "❌ false" })
                         .unwrap_or("—");
-                    let conf = fv
-                        .get("confidence")
-                        .and_then(|x| x.as_str())
-                        .unwrap_or("—");
+                    let conf = fv.get("confidence").and_then(|x| x.as_str()).unwrap_or("—");
                     let reasoning = fv
                         .get("reasoning")
                         .and_then(|x| x.as_str())
@@ -2586,7 +3104,10 @@ fn render_grade_verdict_section(grade: &serde_json::Value) -> String {
     let mut s = String::new();
     s.push_str("\n## Grade verdict\n\n");
     let verdict = grade.get("verdict").and_then(|v| v.as_str()).unwrap_or("—");
-    let total = grade.get("total_score").and_then(|v| v.as_i64()).unwrap_or(0);
+    let total = grade
+        .get("total_score")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
     s.push_str(&format!("- **Verdict:** `{verdict}`\n"));
     s.push_str(&format!("- **Total score:** {total}\n"));
     if let Some(fb) = grade.get("feedback").and_then(|v| v.as_str()) {
@@ -2752,12 +3273,8 @@ fn render_markdown_core(
                 ));
                 for f in group {
                     s.push_str(&format!("- **{}** — `{}`\n", f.title, f.surface));
-                    let one_line: String = f
-                        .evidence
-                        .replace('\n', " ")
-                        .chars()
-                        .take(400)
-                        .collect();
+                    let one_line: String =
+                        f.evidence.replace('\n', " ").chars().take(400).collect();
                     s.push_str(&format!("  - _evidence_: {}\n", one_line));
                 }
                 s.push('\n');
@@ -2776,12 +3293,14 @@ fn render_markdown_core(
 
     if !chains.is_empty() {
         s.push_str("\n## Chain attempts\n\n");
-        s.push_str("Composed-finding hypotheses with explicit outcomes. The \
+        s.push_str(
+            "Composed-finding hypotheses with explicit outcomes. The \
                     severity ladder is enforced server-side: LOW+LOW=LOW; \
                     chain severity cannot exceed `max(input)+1` without \
                     `severity_elevation_rationale`; cannot exceed `+2` even \
                     with one. Inspired by Hacker Bob's \
-                    `bounty_write_chain_attempt`.\n\n");
+                    `bounty_write_chain_attempt`.\n\n",
+        );
         for (wave_n, attempts) in chains {
             s.push_str(&format!(
                 "### Wave {} — {} chain attempt{}\n\n",
@@ -2999,7 +3518,10 @@ mod tests {
         let raw = r#"{"engagement_id":"eng-1","data":{"finding_id":"F-1","severity":"high"}}"#;
         let v: PayloadToolArgs = serde_json::from_str(raw).unwrap();
         assert_eq!(v.engagement_id, "eng-1");
-        assert_eq!(v.data.get("finding_id").and_then(|x| x.as_str()), Some("F-1"));
+        assert_eq!(
+            v.data.get("finding_id").and_then(|x| x.as_str()),
+            Some("F-1")
+        );
     }
 
     #[test]
@@ -3010,19 +3532,16 @@ mod tests {
 
     #[test]
     fn playbook_id_args_parses() {
-        let v: PlaybookIdArgs = serde_json::from_str(
-            r#"{"engagement_id":"e","playbook_id":"C9_ssrf_to_imds"}"#,
-        )
-        .unwrap();
+        let v: PlaybookIdArgs =
+            serde_json::from_str(r#"{"engagement_id":"e","playbook_id":"C9_ssrf_to_imds"}"#)
+                .unwrap();
         assert_eq!(v.playbook_id, "C9_ssrf_to_imds");
     }
 
     #[test]
     fn technique_pack_args_parses() {
-        let v: TechniquePackArgs = serde_json::from_str(
-            r#"{"engagement_id":"e","pack_id":"auth-differential"}"#,
-        )
-        .unwrap();
+        let v: TechniquePackArgs =
+            serde_json::from_str(r#"{"engagement_id":"e","pack_id":"auth-differential"}"#).unwrap();
         assert_eq!(v.pack_id, "auth-differential");
     }
 
@@ -3056,7 +3575,10 @@ mod tests {
     #[test]
     fn deferred_read_response_has_engagement_id() {
         let v = deferred_read_response("read_findings", "eng-x");
-        assert_eq!(v.get("engagement_id").and_then(|x| x.as_str()), Some("eng-x"));
+        assert_eq!(
+            v.get("engagement_id").and_then(|x| x.as_str()),
+            Some("eng-x")
+        );
         assert_eq!(v.get("status").and_then(|x| x.as_str()), Some("ok"));
         assert!(v.get("items").unwrap().is_array());
     }
@@ -3094,7 +3616,11 @@ mod tests {
         };
         let v = deferred_browser_response("auto_signup", &args);
         assert_eq!(v.get("status").and_then(|x| x.as_str()), Some("deferred"));
-        assert!(v.get("reason").and_then(|x| x.as_str()).unwrap().contains("v2"));
+        assert!(v
+            .get("reason")
+            .and_then(|x| x.as_str())
+            .unwrap()
+            .contains("v2"));
     }
 
     #[test]
@@ -3112,10 +3638,9 @@ mod tests {
 
     #[test]
     fn graphql_introspection_args_parses() {
-        let v: GraphqlIntrospectionArgs = serde_json::from_str(
-            r#"{"engagement_id":"e","endpoint":"https://x/graphql"}"#,
-        )
-        .unwrap();
+        let v: GraphqlIntrospectionArgs =
+            serde_json::from_str(r#"{"engagement_id":"e","endpoint":"https://x/graphql"}"#)
+                .unwrap();
         assert!(v.endpoint.ends_with("/graphql"));
     }
 
@@ -3128,10 +3653,8 @@ mod tests {
 
     #[test]
     fn extract_js_endpoints_args_parses() {
-        let v: ExtractJsEndpointsArgs = serde_json::from_str(
-            r#"{"engagement_id":"e","js_url":"https://x/main.js"}"#,
-        )
-        .unwrap();
+        let v: ExtractJsEndpointsArgs =
+            serde_json::from_str(r#"{"engagement_id":"e","js_url":"https://x/main.js"}"#).unwrap();
         assert!(v.js_url.ends_with(".js"));
     }
 
@@ -3408,7 +3931,8 @@ mod tests {
 
     #[test]
     fn run_auth_differential_unauth_role_parses() {
-        let raw = r#"{"engagement_id":"e","url":"https://x/","profiles":[{"role":"unauthenticated"}]}"#;
+        let raw =
+            r#"{"engagement_id":"e","url":"https://x/","profiles":[{"role":"unauthenticated"}]}"#;
         let v: RunAuthDifferentialArgs = serde_json::from_str(raw).unwrap();
         assert_eq!(v.profiles[0].role, "unauthenticated");
     }
@@ -3550,9 +4074,8 @@ mod tests {
             scope_hash: None,
         };
         let plain = render_markdown(&info, &[], &[], &[], 1);
-        let dense = render_markdown_with_evidence(
-            &info, &[], &[], &[], 1, &Default::default(), None, None,
-        );
+        let dense =
+            render_markdown_with_evidence(&info, &[], &[], &[], 1, &Default::default(), None, None);
         assert_eq!(plain, dense);
     }
 }

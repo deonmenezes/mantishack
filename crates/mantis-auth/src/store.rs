@@ -35,10 +35,7 @@ pub enum AuthStoreError {
     },
 
     #[error("profile not found: engagement={engagement_id} name={name}")]
-    ProfileNotFound {
-        engagement_id: String,
-        name: String,
-    },
+    ProfileNotFound { engagement_id: String, name: String },
 }
 
 // ---------------------------------------------------------------------------
@@ -120,11 +117,7 @@ impl AuthStore {
 
     /// Persist `profile`, overwriting any existing profile with the same
     /// name in this engagement.
-    pub fn put(
-        &self,
-        engagement_id: &str,
-        profile: AuthProfile,
-    ) -> Result<(), AuthStoreError> {
+    pub fn put(&self, engagement_id: &str, profile: AuthProfile) -> Result<(), AuthStoreError> {
         let path = self.auth_path(engagement_id);
         let mut doc = self.read_doc(&path)?;
         doc.profiles.insert(profile.name.clone(), profile);
@@ -168,11 +161,7 @@ impl AuthStore {
     }
 
     /// Delete a profile. Returns `true` if it existed, `false` if not found.
-    pub fn delete(
-        &self,
-        engagement_id: &str,
-        profile_name: &str,
-    ) -> Result<bool, AuthStoreError> {
+    pub fn delete(&self, engagement_id: &str, profile_name: &str) -> Result<bool, AuthStoreError> {
         let path = self.auth_path(engagement_id);
         let mut doc = self.read_doc(&path)?;
         let existed = doc.profiles.remove(profile_name).is_some();
@@ -220,9 +209,8 @@ impl AuthStore {
 
         let tmp_path = path.with_extension("json.tmp");
 
-        let content = serde_json::to_string_pretty(doc)
-            .expect("AuthDoc serialization is infallible")
-            + "\n";
+        let content =
+            serde_json::to_string_pretty(doc).expect("AuthDoc serialization is infallible") + "\n";
 
         std::fs::write(&tmp_path, content.as_bytes()).map_err(|e| AuthStoreError::Io {
             path: tmp_path.clone(),
@@ -306,7 +294,9 @@ mod tests {
         let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
         let store = AuthStore::new(root);
 
-        store.put("eng-1", make_profile("attacker", "secret-tok")).unwrap();
+        store
+            .put("eng-1", make_profile("attacker", "secret-tok"))
+            .unwrap();
 
         let redacted = store.list_redacted("eng-1").unwrap();
         assert_eq!(redacted.len(), 1);
@@ -319,7 +309,10 @@ mod tests {
         assert_eq!(r.secret_fingerprint.len(), 16);
         // The serialized redacted profile must not contain the raw secret.
         let json = serde_json::to_string(&r).unwrap();
-        assert!(!json.contains("secret-tok"), "raw secret must not appear in redacted JSON");
+        assert!(
+            !json.contains("secret-tok"),
+            "raw secret must not appear in redacted JSON"
+        );
     }
 
     #[test]
@@ -339,8 +332,12 @@ mod tests {
         let root = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
         let store = AuthStore::new(root);
 
-        store.put("eng-A", make_profile("attacker", "secret-A")).unwrap();
-        store.put("eng-B", make_profile("attacker", "secret-B")).unwrap();
+        store
+            .put("eng-A", make_profile("attacker", "secret-A"))
+            .unwrap();
+        store
+            .put("eng-B", make_profile("attacker", "secret-B"))
+            .unwrap();
 
         let a = store.get("eng-A", "attacker").unwrap();
         let b = store.get("eng-B", "attacker").unwrap();

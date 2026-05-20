@@ -179,10 +179,8 @@ mod tests {
 
     #[test]
     fn array_captures_first_row_fields() {
-        let s = ResponseShape::from_response(
-            200,
-            &json!([{"id":1, "email":"a@b.com", "org_id":"X"}]),
-        );
+        let s =
+            ResponseShape::from_response(200, &json!([{"id":1, "email":"a@b.com", "org_id":"X"}]));
         assert_eq!(s.body_kind, BodyKind::Array);
         assert_eq!(s.row_count, 1);
         assert!(s.field_names.contains(&"id".to_string()));
@@ -203,7 +201,11 @@ mod tests {
     fn same_shape_same_signature() {
         let s1 = ResponseShape::from_response(200, &json!([{"id":1,"email":"a"}]));
         let s2 = ResponseShape::from_response(200, &json!([{"id":2,"email":"b"}]));
-        assert_eq!(s1.signature(), s2.signature(), "row contents differ but shape matches");
+        assert_eq!(
+            s1.signature(),
+            s2.signature(),
+            "row contents differ but shape matches"
+        );
     }
 
     #[test]

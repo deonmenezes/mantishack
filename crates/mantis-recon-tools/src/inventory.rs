@@ -78,10 +78,14 @@ impl ToolKind {
                 "go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest"
             }
             ToolKind::Httpx => "go install github.com/projectdiscovery/httpx/cmd/httpx@latest",
-            ToolKind::Nuclei => "go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest",
+            ToolKind::Nuclei => {
+                "go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest"
+            }
             ToolKind::Amass => "go install github.com/owasp-amass/amass/v4/...@latest",
             ToolKind::Assetfinder => "go install github.com/tomnomnom/assetfinder@latest",
-            ToolKind::Chaos => "go install github.com/projectdiscovery/chaos-client/cmd/chaos@latest",
+            ToolKind::Chaos => {
+                "go install github.com/projectdiscovery/chaos-client/cmd/chaos@latest"
+            }
             ToolKind::Dnsx => "go install -v github.com/projectdiscovery/dnsx/cmd/dnsx@latest",
             ToolKind::Tlsx => "go install github.com/projectdiscovery/tlsx/cmd/tlsx@latest",
             ToolKind::Katana => "go install github.com/projectdiscovery/katana/cmd/katana@latest",
@@ -98,7 +102,7 @@ impl ToolKind {
     pub fn version_arg(self) -> &'static str {
         match self {
             ToolKind::JwtTool => "-h", // no `--version`; help banner shows version
-            _ => "-version",            // projectdiscovery + most others
+            _ => "-version",           // projectdiscovery + most others
         }
     }
 }
@@ -189,10 +193,7 @@ fn which(name: &str) -> Option<String> {
 }
 
 fn read_version(path: &str, arg: &str) -> Option<String> {
-    let output = std::process::Command::new(path)
-        .arg(arg)
-        .output()
-        .ok()?;
+    let output = std::process::Command::new(path).arg(arg).output().ok()?;
     // ProjectDiscovery tools emit version on STDERR (the banner);
     // others (including help-screen-only tools) emit on STDOUT.
     // Try both and take the first non-empty line.
@@ -241,7 +242,10 @@ mod tests {
         // Whether tools are installed is host-dependent; just verify
         // every variant got a row.
         for kind in ToolKind::all() {
-            assert!(inv.get(*kind).is_some(), "missing inventory entry for {kind:?}");
+            assert!(
+                inv.get(*kind).is_some(),
+                "missing inventory entry for {kind:?}"
+            );
         }
     }
 
@@ -257,12 +261,20 @@ mod tests {
     fn install_hints_reference_canonical_repos() {
         // Sanity: the hints should point at the same upstream repos
         // the user's request listed.
-        assert!(ToolKind::Subfinder.install_hint().contains("projectdiscovery/subfinder"));
-        assert!(ToolKind::Nuclei.install_hint().contains("projectdiscovery/nuclei"));
+        assert!(ToolKind::Subfinder
+            .install_hint()
+            .contains("projectdiscovery/subfinder"));
+        assert!(ToolKind::Nuclei
+            .install_hint()
+            .contains("projectdiscovery/nuclei"));
         assert!(ToolKind::Amass.install_hint().contains("owasp-amass/amass"));
-        assert!(ToolKind::Assetfinder.install_hint().contains("tomnomnom/assetfinder"));
+        assert!(ToolKind::Assetfinder
+            .install_hint()
+            .contains("tomnomnom/assetfinder"));
         assert!(ToolKind::Subzy.install_hint().contains("PentestPad/subzy"));
-        assert!(ToolKind::JwtTool.install_hint().contains("ticarpi/jwt_tool"));
+        assert!(ToolKind::JwtTool
+            .install_hint()
+            .contains("ticarpi/jwt_tool"));
     }
 
     #[test]

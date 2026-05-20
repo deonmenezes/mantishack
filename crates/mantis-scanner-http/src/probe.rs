@@ -13,9 +13,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use mantis_auth::AuthProfile;
 use mantis_core::{EngagementId, Signer};
 use mantis_event_store::{EventKind, EventStore};
-use mantis_auth::AuthProfile;
 use reqwest::Client;
 use tracing::{debug, warn};
 
@@ -166,13 +166,7 @@ impl HttpProbeScanner {
                 let pairs: Vec<String> = profile
                     .query
                     .iter()
-                    .map(|(k, v)| {
-                        format!(
-                            "{}={}",
-                            urlencode(k.as_str()),
-                            urlencode(v.as_str())
-                        )
-                    })
+                    .map(|(k, v)| format!("{}={}", urlencode(k.as_str()), urlencode(v.as_str())))
                     .collect();
                 url = format!("{url}{separator}{}", pairs.join("&"));
             }

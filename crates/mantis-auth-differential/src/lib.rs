@@ -19,9 +19,7 @@ pub mod classify;
 pub mod runner;
 pub mod shape;
 
-pub use crate::classify::{
-    classify, DiffFinding, DivergenceClass, ProfileResponse, ProfileRole,
-};
+pub use crate::classify::{classify, DiffFinding, DivergenceClass, ProfileResponse, ProfileRole};
 pub use crate::runner::{run_differential, ProfileBinding, RunnerConfig, RunnerError};
 pub use crate::shape::{ResponseShape, ShapeSignature};
 
@@ -69,9 +67,21 @@ mod integration_tests {
         // Unauth → 401. Attacker → 200 with rows. Victim → 200 with same rows shape.
         // The attacker's response includes rows belonging to victim's org → cross-tenant read.
         let rs = vec![
-            ProfileResponse::new(ProfileRole::Unauthenticated, 401, body(r#"{"message":"JWT expired"}"#)),
-            ProfileResponse::new(ProfileRole::Attacker, 200, body(r#"[{"id":"o1","organization_id":"victim-org","total":500}]"#)),
-            ProfileResponse::new(ProfileRole::Victim, 200, body(r#"[{"id":"o1","organization_id":"victim-org","total":500}]"#)),
+            ProfileResponse::new(
+                ProfileRole::Unauthenticated,
+                401,
+                body(r#"{"message":"JWT expired"}"#),
+            ),
+            ProfileResponse::new(
+                ProfileRole::Attacker,
+                200,
+                body(r#"[{"id":"o1","organization_id":"victim-org","total":500}]"#),
+            ),
+            ProfileResponse::new(
+                ProfileRole::Victim,
+                200,
+                body(r#"[{"id":"o1","organization_id":"victim-org","total":500}]"#),
+            ),
         ];
         let findings = classify("https://x/rest/v1/orders", &rs).unwrap();
         assert!(
@@ -99,10 +109,13 @@ mod integration_tests {
         ];
         let findings = classify("https://x/rest/v1/users", &rs).unwrap();
         assert!(
-            findings
-                .iter()
-                .any(|f| matches!(f.class, DivergenceClass::UnauthSuccessWithAuthBlocked)
-                    || matches!(f.class, DivergenceClass::PublicTableSensitiveFields)),
+            findings.iter().any(|f| matches!(
+                f.class,
+                DivergenceClass::UnauthSuccessWithAuthBlocked
+            ) || matches!(
+                f.class,
+                DivergenceClass::PublicTableSensitiveFields
+            )),
             "expected open-table classification, got {findings:?}"
         );
     }
@@ -111,7 +124,11 @@ mod integration_tests {
     fn no_finding_when_only_blocked() {
         let rs = vec![
             ProfileResponse::new(ProfileRole::Unauthenticated, 401, body("{}")),
-            ProfileResponse::new(ProfileRole::Attacker, 403, body(r#"{"message":"forbidden"}"#)),
+            ProfileResponse::new(
+                ProfileRole::Attacker,
+                403,
+                body(r#"{"message":"forbidden"}"#),
+            ),
         ];
         let findings = classify("https://x/admin", &rs).unwrap();
         assert!(findings.is_empty(), "no divergence to report: {findings:?}");

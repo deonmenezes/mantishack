@@ -52,7 +52,10 @@ pub async fn wayback_urls(
     if !resp.status().is_success() {
         return Err(format!("wayback returned {}", resp.status()));
     }
-    let body = resp.text().await.map_err(|e| format!("wayback body: {e}"))?;
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| format!("wayback body: {e}"))?;
     let rows: Vec<Vec<String>> =
         serde_json::from_str(&body).map_err(|e| format!("wayback parse: {e}"))?;
     let mut out: Vec<WaybackUrl> = rows
@@ -419,9 +422,7 @@ mod tests {
 
     #[test]
     fn detect_tech_picks_cloudfront_envoy_istio() {
-        let headers = vec![
-            ("Server".into(), "CloudFront".into()),
-        ];
+        let headers = vec![("Server".into(), "CloudFront".into())];
         let hits = detect_tech(&headers, "");
         assert!(hits.contains(&"cloudfront".to_string()));
     }

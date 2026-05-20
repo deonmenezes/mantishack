@@ -29,9 +29,15 @@ pub enum VerifierVerdict {
     /// Neither positive nor negative markers fired — the script
     /// produced output but nothing the verifier recognizes. The
     /// hard tier sends this back to the LLM as "needs refinement".
-    Inconclusive { stdout_len: usize, stderr_len: usize },
+    Inconclusive {
+        stdout_len: usize,
+        stderr_len: usize,
+    },
     /// Script died (non-zero exit or runtime error).
-    Crashed { exit_code: i32, stderr_excerpt: String },
+    Crashed {
+        exit_code: i32,
+        stderr_excerpt: String,
+    },
 }
 
 impl VerifierVerdict {

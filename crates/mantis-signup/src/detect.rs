@@ -82,16 +82,8 @@ pub async fn detect_signup(
             format!("{base}/api/auth/signup"),
             false,
         ),
-        (
-            SignupKind::RestUsers,
-            format!("{base}/api/v1/users"),
-            false,
-        ),
-        (
-            SignupKind::RestUsers,
-            format!("{base}/api/users"),
-            false,
-        ),
+        (SignupKind::RestUsers, format!("{base}/api/v1/users"), false),
+        (SignupKind::RestUsers, format!("{base}/api/users"), false),
     ];
 
     let client = reqwest::Client::builder()
@@ -154,10 +146,7 @@ mod tests {
                     let (status, body): (&str, &[u8]) = match beh {
                         "supabase-rejects" => {
                             if req.contains("POST /auth/v1/signup") {
-                                (
-                                    "HTTP/1.1 400 Bad Request",
-                                    b"{\"error\":\"invalid email\"}",
-                                )
+                                ("HTTP/1.1 400 Bad Request", b"{\"error\":\"invalid email\"}")
                             } else {
                                 ("HTTP/1.1 404 Not Found", b"")
                             }

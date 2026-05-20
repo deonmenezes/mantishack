@@ -214,7 +214,12 @@ pub fn classify(
                 attacker_shape.field_names,
                 attacker_shape.signature(),
             );
-            push(&mut findings, &mut emitted, DivergenceClass::CrossTenantRead, ev);
+            push(
+                &mut findings,
+                &mut emitted,
+                DivergenceClass::CrossTenantRead,
+                ev,
+            );
         }
     }
 
@@ -287,18 +292,20 @@ pub fn classify(
     // ---- 5. UnauthSuccessWithAuthBlocked ----
     if let Some(unauth) = by_role.get(&ProfileRole::Unauthenticated) {
         let unauth_shape = unauth.shape();
-        if unauth_shape.is_success_with_data()
-            && unauth_shape.sensitive_fields_present.is_empty()
-        {
+        if unauth_shape.is_success_with_data() && unauth_shape.sensitive_fields_present.is_empty() {
             // Confirm with another role that the endpoint is real.
-            let confirmed_by_other = [ProfileRole::Attacker, ProfileRole::Victim, ProfileRole::Admin]
-                .iter()
-                .any(|r| {
-                    by_role
-                        .get(r)
-                        .map(|x| x.shape().is_success_with_data())
-                        .unwrap_or(false)
-                });
+            let confirmed_by_other = [
+                ProfileRole::Attacker,
+                ProfileRole::Victim,
+                ProfileRole::Admin,
+            ]
+            .iter()
+            .any(|r| {
+                by_role
+                    .get(r)
+                    .map(|x| x.shape().is_success_with_data())
+                    .unwrap_or(false)
+            });
             // OR: the unauth itself is the only profile present AND
             // the body has rows — still a public-table leak.
             let alone = by_role.len() == 1;
@@ -523,8 +530,14 @@ mod tests {
 
     #[test]
     fn severity_promotes_for_critical_classes() {
-        assert_eq!(DivergenceClass::CrossTenantRead.default_severity(), "critical");
-        assert_eq!(DivergenceClass::PrivilegeShapeMatch.default_severity(), "critical");
+        assert_eq!(
+            DivergenceClass::CrossTenantRead.default_severity(),
+            "critical"
+        );
+        assert_eq!(
+            DivergenceClass::PrivilegeShapeMatch.default_severity(),
+            "critical"
+        );
         assert_eq!(
             DivergenceClass::PublicTableSensitiveFields.default_severity(),
             "critical"

@@ -89,7 +89,9 @@ pub struct Adjudication {
 impl Adjudication {
     /// True iff the finding must be re-run by the final round.
     pub fn requires_replay(&self, finding_id: &str) -> bool {
-        self.replay_required.iter().any(|r| r.finding_id == finding_id)
+        self.replay_required
+            .iter()
+            .any(|r| r.finding_id == finding_id)
     }
 }
 
@@ -194,9 +196,8 @@ pub fn build_adjudication(
                     );
                 }
 
-                let high_or_critical_reportable =
-                    (b.reportable && is_high_or_critical(b.severity))
-                        || (bal.reportable && is_high_or_critical(bal.severity));
+                let high_or_critical_reportable = (b.reportable && is_high_or_critical(b.severity))
+                    || (bal.reportable && is_high_or_critical(bal.severity));
                 if high_or_critical_reportable {
                     push_unique(
                         replay_reasons.entry((*fid).to_string()).or_default(),
@@ -280,8 +281,7 @@ pub fn build_adjudication(
     // not-already-replay-required findings, sorted by
     // blake3(attempt_id || snapshot_hash || finding_id) to randomise
     // deterministically.
-    let agreed_set: std::collections::BTreeSet<&str> =
-        agreed.iter().map(|s| s.as_str()).collect();
+    let agreed_set: std::collections::BTreeSet<&str> = agreed.iter().map(|s| s.as_str()).collect();
     let mut candidates: Vec<&str> = agreed_set
         .iter()
         .copied()
@@ -380,12 +380,7 @@ mod tests {
         Confidence, ConfidenceReason, FindingVerdict, VerificationDisposition,
     };
 
-    fn vfy(
-        id: &str,
-        d: VerificationDisposition,
-        s: Option<Severity>,
-        rep: bool,
-    ) -> FindingVerdict {
+    fn vfy(id: &str, d: VerificationDisposition, s: Option<Severity>, rep: bool) -> FindingVerdict {
         FindingVerdict {
             finding_id: id.into(),
             disposition: d,
@@ -507,8 +502,7 @@ mod tests {
             true,
         );
         let b = VerificationRoundResult::new(VerificationRound::Brutalist, vec![f.clone()]);
-        let bal_same =
-            VerificationRoundResult::new(VerificationRound::Balanced, vec![f.clone()]);
+        let bal_same = VerificationRoundResult::new(VerificationRound::Balanced, vec![f.clone()]);
         let bal_changed = VerificationRoundResult::new(
             VerificationRound::Balanced,
             vec![vfy("F-1", VerificationDisposition::Denied, None, false)],
@@ -534,8 +528,7 @@ mod tests {
                 true,
             ));
         }
-        let b =
-            VerificationRoundResult::new(VerificationRound::Brutalist, results.clone());
+        let b = VerificationRoundResult::new(VerificationRound::Brutalist, results.clone());
         let bal = VerificationRoundResult::new(VerificationRound::Balanced, results);
         let snap = snapshot_hash(&ids);
         let a1 = build_adjudication("att-1", snap.clone(), &b, &bal).unwrap();
@@ -557,8 +550,7 @@ mod tests {
         );
         let b = VerificationRoundResult::new(VerificationRound::Brutalist, vec![b_v]);
         let bal = VerificationRoundResult::new(VerificationRound::Balanced, vec![]);
-        let adj =
-            build_adjudication("att-1", snapshot_hash(&["F-1".into()]), &b, &bal).unwrap();
+        let adj = build_adjudication("att-1", snapshot_hash(&["F-1".into()]), &b, &bal).unwrap();
         assert!(adj.requires_replay("F-1"));
     }
 }

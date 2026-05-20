@@ -85,7 +85,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // --- prepare output folders ---
-    let out_root = PathBuf::from("reports").join(&target_host).join(&summary.id);
+    let out_root = PathBuf::from("reports")
+        .join(&target_host)
+        .join(&summary.id);
     std::fs::create_dir_all(out_root.join("findings"))?;
     std::fs::create_dir_all(out_root.join("phases"))?;
     std::fs::create_dir_all(out_root.join("waves"))?;
@@ -137,7 +139,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for w in &waves {
         let body = render_wave_md(w, floor_rank);
         std::fs::write(
-            out_root.join("waves").join(format!("wave-{}.md", w.wave_number)),
+            out_root
+                .join("waves")
+                .join(format!("wave-{}.md", w.wave_number)),
             body,
         )?;
     }
@@ -176,7 +180,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Output folder:     {}", out_root.display());
     println!();
     println!("Open the index:    {}/README.md", out_root.display());
-    println!("Full vuln report:  {}/vulnerability-report.md", out_root.display());
+    println!(
+        "Full vuln report:  {}/vulnerability-report.md",
+        out_root.display()
+    );
     Ok(())
 }
 
@@ -233,9 +240,16 @@ fn derive_target_host(jsonl: &str, fallback_name: &str) -> String {
         let Ok(v): Result<Value, _> = serde_json::from_str(line) else {
             continue;
         };
-        let kind = v.get("kind").and_then(|k| k.get("kind")).and_then(|k| k.as_str());
+        let kind = v
+            .get("kind")
+            .and_then(|k| k.get("kind"))
+            .and_then(|k| k.as_str());
         if kind == Some("SurfaceDiscovered") {
-            if let Some(h) = v.get("kind").and_then(|k| k.get("host")).and_then(|h| h.as_str()) {
+            if let Some(h) = v
+                .get("kind")
+                .and_then(|k| k.get("host"))
+                .and_then(|h| h.as_str())
+            {
                 return normalize_host(h);
             }
         }
@@ -245,9 +259,16 @@ fn derive_target_host(jsonl: &str, fallback_name: &str) -> String {
         let Ok(v): Result<Value, _> = serde_json::from_str(line) else {
             continue;
         };
-        let kind = v.get("kind").and_then(|k| k.get("kind")).and_then(|k| k.as_str());
+        let kind = v
+            .get("kind")
+            .and_then(|k| k.get("kind"))
+            .and_then(|k| k.as_str());
         if kind == Some("ScopeDecisionLogged") {
-            if let Some(t) = v.get("kind").and_then(|k| k.get("target")).and_then(|h| h.as_str()) {
+            if let Some(t) = v
+                .get("kind")
+                .and_then(|k| k.get("target"))
+                .and_then(|h| h.as_str())
+            {
                 let host = t.split(':').next().unwrap_or(t);
                 return normalize_host(host);
             }
@@ -279,7 +300,10 @@ fn parse_surfaces(jsonl: &str) -> Vec<Surface> {
         let Ok(v): Result<Value, _> = serde_json::from_str(line) else {
             continue;
         };
-        let kind = v.get("kind").and_then(|k| k.get("kind")).and_then(|k| k.as_str());
+        let kind = v
+            .get("kind")
+            .and_then(|k| k.get("kind"))
+            .and_then(|k| k.as_str());
         if kind != Some("SurfaceDiscovered") {
             continue;
         }
@@ -290,14 +314,22 @@ fn parse_surfaces(jsonl: &str) -> Vec<Surface> {
         };
         out.push(Surface {
             seq,
-            host: k.get("host").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+            host: k
+                .get("host")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
             port: k.get("port").and_then(|x| x.as_u64()).unwrap_or(0) as u32,
             scheme: k
                 .get("scheme")
                 .and_then(|x| x.as_str())
                 .unwrap_or("")
                 .to_string(),
-            path: k.get("path").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+            path: k
+                .get("path")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string(),
             status: k.get("status").and_then(|x| x.as_u64()).unwrap_or(0) as u32,
             server: k.get("server").and_then(|x| x.as_str()).map(str::to_string),
             tech_hints: k
@@ -320,7 +352,10 @@ fn parse_phase_events(jsonl: &str) -> Vec<(String, String, Option<String>, Vec<S
         let Ok(v): Result<Value, _> = serde_json::from_str(line) else {
             continue;
         };
-        let kind = v.get("kind").and_then(|k| k.get("kind")).and_then(|k| k.as_str());
+        let kind = v
+            .get("kind")
+            .and_then(|k| k.get("kind"))
+            .and_then(|k| k.as_str());
         if kind != Some("PhaseTransitioned") {
             continue;
         }
@@ -328,8 +363,16 @@ fn parse_phase_events(jsonl: &str) -> Vec<(String, String, Option<String>, Vec<S
             Some(k) => k,
             None => continue,
         };
-        let from = k.get("from").and_then(|x| x.as_str()).unwrap_or("").to_string();
-        let to = k.get("to").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let from = k
+            .get("from")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
+        let to = k
+            .get("to")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
         let override_reason = k
             .get("override_reason")
             .and_then(|x| x.as_str())
@@ -343,7 +386,10 @@ fn parse_phase_events(jsonl: &str) -> Vec<(String, String, Option<String>, Vec<S
                     .collect()
             })
             .unwrap_or_default();
-        let ts = v.get("wall_clock_unix").and_then(|x| x.as_u64()).unwrap_or(0);
+        let ts = v
+            .get("wall_clock_unix")
+            .and_then(|x| x.as_u64())
+            .unwrap_or(0);
         out.push((from, to, override_reason, blocker_codes, ts));
     }
     out
@@ -452,7 +498,11 @@ fn render_wave_md(w: &wave::WaveMerge, floor_rank: u8) -> String {
         if group.is_empty() {
             continue;
         }
-        s.push_str(&format!("### {sev} ({} finding{})\n\n", group.len(), if group.len() == 1 { "" } else { "s" }));
+        s.push_str(&format!(
+            "### {sev} ({} finding{})\n\n",
+            group.len(),
+            if group.len() == 1 { "" } else { "s" }
+        ));
         for f in group {
             s.push_str(&format!("- **{}** — `{}`\n", f.title, f.surface));
             let evidence_one_line: String =
@@ -477,7 +527,10 @@ fn render_timeline(jsonl: &str) -> String {
             continue;
         };
         let seq = v.get("seq").and_then(|x| x.as_u64()).unwrap_or(0);
-        let ts = v.get("wall_clock_unix").and_then(|x| x.as_u64()).unwrap_or(0);
+        let ts = v
+            .get("wall_clock_unix")
+            .and_then(|x| x.as_u64())
+            .unwrap_or(0);
         let kind = v
             .get("kind")
             .and_then(|k| k.get("kind"))
@@ -529,19 +582,23 @@ fn summarize_event_kind(kind: &str, v: &Value) -> String {
             g("vuln_class"),
             k.get("prior").and_then(|x| x.as_u64()).unwrap_or(0),
         ),
-        "PrimitiveExecuted" => format!(
-            "primitive=`{}` verdict={}",
+        "PrimitiveExecuted" => {
+            format!("primitive=`{}` verdict={}", g("primitive_id"), g("verdict"))
+        }
+        "ClaimVerified" => format!(
+            "primitive=`{}` verifier=`{}`",
             g("primitive_id"),
-            g("verdict")
+            g("verifier_id")
         ),
-        "ClaimVerified" => format!("primitive=`{}` verifier=`{}`", g("primitive_id"), g("verifier_id")),
-        "ClaimRejected" | "ClaimRetained" => format!(
-            "primitive=`{}` reason={}",
-            g("primitive_id"),
-            g("reason")
-        ),
+        "ClaimRejected" | "ClaimRetained" => {
+            format!("primitive=`{}` reason={}", g("primitive_id"), g("reason"))
+        }
         "PhaseTransitioned" => format!("{} → {}", g("from"), g("to")),
-        "VerificationAttemptOpened" => format!("attempt=`{}` snapshot=`{}`", g("attempt_id"), g("snapshot_hash")),
+        "VerificationAttemptOpened" => format!(
+            "attempt=`{}` snapshot=`{}`",
+            g("attempt_id"),
+            g("snapshot_hash")
+        ),
         "VerificationRoundWritten" => format!(
             "round=`{}` attempt=`{}` results={}",
             g("round"),
@@ -553,7 +610,9 @@ fn summarize_event_kind(kind: &str, v: &Value) -> String {
             g("attempt_id"),
             g("plan_hash"),
             k.get("agreed_count").and_then(|x| x.as_u64()).unwrap_or(0),
-            k.get("replay_required_count").and_then(|x| x.as_u64()).unwrap_or(0)
+            k.get("replay_required_count")
+                .and_then(|x| x.as_u64())
+                .unwrap_or(0)
         ),
         _ => "—".to_string(),
     }
@@ -570,7 +629,10 @@ fn render_readme(
 ) -> String {
     let total_findings: u32 = waves.iter().map(|w| w.findings_total).sum();
     let mut s = String::new();
-    s.push_str(&format!("# {target_host} — engagement `{}`\n\n", summary.id));
+    s.push_str(&format!(
+        "# {target_host} — engagement `{}`\n\n",
+        summary.id
+    ));
     s.push_str(&format!("- **Engagement name:** `{}`\n", summary.name));
     s.push_str(&format!("- **Daemon state:** `{}`\n", summary.state));
     s.push_str(&format!("- **Events recorded:** {}\n", summary.event_count));
@@ -623,7 +685,11 @@ fn render_readme(
         for (idx, (from, to, override_reason, _bc, _ts)) in phase_events.iter().enumerate() {
             let n = idx + 1;
             let name = format!("{n:02}-{}-to-{}.md", from.to_lowercase(), to.to_lowercase());
-            let override_str = if override_reason.is_some() { "yes" } else { "no" };
+            let override_str = if override_reason.is_some() {
+                "yes"
+            } else {
+                "no"
+            };
             s.push_str(&format!(
                 "| {n:02} | `{from}` | `{to}` | {override_str} | [`phases/{name}`](phases/{name}) |\n"
             ));

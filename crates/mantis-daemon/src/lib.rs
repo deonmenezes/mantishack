@@ -47,9 +47,8 @@ impl DaemonConfig {
 pub async fn run(config: DaemonConfig) -> anyhow::Result<()> {
     let root = config.resolved_root();
     let ks = OsKeyStore::new();
-    let workspace = Arc::new(
-        Workspace::open_with_env_fallback(&root, &ks).context("open workspace")?,
-    );
+    let workspace =
+        Arc::new(Workspace::open_with_env_fallback(&root, &ks).context("open workspace")?);
     let event_store_path = root.join("events.rocksdb");
     let event_store = Arc::new(EventStore::open(&event_store_path).map_err(|e| {
         if is_lock_contention(&e) {

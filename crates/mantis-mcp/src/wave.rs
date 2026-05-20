@@ -203,10 +203,7 @@ const SEVERITY_RANK: &[(&str, u8)] = &[
 ];
 
 fn severity_rank(s: &str) -> Option<u8> {
-    SEVERITY_RANK
-        .iter()
-        .find(|(k, _)| *k == s)
-        .map(|(_, v)| *v)
+    SEVERITY_RANK.iter().find(|(k, _)| *k == s).map(|(_, v)| *v)
 }
 
 /// Validate the chain-attempt against the severity ladder. Returns
@@ -326,7 +323,11 @@ pub fn next_wave_number(engagement_id: &str) -> Result<u32> {
         if !entry.file_type()?.is_dir() {
             continue;
         }
-        if let Some(n) = entry.file_name().to_str().and_then(|s| s.parse::<u32>().ok()) {
+        if let Some(n) = entry
+            .file_name()
+            .to_str()
+            .and_then(|s| s.parse::<u32>().ok())
+        {
             if n > max {
                 max = n;
             }
@@ -375,8 +376,7 @@ pub fn start_wave(engagement_id: &str, assignments: &[Assignment]) -> Result<u32
         return Err(anyhow!("assignments must contain at least one entry"));
     }
     let wave_number = next_wave_number(engagement_id)?;
-    let bytes =
-        serde_json::to_vec_pretty(assignments).context("serialize assignments to JSON")?;
+    let bytes = serde_json::to_vec_pretty(assignments).context("serialize assignments to JSON")?;
     atomic_write(&assignments_path(engagement_id, wave_number), &bytes)?;
     Ok(wave_number)
 }
@@ -595,10 +595,18 @@ mod tests {
         assert_eq!(status.wave_number, 1);
         assert_eq!(status.assignments.len(), 2);
         assert!(!status.all_received);
-        let a1 = status.assignments.iter().find(|s| s.assignment_id == "a1").unwrap();
+        let a1 = status
+            .assignments
+            .iter()
+            .find(|s| s.assignment_id == "a1")
+            .unwrap();
         assert_eq!(a1.status, "received");
         assert_eq!(a1.findings_count, 1);
-        let a2 = status.assignments.iter().find(|s| s.assignment_id == "a2").unwrap();
+        let a2 = status
+            .assignments
+            .iter()
+            .find(|s| s.assignment_id == "a2")
+            .unwrap();
         assert_eq!(a2.status, "pending");
         assert_eq!(a2.findings_count, 0);
     }
@@ -624,9 +632,7 @@ mod tests {
             "msg: {err}"
         );
         // With any non-empty rationale -> accept.
-        assert!(
-            validate_chain_severity("medium", &inputs, Some("matters because X")).is_ok()
-        );
+        assert!(validate_chain_severity("medium", &inputs, Some("matters because X")).is_ok());
     }
 
     #[test]
@@ -650,14 +656,11 @@ mod tests {
     fn ladder_forbids_three_rung_jump_under_any_rationale() {
         let inputs = vec!["info".into()];
         // info (0) -> high (3) is 3 rungs; always rejected.
-        let err = validate_chain_severity(
-            "high",
-            &inputs,
-            Some("elevation: this is huge actually"),
-        )
-        .err()
-        .unwrap()
-        .to_string();
+        let err =
+            validate_chain_severity("high", &inputs, Some("elevation: this is huge actually"))
+                .err()
+                .unwrap()
+                .to_string();
         assert!(err.contains("jumping rungs"), "msg: {err}");
     }
 
@@ -668,7 +671,13 @@ mod tests {
 
     #[test]
     fn outcome_validator_accepts_terminal_outcomes() {
-        for ok in ["confirmed", "denied", "blocked", "inconclusive", "not_applicable"] {
+        for ok in [
+            "confirmed",
+            "denied",
+            "blocked",
+            "inconclusive",
+            "not_applicable",
+        ] {
             assert!(validate_chain_outcome(ok).is_ok(), "rejected `{ok}`");
         }
         assert!(validate_chain_outcome("maybe").is_err());
@@ -714,7 +723,12 @@ mod tests {
             h.join().unwrap();
         }
         let read = read_chain_attempts(eng, 1);
-        assert_eq!(read.len(), 8, "expected 8 records to persist; got {}", read.len());
+        assert_eq!(
+            read.len(),
+            8,
+            "expected 8 records to persist; got {}",
+            read.len()
+        );
     }
 
     #[test]
@@ -731,7 +745,10 @@ mod tests {
             finding_titles: vec!["F1".into(), "F2".into()],
             surfaces: vec!["https://x.example/".into()],
             hypothesis: "info leak -> IDOR".into(),
-            steps: vec!["GET /api/me leaked id 7".into(), "GET /api/user/8 returned other".into()],
+            steps: vec![
+                "GET /api/me leaked id 7".into(),
+                "GET /api/user/8 returned other".into(),
+            ],
             outcome: "confirmed".into(),
             severity: "medium".into(),
             evidence_summary: "two-step replay landed".into(),
@@ -786,12 +803,7 @@ mod tests {
             ),
         )
         .unwrap();
-        write_handoff(
-            eng,
-            1,
-            &sample_handoff("a2", vec![finding("ssrf", "high")]),
-        )
-        .unwrap();
+        write_handoff(eng, 1, &sample_handoff("a2", vec![finding("ssrf", "high")])).unwrap();
 
         let merge = merge_wave(eng, 1).unwrap();
         assert_eq!(merge.assignments_total, 3);

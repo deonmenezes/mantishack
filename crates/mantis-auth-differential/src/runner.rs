@@ -70,9 +70,8 @@ pub async fn run_differential(
         .danger_accept_invalid_certs(true)
         .redirect(reqwest::redirect::Policy::none());
     if let Some(p) = &config.proxy {
-        builder = builder.proxy(
-            reqwest::Proxy::all(p).map_err(|e| RunnerError::Http(e.to_string()))?,
-        );
+        builder =
+            builder.proxy(reqwest::Proxy::all(p).map_err(|e| RunnerError::Http(e.to_string()))?);
     }
     let client = builder
         .build()
@@ -198,7 +197,11 @@ mod tests {
                     } else {
                         r#"{"message":"JWT expired"}"#
                     };
-                    let status = if body.starts_with("[") { "200 OK" } else { "401 Unauthorized" };
+                    let status = if body.starts_with("[") {
+                        "200 OK"
+                    } else {
+                        "401 Unauthorized"
+                    };
                     let response = format!(
                         "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
                         body.len()

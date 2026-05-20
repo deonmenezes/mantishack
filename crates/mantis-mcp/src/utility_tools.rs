@@ -101,7 +101,10 @@ pub fn decode_jwt(jwt: &str) -> DecodedJwt {
     match decode_segment_json(parts[0]) {
         Ok(h) => {
             out.alg = h.get("alg").and_then(|v| v.as_str()).map(str::to_owned);
-            if matches!(out.alg.as_deref(), Some("none") | Some("None") | Some("NONE")) {
+            if matches!(
+                out.alg.as_deref(),
+                Some("none") | Some("None") | Some("NONE")
+            ) {
                 out.warnings.push("alg:none — unauthenticated JWT".into());
             }
             out.header = h;
@@ -485,7 +488,9 @@ pub fn summarize_url(raw: &str) -> UrlSummary {
 
     // authority (userinfo@host:port) / path
     let (authority, path) = split_once_at(rest, '/');
-    let path = path.map(|p| format!("/{p}")).unwrap_or_else(|| "/".to_string());
+    let path = path
+        .map(|p| format!("/{p}"))
+        .unwrap_or_else(|| "/".to_string());
     out.path = path;
     out.flags.path_is_secret_artifact = is_secret_artifact(&out.path);
     out.flags.path_is_admin_like = is_admin_like(&out.path);
@@ -516,14 +521,12 @@ pub fn summarize_url(raw: &str) -> UrlSummary {
         out.host = Some(hostport.to_string());
     }
 
-    out.effective_port = out
-        .port
-        .or_else(|| match out.scheme.as_deref() {
-            Some("http") | Some("ws") => Some(80),
-            Some("https") | Some("wss") => Some(443),
-            Some("ftp") => Some(21),
-            _ => None,
-        });
+    out.effective_port = out.port.or_else(|| match out.scheme.as_deref() {
+        Some("http") | Some("ws") => Some(80),
+        Some("https") | Some("wss") => Some(443),
+        Some("ftp") => Some(21),
+        _ => None,
+    });
 
     if let Some(h) = &out.host {
         out.flags.host_is_ip_literal = is_ip_literal(h);
@@ -768,41 +771,216 @@ fn hex_or_alnum(c: char) -> bool {
 
 const PATTERNS: &[SecretPattern] = &[
     // AWS access key id — exactly 20 chars total (AKIA + 16).
-    SecretPattern { kind: "aws_access_key", severity: "high",  prefix: "AKIA", min_len: 20, max_len: 20, charset: hex_or_alnum },
+    SecretPattern {
+        kind: "aws_access_key",
+        severity: "high",
+        prefix: "AKIA",
+        min_len: 20,
+        max_len: 20,
+        charset: hex_or_alnum,
+    },
     // AWS temp / session token starts ASIA.
-    SecretPattern { kind: "aws_temp_key",   severity: "high",  prefix: "ASIA", min_len: 20, max_len: 20, charset: hex_or_alnum },
+    SecretPattern {
+        kind: "aws_temp_key",
+        severity: "high",
+        prefix: "ASIA",
+        min_len: 20,
+        max_len: 20,
+        charset: hex_or_alnum,
+    },
     // GitHub Personal Access Token (fine-grained / classic).
-    SecretPattern { kind: "github_pat",     severity: "critical", prefix: "ghp_", min_len: 40, max_len: 100, charset: alnum_token },
-    SecretPattern { kind: "github_pat_fg",  severity: "critical", prefix: "github_pat_", min_len: 40, max_len: 200, charset: alnum_token },
+    SecretPattern {
+        kind: "github_pat",
+        severity: "critical",
+        prefix: "ghp_",
+        min_len: 40,
+        max_len: 100,
+        charset: alnum_token,
+    },
+    SecretPattern {
+        kind: "github_pat_fg",
+        severity: "critical",
+        prefix: "github_pat_",
+        min_len: 40,
+        max_len: 200,
+        charset: alnum_token,
+    },
     // GitHub OAuth / app token / refresh.
-    SecretPattern { kind: "github_oauth",   severity: "high",  prefix: "gho_", min_len: 40, max_len: 100, charset: alnum_token },
-    SecretPattern { kind: "github_user_app",severity: "high",  prefix: "ghu_", min_len: 40, max_len: 100, charset: alnum_token },
-    SecretPattern { kind: "github_server",  severity: "high",  prefix: "ghs_", min_len: 40, max_len: 100, charset: alnum_token },
-    SecretPattern { kind: "github_refresh", severity: "high",  prefix: "ghr_", min_len: 40, max_len: 100, charset: alnum_token },
+    SecretPattern {
+        kind: "github_oauth",
+        severity: "high",
+        prefix: "gho_",
+        min_len: 40,
+        max_len: 100,
+        charset: alnum_token,
+    },
+    SecretPattern {
+        kind: "github_user_app",
+        severity: "high",
+        prefix: "ghu_",
+        min_len: 40,
+        max_len: 100,
+        charset: alnum_token,
+    },
+    SecretPattern {
+        kind: "github_server",
+        severity: "high",
+        prefix: "ghs_",
+        min_len: 40,
+        max_len: 100,
+        charset: alnum_token,
+    },
+    SecretPattern {
+        kind: "github_refresh",
+        severity: "high",
+        prefix: "ghr_",
+        min_len: 40,
+        max_len: 100,
+        charset: alnum_token,
+    },
     // Stripe.
-    SecretPattern { kind: "stripe_live_secret",  severity: "critical", prefix: "sk_live_", min_len: 32, max_len: 100, charset: alnum_token },
-    SecretPattern { kind: "stripe_live_publish", severity: "low",      prefix: "pk_live_", min_len: 32, max_len: 100, charset: alnum_token },
-    SecretPattern { kind: "stripe_restricted",   severity: "critical", prefix: "rk_live_", min_len: 32, max_len: 100, charset: alnum_token },
-    SecretPattern { kind: "stripe_test_secret",  severity: "low",      prefix: "sk_test_", min_len: 32, max_len: 100, charset: alnum_token },
+    SecretPattern {
+        kind: "stripe_live_secret",
+        severity: "critical",
+        prefix: "sk_live_",
+        min_len: 32,
+        max_len: 100,
+        charset: alnum_token,
+    },
+    SecretPattern {
+        kind: "stripe_live_publish",
+        severity: "low",
+        prefix: "pk_live_",
+        min_len: 32,
+        max_len: 100,
+        charset: alnum_token,
+    },
+    SecretPattern {
+        kind: "stripe_restricted",
+        severity: "critical",
+        prefix: "rk_live_",
+        min_len: 32,
+        max_len: 100,
+        charset: alnum_token,
+    },
+    SecretPattern {
+        kind: "stripe_test_secret",
+        severity: "low",
+        prefix: "sk_test_",
+        min_len: 32,
+        max_len: 100,
+        charset: alnum_token,
+    },
     // OpenAI / Anthropic.
-    SecretPattern { kind: "openai_key",      severity: "high", prefix: "sk-proj-", min_len: 60, max_len: 200, charset: alnum_token },
-    SecretPattern { kind: "openai_user_key", severity: "high", prefix: "sk-", min_len: 30, max_len: 80,  charset: alnum_token },
-    SecretPattern { kind: "anthropic_key",   severity: "high", prefix: "sk-ant-", min_len: 60, max_len: 200, charset: alnum_token },
+    SecretPattern {
+        kind: "openai_key",
+        severity: "high",
+        prefix: "sk-proj-",
+        min_len: 60,
+        max_len: 200,
+        charset: alnum_token,
+    },
+    SecretPattern {
+        kind: "openai_user_key",
+        severity: "high",
+        prefix: "sk-",
+        min_len: 30,
+        max_len: 80,
+        charset: alnum_token,
+    },
+    SecretPattern {
+        kind: "anthropic_key",
+        severity: "high",
+        prefix: "sk-ant-",
+        min_len: 60,
+        max_len: 200,
+        charset: alnum_token,
+    },
     // Slack.
-    SecretPattern { kind: "slack_bot_token",  severity: "high", prefix: "xoxb-", min_len: 24, max_len: 200, charset: alnum_token },
-    SecretPattern { kind: "slack_user_token", severity: "high", prefix: "xoxp-", min_len: 24, max_len: 200, charset: alnum_token },
-    SecretPattern { kind: "slack_app_token",  severity: "high", prefix: "xapp-", min_len: 24, max_len: 200, charset: alnum_token },
+    SecretPattern {
+        kind: "slack_bot_token",
+        severity: "high",
+        prefix: "xoxb-",
+        min_len: 24,
+        max_len: 200,
+        charset: alnum_token,
+    },
+    SecretPattern {
+        kind: "slack_user_token",
+        severity: "high",
+        prefix: "xoxp-",
+        min_len: 24,
+        max_len: 200,
+        charset: alnum_token,
+    },
+    SecretPattern {
+        kind: "slack_app_token",
+        severity: "high",
+        prefix: "xapp-",
+        min_len: 24,
+        max_len: 200,
+        charset: alnum_token,
+    },
     // Google API keys.
-    SecretPattern { kind: "google_api_key", severity: "high", prefix: "AIza", min_len: 39, max_len: 39, charset: alnum_token },
+    SecretPattern {
+        kind: "google_api_key",
+        severity: "high",
+        prefix: "AIza",
+        min_len: 39,
+        max_len: 39,
+        charset: alnum_token,
+    },
     // Mailgun / SendGrid (heuristics).
-    SecretPattern { kind: "sendgrid_key",   severity: "high", prefix: "SG.", min_len: 40, max_len: 200, charset: alnum_token },
-    SecretPattern { kind: "mailgun_key",    severity: "high", prefix: "key-", min_len: 36, max_len: 80,  charset: alnum_token },
+    SecretPattern {
+        kind: "sendgrid_key",
+        severity: "high",
+        prefix: "SG.",
+        min_len: 40,
+        max_len: 200,
+        charset: alnum_token,
+    },
+    SecretPattern {
+        kind: "mailgun_key",
+        severity: "high",
+        prefix: "key-",
+        min_len: 36,
+        max_len: 80,
+        charset: alnum_token,
+    },
     // Tailscale / Fly / Vercel.
-    SecretPattern { kind: "tailscale_key",  severity: "high", prefix: "tskey-", min_len: 40, max_len: 200, charset: alnum_token },
-    SecretPattern { kind: "fly_token",      severity: "high", prefix: "fly_",  min_len: 30, max_len: 200, charset: alnum_token },
-    SecretPattern { kind: "vercel_token",   severity: "high", prefix: "vercel_", min_len: 30, max_len: 200, charset: alnum_token },
+    SecretPattern {
+        kind: "tailscale_key",
+        severity: "high",
+        prefix: "tskey-",
+        min_len: 40,
+        max_len: 200,
+        charset: alnum_token,
+    },
+    SecretPattern {
+        kind: "fly_token",
+        severity: "high",
+        prefix: "fly_",
+        min_len: 30,
+        max_len: 200,
+        charset: alnum_token,
+    },
+    SecretPattern {
+        kind: "vercel_token",
+        severity: "high",
+        prefix: "vercel_",
+        min_len: 30,
+        max_len: 200,
+        charset: alnum_token,
+    },
     // npm / Heroku.
-    SecretPattern { kind: "npm_token",      severity: "high", prefix: "npm_", min_len: 30, max_len: 200, charset: alnum_token },
+    SecretPattern {
+        kind: "npm_token",
+        severity: "high",
+        prefix: "npm_",
+        min_len: 30,
+        max_len: 200,
+        charset: alnum_token,
+    },
 ];
 
 /// Scan `blob` for the catalog of known credential shapes plus a
@@ -865,9 +1043,10 @@ pub fn extract_secrets(args: &ExtractSecretsArgs) -> SecretsReport {
     });
     let mut kept: Vec<SecretMatch> = Vec::with_capacity(matches.len());
     for m in matches {
-        if kept.last().is_some_and(|prev| {
-            ranges_overlap(prev.offset, prev.length, m.offset, m.length)
-        }) {
+        if kept
+            .last()
+            .is_some_and(|prev| ranges_overlap(prev.offset, prev.length, m.offset, m.length))
+        {
             // The previous one (longer at same/earlier offset) already
             // covers this span — skip.
             continue;
@@ -969,7 +1148,11 @@ fn char_safe(s: &str) -> String {
     }
     if last < s.len() {
         // tip past the last char start to include the full last char.
-        let end = s.char_indices().last().map(|(i, c)| i + c.len_utf8()).unwrap_or(s.len());
+        let end = s
+            .char_indices()
+            .last()
+            .map(|(i, c)| i + c.len_utf8())
+            .unwrap_or(s.len());
         s[..end].to_string()
     } else {
         s.to_string()
@@ -1032,7 +1215,15 @@ fn scan_private_keys(blob: &str, with_context: bool, out: &mut Vec<SecretMatch>)
                 .map(|e| after + e + end_marker.len())
                 .unwrap_or(blob.len().min(after + 2048));
             let length = end_pos - abs;
-            push_match(out, blob, "private_key_pem", "critical", abs, length, with_context);
+            push_match(
+                out,
+                blob,
+                "private_key_pem",
+                "critical",
+                abs,
+                length,
+                with_context,
+            );
             start = end_pos;
         }
     }
@@ -1167,16 +1358,29 @@ pub fn score_finding(args: &ScoreFindingArgs) -> ScoreFindingResult {
     };
     let it = args.impact_text.to_ascii_lowercase();
     for kw in [
-        "rce", "remote code execution", "shell", "ssrf to imds", "imds",
-        "admin takeover", "ato ", " ato", "data exfil", "data exfiltration",
-        "mass assignment", "production data", "all users", "tenant isolation",
+        "rce",
+        "remote code execution",
+        "shell",
+        "ssrf to imds",
+        "imds",
+        "admin takeover",
+        "ato ",
+        " ato",
+        "data exfil",
+        "data exfiltration",
+        "mass assignment",
+        "production data",
+        "all users",
+        "tenant isolation",
     ] {
         if it.contains(kw) {
             impact = (impact + 4).min(30);
         }
     }
-    if matches!(args.auth_profile.as_deref(), Some("attacker") | Some("victim"))
-        && (it.contains("cross-account") || it.contains("idor") || it.contains("other user"))
+    if matches!(
+        args.auth_profile.as_deref(),
+        Some("attacker") | Some("victim")
+    ) && (it.contains("cross-account") || it.contains("idor") || it.contains("other user"))
     {
         impact = (impact + 4).min(30);
     }
@@ -1184,9 +1388,15 @@ pub fn score_finding(args: &ScoreFindingArgs) -> ScoreFindingResult {
 
     // ----- proof quality (0–25) -----
     let mut proof_quality: u32 = 0;
-    if args.has_poc { proof_quality += 12; }
-    if args.has_response_evidence { proof_quality += 10; }
-    if args.auth_profile.is_some() { proof_quality += 3; }
+    if args.has_poc {
+        proof_quality += 12;
+    }
+    if args.has_response_evidence {
+        proof_quality += 10;
+    }
+    if args.auth_profile.is_some() {
+        proof_quality += 3;
+    }
     proof_quality = proof_quality.min(25);
 
     // ----- severity accuracy (0–15) -----
@@ -1209,7 +1419,11 @@ pub fn score_finding(args: &ScoreFindingArgs) -> ScoreFindingResult {
 
     // ----- report quality (0–15) -----
     let report_quality: u32 = if args.has_response_evidence {
-        if it.len() > 60 { 14 } else { 10 }
+        if it.len() > 60 {
+            14
+        } else {
+            10
+        }
     } else if args.has_poc {
         7
     } else {
@@ -1243,13 +1457,17 @@ pub fn score_finding(args: &ScoreFindingArgs) -> ScoreFindingResult {
         hints.push("capture the response (status + headers + body even truncated)".into());
     }
     if args.auth_profile.is_none() {
-        hints.push("identify which auth_profile produced the evidence (attacker / victim / unauth)".into());
+        hints.push(
+            "identify which auth_profile produced the evidence (attacker / victim / unauth)".into(),
+        );
     }
     if !args.chain_confirmed && sev_rank < 3 {
         hints.push("try chaining: does this enable a higher-severity outcome end-to-end?".into());
     }
     if args.is_known_noise_class && !args.chain_confirmed {
-        hints.push("known-noise class — only record if you can prove a chain into real impact".into());
+        hints.push(
+            "known-noise class — only record if you can prove a chain into real impact".into(),
+        );
     }
     if class_ceiling > 0 && sev_rank > class_ceiling {
         hints.push(format!(
@@ -1295,10 +1513,18 @@ fn vuln_class_ceiling(class: &str) -> u8 {
         "rce" | "auth_bypass_admin" | "ato_mass" | "ssrf_to_imds" => 4,
         "idor" | "ssrf" | "sqli" | "xss_stored" | "auth_bypass" | "privesc" => 3,
         "xss_reflected" | "csrf" | "open_redirect_chained" | "info_disclosure_pii" => 2,
-        "missing_headers" | "spf_dkim_dmarc" | "graphql_introspection"
-        | "banner_disclosure" | "csv_injection" | "cors_wildcard"
-        | "logout_csrf" | "self_xss" | "open_redirect" | "rate_limit_login"
-        | "missing_cookie_flags" | "password_autocomplete" => 1,
+        "missing_headers"
+        | "spf_dkim_dmarc"
+        | "graphql_introspection"
+        | "banner_disclosure"
+        | "csv_injection"
+        | "cors_wildcard"
+        | "logout_csrf"
+        | "self_xss"
+        | "open_redirect"
+        | "rate_limit_login"
+        | "missing_cookie_flags"
+        | "password_autocomplete" => 1,
         "" => 0,
         _ => 0,
     }
@@ -1357,7 +1583,10 @@ pub fn hash_request(args: &HashRequestArgs) -> HashRequestResult {
     let ignore_lower: std::collections::BTreeSet<String> = if args.ignore_headers.is_empty() {
         default_ignored.iter().map(|s| s.to_string()).collect()
     } else {
-        args.ignore_headers.iter().map(|s| s.to_ascii_lowercase()).collect()
+        args.ignore_headers
+            .iter()
+            .map(|s| s.to_ascii_lowercase())
+            .collect()
     };
 
     let mut hasher = blake3::Hasher::new();
@@ -1596,7 +1825,10 @@ fn resolve_action(action: &str, base: Option<&str>) -> Option<String> {
     // Strip any path/query/fragment from `base` to keep just the
     // scheme+host+port when the action is absolute-path.
     if action.starts_with('/') {
-        if let Some(idx) = base.find("://").and_then(|i| base[i + 3..].find('/').map(|j| i + 3 + j)) {
+        if let Some(idx) = base
+            .find("://")
+            .and_then(|i| base[i + 3..].find('/').map(|j| i + 3 + j))
+        {
             return Some(format!("{}{}", &base[..idx], action));
         }
         return Some(format!("{base}{action}"));
@@ -1782,7 +2014,8 @@ fn scan_protocol_relative(
                 .unwrap_or(blob.len());
             let url = &blob[abs..end];
             if url.len() > 4 && url[2..].contains('/') {
-                let (host, origin) = classify_link(url, "protocol_relative", origin_host.as_deref());
+                let (host, origin) =
+                    classify_link(url, "protocol_relative", origin_host.as_deref());
                 found.entry(url.to_string()).or_insert(LinkMatch {
                     url: url.to_string(),
                     kind: "protocol_relative".into(),
@@ -1809,7 +2042,8 @@ fn scan_quoted_relative_paths(
             if bytes[i] == open as u8 && bytes[i + 1] == b'/' && bytes[i + 2] != b'/' {
                 let start_path = i + 1;
                 let mut j = start_path;
-                while j < bytes.len() && bytes[j] != close as u8 && !bytes[j].is_ascii_whitespace() {
+                while j < bytes.len() && bytes[j] != close as u8 && !bytes[j].is_ascii_whitespace()
+                {
                     j += 1;
                 }
                 if j < bytes.len() && bytes[j] == close as u8 {
@@ -1818,8 +2052,15 @@ fn scan_quoted_relative_paths(
                         && url.len() > 1
                         && url.len() <= 200
                         && url.bytes().all(|b| {
-                            b == b'/' || b == b'-' || b == b'_' || b == b'.' || b == b'?'
-                                || b == b'&' || b == b'=' || b == b'%' || b == b'+'
+                            b == b'/'
+                                || b == b'-'
+                                || b == b'_'
+                                || b == b'.'
+                                || b == b'?'
+                                || b == b'&'
+                                || b == b'='
+                                || b == b'%'
+                                || b == b'+'
                                 || b.is_ascii_alphanumeric()
                         })
                         && !url.contains("//")
@@ -1865,7 +2106,12 @@ fn classify_link(url: &str, kind: &str, origin_host: Option<&str>) -> (Option<St
             // Strip :port for comparison.
             let h_no_port = h.split(':').next().unwrap_or(h);
             let o_no_port = o.split(':').next().unwrap_or(o);
-            if h_no_port == o_no_port { "same_origin" } else { "external" }.to_string()
+            if h_no_port == o_no_port {
+                "same_origin"
+            } else {
+                "external"
+            }
+            .to_string()
         }
         (Some(_), None) => "unknown".to_string(),
         (None, _) => "relative".to_string(),
@@ -1937,10 +2183,7 @@ mod tests {
 
     #[test]
     fn decode_jwt_strips_bearer_prefix() {
-        let j = format!(
-            "Bearer {}",
-            jwt(r#"{"alg":"HS256"}"#, r#"{"sub":"u1"}"#)
-        );
+        let j = format!("Bearer {}", jwt(r#"{"alg":"HS256"}"#, r#"{"sub":"u1"}"#));
         let d = decode_jwt(&j);
         assert_eq!(d.sub.as_deref(), Some("u1"));
     }
@@ -1953,25 +2196,44 @@ mod tests {
 
     #[test]
     fn diff_responses_identical() {
-        let a = ResponseSnapshot { status: 200, headers: BTreeMap::new(), body: "ok".into() };
+        let a = ResponseSnapshot {
+            status: 200,
+            headers: BTreeMap::new(),
+            body: "ok".into(),
+        };
         let b = a.clone();
-        let r = diff_responses(&DiffResponsesArgs { a, b, preview_cap: 256 });
+        let r = diff_responses(&DiffResponsesArgs {
+            a,
+            b,
+            preview_cap: 256,
+        });
         assert_eq!(r.classification, "identical");
         assert!(r.body_identical);
     }
 
     #[test]
     fn diff_responses_status_changed_and_marker() {
-        let mut a = ResponseSnapshot { status: 401, headers: BTreeMap::new(), body: r#"{"error":"unauthorized"}"#.into() };
+        let mut a = ResponseSnapshot {
+            status: 401,
+            headers: BTreeMap::new(),
+            body: r#"{"error":"unauthorized"}"#.into(),
+        };
         a.headers.insert("x-rate".into(), "1".into());
         let b = ResponseSnapshot {
             status: 200,
             headers: BTreeMap::new(),
             body: r#"{"role":"admin","ok":true}"#.into(),
         };
-        let r = diff_responses(&DiffResponsesArgs { a, b, preview_cap: 256 });
+        let r = diff_responses(&DiffResponsesArgs {
+            a,
+            b,
+            preview_cap: 256,
+        });
         assert!(r.status_delta);
-        assert!(r.markers.iter().any(|m| m.starts_with("role:admin (only in B)")));
+        assert!(r
+            .markers
+            .iter()
+            .any(|m| m.starts_with("role:admin (only in B)")));
         assert!(r
             .markers
             .iter()
@@ -1980,11 +2242,19 @@ mod tests {
 
     #[test]
     fn diff_responses_headers_only_changed() {
-        let mut a = ResponseSnapshot { status: 200, headers: BTreeMap::new(), body: "x".into() };
+        let mut a = ResponseSnapshot {
+            status: 200,
+            headers: BTreeMap::new(),
+            body: "x".into(),
+        };
         a.headers.insert("Set-Cookie".into(), "sid=1".into());
         let mut b = a.clone();
         b.headers.insert("Set-Cookie".into(), "sid=2".into());
-        let r = diff_responses(&DiffResponsesArgs { a, b, preview_cap: 256 });
+        let r = diff_responses(&DiffResponsesArgs {
+            a,
+            b,
+            preview_cap: 256,
+        });
         assert_eq!(r.classification, "headers_changed");
         assert!(r.headers_value_changed.contains(&"Set-Cookie".into()));
     }
@@ -1998,7 +2268,10 @@ mod tests {
         assert_eq!(s.path, "/admin/users");
         assert_eq!(s.query.as_deref(), Some("id=42&q=a%20b"));
         assert_eq!(s.fragment.as_deref(), Some("sec"));
-        assert_eq!(s.query_params, vec![("id".into(), "42".into()), ("q".into(), "a b".into())]);
+        assert_eq!(
+            s.query_params,
+            vec![("id".into(), "42".into()), ("q".into(), "a b".into())]
+        );
         assert!(s.flags.has_userinfo);
         assert!(s.flags.path_is_admin_like);
         assert!(!s.flags.host_is_internal);
@@ -2054,7 +2327,10 @@ mod tests {
         // Assemble the fake Stripe-key shape at runtime so the literal
         // `sk_live_<long-alnum>` substring never appears in source —
         // GitHub push-protection scans the diff for it.
-        let blob = format!("token = sk_{}_{}{} some more", "live", "FAKE0000", "000000000000000000000000");
+        let blob = format!(
+            "token = sk_{}_{}{} some more",
+            "live", "FAKE0000", "000000000000000000000000"
+        );
         let r = extract(&blob);
         assert_eq!(r.matches.len(), 1);
         assert_eq!(r.matches[0].kind, "stripe_live_secret");
@@ -2073,7 +2349,11 @@ mod tests {
     fn extract_openai_user_key_redacted() {
         let r = extract("openai: sk-aBcDeFgHiJkLmNoPqRsTuVwXyZ012345678");
         assert!(r.matches.iter().any(|m| m.kind == "openai_user_key"));
-        let m = r.matches.iter().find(|m| m.kind == "openai_user_key").unwrap();
+        let m = r
+            .matches
+            .iter()
+            .find(|m| m.kind == "openai_user_key")
+            .unwrap();
         assert!(m.redacted.contains(":sk-"));
     }
 
@@ -2134,7 +2414,8 @@ mod tests {
     fn score_submits_strong_high_finding() {
         let mut a = args("high", true, true, false);
         a.vuln_class = "idor".into();
-        a.impact_text = "Cross-account read: attacker profile reads victim's orders via predictable id".into();
+        a.impact_text =
+            "Cross-account read: attacker profile reads victim's orders via predictable id".into();
         a.auth_profile = Some("attacker".into());
         let r = score_finding(&a);
         assert_eq!(r.verdict, "SUBMIT");
@@ -2166,17 +2447,15 @@ mod tests {
         a.is_known_noise_class = true;
         let r = score_finding(&a);
         assert_eq!(r.verdict, "SKIP");
-        assert!(r
-            .elevate_hints
-            .iter()
-            .any(|h| h.contains("known-noise")));
+        assert!(r.elevate_hints.iter().any(|h| h.contains("known-noise")));
     }
 
     #[test]
     fn score_promotes_noise_class_if_chain_confirmed() {
         let mut a = args("high", true, true, true);
         a.vuln_class = "open_redirect".into();
-        a.impact_text = "Chained into ATO via OAuth state confusion; victim session hijacked".into();
+        a.impact_text =
+            "Chained into ATO via OAuth state confusion; victim session hijacked".into();
         a.is_known_noise_class = true;
         let r = score_finding(&a);
         // chain_confirmed bypasses the auto-skip; severity high keeps SUBMIT eligible
@@ -2201,7 +2480,7 @@ mod tests {
         h1.insert("Content-Type".into(), "application/json".into());
         let mut h2 = h1.clone();
         h2.insert("Authorization".into(), "Bearer xyz".into()); // rotated
-        h2.insert("X-Request-Id".into(), "abc-123".into());     // new noisy
+        h2.insert("X-Request-Id".into(), "abc-123".into()); // new noisy
 
         let r1 = hash_request(&HashRequestArgs {
             method: "POST".into(),
@@ -2305,8 +2584,15 @@ mod tests {
         assert!(kinds.contains(&"protocol_relative"));
         assert!(kinds.contains(&"relative_path"));
         assert!(kinds.contains(&"mailto"));
-        let same_origin: Vec<&LinkMatch> = r.matches.iter().filter(|m| m.origin == "same_origin").collect();
-        assert!(!same_origin.is_empty(), "expected at least one same-origin match");
+        let same_origin: Vec<&LinkMatch> = r
+            .matches
+            .iter()
+            .filter(|m| m.origin == "same_origin")
+            .collect();
+        assert!(
+            !same_origin.is_empty(),
+            "expected at least one same-origin match"
+        );
         assert!(r.distinct_hosts.iter().any(|h| h == "cdn.example.com"));
         assert!(r.distinct_hosts.iter().any(|h| h == "api.example.com"));
     }

@@ -136,11 +136,9 @@ impl KeyStore for FileKeyStore {
     }
 
     fn delete(&self, service: &str, account: &str) -> Result<(), KeyStoreError> {
-        std::fs::remove_file(self.path(service, account)).map_err(|_| {
-            KeyStoreError::NotFound {
-                service: service.to_owned(),
-                account: account.to_owned(),
-            }
+        std::fs::remove_file(self.path(service, account)).map_err(|_| KeyStoreError::NotFound {
+            service: service.to_owned(),
+            account: account.to_owned(),
         })
     }
 

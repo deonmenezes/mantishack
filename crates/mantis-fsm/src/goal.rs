@@ -149,8 +149,16 @@ impl Goal {
         } else if lower.contains("vuln") || lower.contains("bug") || lower.contains("find") {
             // Look for an inline vuln class hint.
             for class in [
-                "idor", "sqli", "xss", "ssrf", "rce", "xxe", "csrf",
-                "open-redirect", "auth-bypass", "broken-access-control",
+                "idor",
+                "sqli",
+                "xss",
+                "ssrf",
+                "rce",
+                "xxe",
+                "csrf",
+                "open-redirect",
+                "auth-bypass",
+                "broken-access-control",
             ] {
                 if lower.contains(class) {
                     return Self {
@@ -182,15 +190,17 @@ impl Goal {
     /// Returns `Met`, `InProgress`, or (for `Custom`) `Pending`.
     /// The orchestrator calls this after every pass and stops
     /// iterating once the result is `Met`.
-    pub fn evaluate(&self, explored_count: u32, reportable_findings: &[FindingSummary]) -> GoalStatus {
+    pub fn evaluate(
+        &self,
+        explored_count: u32,
+        reportable_findings: &[FindingSummary],
+    ) -> GoalStatus {
         match &self.kind {
             GoalKind::EnumerateEndpoints {
                 min_surfaces,
                 stagnation_passes,
             } => {
-                if explored_count >= *min_surfaces
-                    && self.stagnation_streak >= *stagnation_passes
-                {
+                if explored_count >= *min_surfaces && self.stagnation_streak >= *stagnation_passes {
                     GoalStatus::Met
                 } else if self.passes_spent == 0 {
                     GoalStatus::Pending
@@ -229,7 +239,7 @@ impl Goal {
                 }
             }
             GoalKind::AuthenticatedScan => GoalStatus::InProgress, // operator-marked
-            GoalKind::Custom { .. } => GoalStatus::InProgress,    // operator-marked
+            GoalKind::Custom { .. } => GoalStatus::InProgress,     // operator-marked
         }
     }
 
@@ -311,7 +321,10 @@ mod tests {
         let g = Goal::parse("find all endpoints", 0);
         assert!(matches!(
             g.kind,
-            GoalKind::EnumerateEndpoints { min_surfaces: 5, stagnation_passes: 2 }
+            GoalKind::EnumerateEndpoints {
+                min_surfaces: 5,
+                stagnation_passes: 2
+            }
         ));
         assert_eq!(g.description, "find all endpoints");
         assert_eq!(g.status, GoalStatus::Pending);
@@ -326,7 +339,9 @@ mod tests {
     #[test]
     fn parse_specific_vuln_class() {
         let g = Goal::parse("find IDOR bugs", 0);
-        assert!(matches!(g.kind, GoalKind::SpecificVulnClass { ref vuln_class } if vuln_class == "idor"));
+        assert!(
+            matches!(g.kind, GoalKind::SpecificVulnClass { ref vuln_class } if vuln_class == "idor")
+        );
     }
 
     #[test]
@@ -338,7 +353,9 @@ mod tests {
     #[test]
     fn parse_custom_falls_back() {
         let g = Goal::parse("write a haiku", 0);
-        assert!(matches!(g.kind, GoalKind::Custom { ref description } if description == "write a haiku"));
+        assert!(
+            matches!(g.kind, GoalKind::Custom { ref description } if description == "write a haiku")
+        );
     }
 
     #[test]

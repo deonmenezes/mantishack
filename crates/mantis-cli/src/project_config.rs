@@ -89,10 +89,9 @@ pub(crate) fn load() -> Result<Option<(PathBuf, ProjectConfig)>> {
     let Some(path) = discover() else {
         return Ok(None);
     };
-    let raw = std::fs::read_to_string(&path)
-        .with_context(|| format!("read {}", path.display()))?;
-    let cfg: ProjectConfig = serde_json::from_str(&raw)
-        .with_context(|| format!("parse {} as JSON", path.display()))?;
+    let raw = std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let cfg: ProjectConfig =
+        serde_json::from_str(&raw).with_context(|| format!("parse {} as JSON", path.display()))?;
     Ok(Some((path, cfg)))
 }
 
@@ -121,7 +120,8 @@ mod tests {
 
     #[test]
     fn parses_partial_config() {
-        let cfg: ProjectConfig = serde_json::from_str(r#"{"model":"claude-haiku-4-5-20251001"}"#).unwrap();
+        let cfg: ProjectConfig =
+            serde_json::from_str(r#"{"model":"claude-haiku-4-5-20251001"}"#).unwrap();
         assert_eq!(cfg.model.as_deref(), Some("claude-haiku-4-5-20251001"));
         assert!(cfg.deep.is_none());
         assert!(cfg.egress.is_none());
