@@ -1,0 +1,15 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    font-family: ui-sans-serif, system-ui, -apple-system, "Inter", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}
