@@ -39,8 +39,8 @@ cd viewer && pnpm install
 
 Two supply-chain guards are configured in `pnpm-workspace.yaml`:
 
-  * **`minimumReleaseAge: 4320`** — pnpm refuses to install any package
-    published less than 3 days ago (4320 minutes). Mitigates the
+  * **`minimumReleaseAge: 5760`** — pnpm refuses to install any package
+    published less than 4 days ago (5760 minutes). Mitigates the
     common pattern where a compromised maintainer token uploads a
     malicious version that is detected and unpublished within 48
     hours.
@@ -49,7 +49,7 @@ Two supply-chain guards are configured in `pnpm-workspace.yaml`:
     else is denied by default.
 
 When dependabot proposes a fresh-baked upgrade, the lockfile will be
-rejected on install until 3 days have passed — this is the intended
+rejected on install until 4 days have passed — this is the intended
 behaviour. Reviewers can `pnpm clean --lockfile && pnpm install` after
 the cooldown to land the upgrade.
 

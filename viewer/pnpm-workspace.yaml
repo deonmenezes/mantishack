@@ -2,10 +2,12 @@
 # (Even single-package projects need a workspace file for these
 # settings now — pnpm dropped the `pnpm` field in package.json.)
 
-# Supply-chain hardening: refuse packages published less than 3 days
-# ago. Community detection + npm unpublish for compromised versions
-# typically lands inside 48 hours; 3 days gives a comfortable margin.
-minimumReleaseAge: 4320
+# Supply-chain hardening: refuse packages published less than 4 days
+# ago (5760 minutes). Community detection + npm unpublish for
+# compromised versions typically lands inside 48 hours; 4 days gives
+# a comfortable margin and matches what other security-focused
+# projects (post-Shai-Hulud) settled on.
+minimumReleaseAge: 5760
 minimumReleaseAgeExclude: []
 
 # Postinstall scripts are denied by default since pnpm v10. Whitelist
