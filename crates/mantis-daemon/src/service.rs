@@ -236,6 +236,122 @@ fn state_to_str(s: mantis_core::EngagementState) -> String {
     .to_string()
 }
 
+/// Convert a daemon-side [`EventKind`] into the browser-facing
+/// `WebEvent` enum and push it into the SSE broadcast + the
+/// SharedState snapshot the next `/api/state` request will see.
+///
+/// The mapping is intentionally lossy:
+/// * Most engagement-internal events surface as a single `LogLine`
+///   formatted for human reading.
+/// * `ClaimVerified` is the one that materialises as a structured
+///   `ClaimAdded`, because that is what the viewer's findings table
+///   renders.
+fn project_to_web(
+    kind: &EventKind,
+    web_events: &Option<WebEventChannel>,
+    web_state: &Option<WebSharedState>,
+) {
+    let project = match kind {
+        EventKind::ScopeDecisionLogged {
+            in_scope,
+            target,
+            reason,
+        } => Some(WebEvent::LogLine {
+            line: format!(
+                "scope decision: {} {} — {}",
+                if *in_scope { "ALLOW" } else { "DENY " },
+                target,
+                reason
+            ),
+        }),
+        EventKind::SurfaceDiscovered {
+            host,
+            port,
+            scheme,
+            path,
+            status,
+            server,
+            ..
+        } => Some(WebEvent::LogLine {
+            line: format!(
+                "surface discovered: {} {}://{}:{}{} (server: {})",
+                status,
+                scheme,
+                host,
+                port,
+                path,
+                server.as_deref().unwrap_or("?")
+            ),
+        }),
+        EventKind::HypothesisGenerated {
+            surface_id,
+            vuln_class,
+            summary,
+            prior,
+        } => Some(WebEvent::LogLine {
+            line: format!(
+                "hypothesis: {vuln_class} on {surface_id} (prior {prior:.0}pp10k) — {summary}"
+            ),
+        }),
+        EventKind::PrimitiveExecuted {
+            surface_id,
+            primitive_id,
+            verdict,
+            ..
+        } => Some(WebEvent::LogLine {
+            line: format!("primitive {primitive_id} on {surface_id} → {verdict}"),
+        }),
+        EventKind::ClaimVerified {
+            surface_id,
+            primitive_id,
+            verifier_id,
+        } => {
+            // Push BOTH a log line and a structured claim. The
+            // findings table consumes the latter.
+            if let Some(ch) = web_events {
+                ch.send(WebEvent::LogLine {
+                    line: format!(
+                        "claim VERIFIED: {primitive_id} on {surface_id} (verifier {verifier_id})"
+                    ),
+                });
+            }
+            let claim = mantis_web_ui::state::ClaimView {
+                vuln_class: primitive_id.clone(),
+                severity: "medium".to_string(),
+                status: "verified".to_string(),
+                url: surface_id.clone(),
+            };
+            if let Some(ws) = web_state {
+                if let Ok(mut guard) = ws.write() {
+                    guard.claims.insert(0, claim.clone());
+                }
+            }
+            Some(WebEvent::ClaimAdded(claim))
+        }
+        EventKind::ClaimRejected {
+            surface_id,
+            primitive_id,
+            reason,
+        } => Some(WebEvent::LogLine {
+            line: format!("claim rejected: {primitive_id} on {surface_id} — {reason}"),
+        }),
+        EventKind::ClaimRetained {
+            surface_id,
+            primitive_id,
+            reason,
+        } => Some(WebEvent::LogLine {
+            line: format!("claim retained: {primitive_id} on {surface_id} — {reason}"),
+        }),
+        EventKind::PhaseTransitioned { to, .. } => Some(WebEvent::LogLine {
+            line: format!("phase transitioned → {to}"),
+        }),
+        _ => None,
+    };
+    if let (Some(ev), Some(ch)) = (project, web_events) {
+        ch.send(ev);
+    }
+}
+
 /// Build a SessionState by folding every PhaseTransitioned event
 /// for the engagement. Surfaces discovered during recon also bump
 /// the FSM's `explored` set so the RECON->AUTH gate opens once at
@@ -551,6 +667,13 @@ impl Engagement for EngagementServiceImpl {
                 )));
             }
         }
+        // Snapshot the engagement's event count BEFORE probing +
+        // pipeline so we can replay newly-appended events afterwards
+        // and stream them to the web UI.
+        let events_before = self
+            .event_store
+            .event_count(id)
+            .map_err(|e| Status::internal(format!("event count: {e}")))?;
         let targets = inner
             .targets
             .iter()
@@ -619,13 +742,35 @@ impl Engagement for EngagementServiceImpl {
         )
         .await;
 
-        {
+        // Bump the in-memory event count, then capture the
+        // updated row so we can broadcast it to the viewer.
+        let updated_row: Option<EngagementRow> = {
             let mut state = self.state.write().await;
             if let Some(row) = state.get_mut(&id) {
                 row.event_count = self
                     .event_store
                     .event_count(id)
                     .map_err(|e| Status::internal(format!("event count: {e}")))?;
+                Some(row.clone())
+            } else {
+                None
+            }
+        };
+        if let Some(row) = updated_row {
+            self.notify_engagement_changed(&row);
+        }
+
+        // Replay events appended during this scan and project them
+        // to the web UI channel. The viewer's findings table, log
+        // stream, and event-count badges update accordingly.
+        if self.web_events.is_some() || self.web_state.is_some() {
+            match self.event_store.replay(id) {
+                Ok(events) => {
+                    for event in events.iter().skip(events_before as usize) {
+                        project_to_web(&event.kind, &self.web_events, &self.web_state);
+                    }
+                }
+                Err(e) => warn!(error = %e, "failed to replay events for web projection"),
             }
         }
 
