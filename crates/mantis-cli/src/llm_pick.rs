@@ -3,27 +3,38 @@
 //! Used by the offensive pipeline (`mantis hack`, `mantis pentest`,
 //! `mantis goal`) and the conversational surface (`mantis chat`,
 //! `mantis ask`, `mantis serve`) to opportunistically call an LLM
-//! without forcing the user to configure one. Picker order:
+//! without forcing the user to configure one.
 //!
-//!   1. `ANTHROPIC_API_KEY`     → [`AnthropicAdapter`]
-//!   2. `OPENAI_API_KEY`        → [`OpenAIAdapter`]
-//!   3. `GEMINI_API_KEY`        → [`GeminiAdapter`]
-//!   4. `OLLAMA_HOST` set       → [`OllamaAdapter`] (local model)
-//!   5. `claude` binary on PATH → [`ClaudeCliAdapter`]
-//!   6. None
+//! Provider catalogue (set the env var on the right to enable):
 //!
-//! The picker is deliberately ordered: direct-API keys are preferred
-//! over the CLI subprocess (lower latency, no shell-out, no spawn
-//! overhead). Ollama is opt-in via `OLLAMA_HOST` rather than auto-
-//! probed so the picker stays network-free. The CLI adapter is the
-//! final fallback because it doesn't require the user to manage keys
-//! — Claude Code's own auth handles that.
+//! | Provider id     | Env var                  | Native adapter / base URL                                   | Default model                |
+//! | --------------- | ------------------------ | ----------------------------------------------------------- | ---------------------------- |
+//! | `anthropic`     | `ANTHROPIC_API_KEY`      | AnthropicAdapter                                            | `claude-opus-4-7`            |
+//! | `openai`        | `OPENAI_API_KEY`         | OpenAIAdapter                                               | `gpt-4o-mini`                |
+//! | `gemini`        | `GEMINI_API_KEY`         | GeminiAdapter                                               | `gemini-2.0-flash-exp`       |
+//! | `moonshot`      | `MOONSHOT_API_KEY`       | OpenAI-compatible → `https://api.moonshot.cn/v1`            | `moonshot-v1-32k` (Kimi)     |
+//! | `deepseek`      | `DEEPSEEK_API_KEY`       | OpenAI-compatible → `https://api.deepseek.com/v1`           | `deepseek-chat`              |
+//! | `groq`          | `GROQ_API_KEY`           | OpenAI-compatible → `https://api.groq.com/openai/v1`        | `llama-3.3-70b-versatile`    |
+//! | `mistral`       | `MISTRAL_API_KEY`        | OpenAI-compatible → `https://api.mistral.ai/v1`             | `mistral-large-latest`       |
+//! | `xai`           | `XAI_API_KEY`            | OpenAI-compatible → `https://api.x.ai/v1`                   | `grok-2-latest`              |
+//! | `openrouter`    | `OPENROUTER_API_KEY`     | OpenAI-compatible → `https://openrouter.ai/api/v1`          | `anthropic/claude-3.5-sonnet`|
+//! | `qwen`          | `DASHSCOPE_API_KEY`      | OpenAI-compatible → Alibaba DashScope                       | `qwen-max`                   |
+//! | `zhipu`         | `ZHIPU_API_KEY`          | OpenAI-compatible → `https://open.bigmodel.cn/api/paas/v4`  | `glm-4-plus`                 |
+//! | `bedrock`       | `AWS_BEDROCK_PROXY_URL` + `AWS_BEDROCK_API_KEY` | OpenAI-compatible against a LiteLLM / Bedrock Access Gateway proxy | `anthropic.claude-3-5-sonnet-20241022-v2:0` |
+//! | `ollama`        | `OLLAMA_HOST` (or always available when forced) | OllamaAdapter → local model server                          | `llama3.2`                   |
+//! | `claude-cli`    | `claude` binary on PATH  | Shells out to `claude --print`                              | (uses CLI's own model)       |
+//!
+//! Auto-pick order (top first) — set the env var to enable:
+//!   `ANTHROPIC_API_KEY` → `OPENAI_API_KEY` → `GEMINI_API_KEY` →
+//!   `MOONSHOT_API_KEY` → `DEEPSEEK_API_KEY` → `GROQ_API_KEY` →
+//!   `MISTRAL_API_KEY` → `XAI_API_KEY` → `OPENROUTER_API_KEY` →
+//!   `DASHSCOPE_API_KEY` → `ZHIPU_API_KEY` → `AWS_BEDROCK_PROXY_URL`
+//!   → `OLLAMA_HOST` → `claude` on PATH → None.
 //!
 //! Honors:
 //! - `MANTIS_NO_LLM=1`  → always returns `None`
 //! - `MANTIS_LLM_PROVIDER=<id>` → force a specific provider
-//!   (`anthropic`, `openai`, `gemini`, `ollama`, `claude-cli`);
-//!   errors if unavailable.
+//!   (any of the ids above); errors if unavailable.
 
 use mantis_synthesizer::{
     anthropic::AnthropicAdapter, claude_cli::ClaudeCliAdapter, gemini::GeminiAdapter,
@@ -39,6 +50,15 @@ pub(crate) enum PickedProvider {
     Anthropic,
     OpenAI,
     Gemini,
+    Moonshot,
+    DeepSeek,
+    Groq,
+    Mistral,
+    XAi,
+    OpenRouter,
+    Qwen,
+    Zhipu,
+    Bedrock,
     Ollama,
     ClaudeCli,
 }
@@ -49,10 +69,49 @@ impl PickedProvider {
             PickedProvider::Anthropic => "anthropic",
             PickedProvider::OpenAI => "openai",
             PickedProvider::Gemini => "gemini",
+            PickedProvider::Moonshot => "moonshot",
+            PickedProvider::DeepSeek => "deepseek",
+            PickedProvider::Groq => "groq",
+            PickedProvider::Mistral => "mistral",
+            PickedProvider::XAi => "xai",
+            PickedProvider::OpenRouter => "openrouter",
+            PickedProvider::Qwen => "qwen",
+            PickedProvider::Zhipu => "zhipu",
+            PickedProvider::Bedrock => "bedrock",
             PickedProvider::Ollama => "ollama",
             PickedProvider::ClaudeCli => "claude-cli",
         }
     }
+}
+
+/// Default base URL + model for each OpenAI-compatible provider.
+/// Kept module-private; the CLI's `pick_chat_adapter` re-uses these
+/// constants via accessor functions so the catalogue lives in ONE
+/// place.
+pub(crate) const MOONSHOT_BASE: &str = "https://api.moonshot.cn/v1";
+pub(crate) const MOONSHOT_MODEL: &str = "moonshot-v1-32k";
+pub(crate) const DEEPSEEK_BASE: &str = "https://api.deepseek.com/v1";
+pub(crate) const DEEPSEEK_MODEL: &str = "deepseek-chat";
+pub(crate) const GROQ_BASE: &str = "https://api.groq.com/openai/v1";
+pub(crate) const GROQ_MODEL: &str = "llama-3.3-70b-versatile";
+pub(crate) const MISTRAL_BASE: &str = "https://api.mistral.ai/v1";
+pub(crate) const MISTRAL_MODEL: &str = "mistral-large-latest";
+pub(crate) const XAI_BASE: &str = "https://api.x.ai/v1";
+pub(crate) const XAI_MODEL: &str = "grok-2-latest";
+pub(crate) const OPENROUTER_BASE: &str = "https://openrouter.ai/api/v1";
+pub(crate) const OPENROUTER_MODEL: &str = "anthropic/claude-3.5-sonnet";
+pub(crate) const QWEN_BASE: &str = "https://dashscope.aliyuncs.com/compatible-mode/v1";
+pub(crate) const QWEN_MODEL: &str = "qwen-max";
+pub(crate) const ZHIPU_BASE: &str = "https://open.bigmodel.cn/api/paas/v4";
+pub(crate) const ZHIPU_MODEL: &str = "glm-4-plus";
+pub(crate) const BEDROCK_MODEL: &str = "anthropic.claude-3-5-sonnet-20241022-v2:0";
+
+fn openai_compat(key: String, base_url: &str) -> Arc<dyn LlmAdapter> {
+    Arc::new(
+        OpenAIAdapter::new(key)
+            .with_base_url(base_url)
+            .with_max_tokens(1024),
+    )
 }
 
 /// Pick the first ready provider. Returns `None` when LLM is disabled
@@ -69,7 +128,8 @@ pub(crate) fn pick() -> Option<(Arc<dyn LlmAdapter>, PickedProvider)> {
         return force(&forced);
     }
 
-    // Auto-pick.
+    // Auto-pick. Direct-API providers first (lowest latency); local
+    // Ollama and the claude-cli subprocess fall through last.
     if let Some(key) = nonempty_env("ANTHROPIC_API_KEY") {
         let adapter = AnthropicAdapter::new(key).with_max_tokens(1024);
         return Some((Arc::new(adapter), PickedProvider::Anthropic));
@@ -81,6 +141,36 @@ pub(crate) fn pick() -> Option<(Arc<dyn LlmAdapter>, PickedProvider)> {
     if let Some(key) = nonempty_env("GEMINI_API_KEY") {
         let adapter = GeminiAdapter::new(key);
         return Some((Arc::new(adapter), PickedProvider::Gemini));
+    }
+    if let Some(key) = nonempty_env("MOONSHOT_API_KEY") {
+        return Some((openai_compat(key, MOONSHOT_BASE), PickedProvider::Moonshot));
+    }
+    if let Some(key) = nonempty_env("DEEPSEEK_API_KEY") {
+        return Some((openai_compat(key, DEEPSEEK_BASE), PickedProvider::DeepSeek));
+    }
+    if let Some(key) = nonempty_env("GROQ_API_KEY") {
+        return Some((openai_compat(key, GROQ_BASE), PickedProvider::Groq));
+    }
+    if let Some(key) = nonempty_env("MISTRAL_API_KEY") {
+        return Some((openai_compat(key, MISTRAL_BASE), PickedProvider::Mistral));
+    }
+    if let Some(key) = nonempty_env("XAI_API_KEY") {
+        return Some((openai_compat(key, XAI_BASE), PickedProvider::XAi));
+    }
+    if let Some(key) = nonempty_env("OPENROUTER_API_KEY") {
+        return Some((openai_compat(key, OPENROUTER_BASE), PickedProvider::OpenRouter));
+    }
+    if let Some(key) = nonempty_env("DASHSCOPE_API_KEY") {
+        return Some((openai_compat(key, QWEN_BASE), PickedProvider::Qwen));
+    }
+    if let Some(key) = nonempty_env("ZHIPU_API_KEY") {
+        return Some((openai_compat(key, ZHIPU_BASE), PickedProvider::Zhipu));
+    }
+    if let (Some(proxy), Some(key)) = (
+        nonempty_env("AWS_BEDROCK_PROXY_URL"),
+        nonempty_env("AWS_BEDROCK_API_KEY"),
+    ) {
+        return Some((openai_compat(key, &proxy), PickedProvider::Bedrock));
     }
     if let Some(host) = nonempty_env("OLLAMA_HOST") {
         let adapter = OllamaAdapter::new().with_base_url(host);
@@ -107,6 +197,37 @@ fn force(id: &str) -> Option<(Arc<dyn LlmAdapter>, PickedProvider)> {
             let a: Arc<dyn LlmAdapter> = Arc::new(GeminiAdapter::new(k));
             (a, PickedProvider::Gemini)
         }),
+        "moonshot" | "kimi" => nonempty_env("MOONSHOT_API_KEY")
+            .map(|k| (openai_compat(k, MOONSHOT_BASE), PickedProvider::Moonshot)),
+        "deepseek" => nonempty_env("DEEPSEEK_API_KEY")
+            .map(|k| (openai_compat(k, DEEPSEEK_BASE), PickedProvider::DeepSeek)),
+        "groq" => nonempty_env("GROQ_API_KEY")
+            .map(|k| (openai_compat(k, GROQ_BASE), PickedProvider::Groq)),
+        "mistral" => nonempty_env("MISTRAL_API_KEY")
+            .map(|k| (openai_compat(k, MISTRAL_BASE), PickedProvider::Mistral)),
+        "xai" | "grok" => nonempty_env("XAI_API_KEY")
+            .map(|k| (openai_compat(k, XAI_BASE), PickedProvider::XAi)),
+        "openrouter" => nonempty_env("OPENROUTER_API_KEY")
+            .map(|k| (openai_compat(k, OPENROUTER_BASE), PickedProvider::OpenRouter)),
+        "qwen" | "dashscope" => nonempty_env("DASHSCOPE_API_KEY")
+            .map(|k| (openai_compat(k, QWEN_BASE), PickedProvider::Qwen)),
+        "zhipu" | "glm" => nonempty_env("ZHIPU_API_KEY")
+            .map(|k| (openai_compat(k, ZHIPU_BASE), PickedProvider::Zhipu)),
+        "bedrock" => match (
+            nonempty_env("AWS_BEDROCK_PROXY_URL"),
+            nonempty_env("AWS_BEDROCK_API_KEY"),
+        ) {
+            (Some(proxy), Some(key)) => {
+                Some((openai_compat(key, &proxy), PickedProvider::Bedrock))
+            }
+            _ => {
+                eprintln!(
+                    "[mantis] bedrock requires AWS_BEDROCK_PROXY_URL + AWS_BEDROCK_API_KEY \
+                     (point them at a LiteLLM or Bedrock Access Gateway proxy)"
+                );
+                None
+            }
+        },
         "ollama" => {
             // Ollama doesn't need an API key. Honor OLLAMA_HOST if
             // set; otherwise the adapter falls back to its built-in
@@ -124,8 +245,10 @@ fn force(id: &str) -> Option<(Arc<dyn LlmAdapter>, PickedProvider)> {
         }),
         other => {
             eprintln!(
-                "[mantis] warning: MANTIS_LLM_PROVIDER={other} is not a known provider \
-                 (anthropic, openai, gemini, ollama, claude-cli) — skipping LLM"
+                "[mantis] warning: MANTIS_LLM_PROVIDER={other} is not a known provider. \
+                 known: anthropic, openai, gemini, moonshot (kimi), deepseek, groq, \
+                 mistral, xai (grok), openrouter, qwen (dashscope), zhipu (glm), bedrock, \
+                 ollama, claude-cli — skipping LLM"
             );
             None
         }

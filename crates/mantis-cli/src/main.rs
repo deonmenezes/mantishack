@@ -5061,6 +5061,11 @@ fn pick_chat_adapter(
     provider_override: Option<&str>,
     model_override: Option<&str>,
 ) -> Result<(std::sync::Arc<dyn mantis_synthesizer::LlmAdapter>, String, String)> {
+    use crate::llm_pick::{
+        BEDROCK_MODEL, DEEPSEEK_BASE, DEEPSEEK_MODEL, GROQ_BASE, GROQ_MODEL, MISTRAL_BASE,
+        MISTRAL_MODEL, MOONSHOT_BASE, MOONSHOT_MODEL, OPENROUTER_BASE, OPENROUTER_MODEL,
+        QWEN_BASE, QWEN_MODEL, XAI_BASE, XAI_MODEL, ZHIPU_BASE, ZHIPU_MODEL,
+    };
     use mantis_synthesizer::{
         anthropic::AnthropicAdapter, claude_cli::ClaudeCliAdapter, gemini::GeminiAdapter,
         ollama::OllamaAdapter, openai::OpenAIAdapter, LlmAdapter,
@@ -5070,6 +5075,23 @@ fn pick_chat_adapter(
     let provider = match provider_override {
         Some(p) => p.to_string(),
         None => std::env::var("MANTIS_LLM_PROVIDER").unwrap_or_else(|_| detect_provider()),
+    };
+
+    // Helper for the OpenAI-compatible cluster (Moonshot, DeepSeek,
+    // Groq, Mistral, xAI, OpenRouter, Qwen, Zhipu, Bedrock-via-proxy).
+    // Closure captures `model_override` so each call honors --model.
+    let openai_compat = |key: String,
+                         base_url: &str,
+                         default_model: &str|
+     -> (Arc<dyn LlmAdapter>, String) {
+        let model = model_override
+            .map(str::to_string)
+            .unwrap_or_else(|| default_model.to_string());
+        let a = OpenAIAdapter::new(key)
+            .with_base_url(base_url)
+            .with_model(model.clone())
+            .with_max_tokens(4096);
+        (Arc::new(a), model)
     };
 
     let (adapter, model_label): (Arc<dyn LlmAdapter>, String) = match provider.as_str() {
@@ -5103,6 +5125,59 @@ fn pick_chat_adapter(
             a = a.with_model(model.clone());
             (Arc::new(a), model)
         }
+        "moonshot" | "kimi" => {
+            let key = std::env::var("MOONSHOT_API_KEY")
+                .context("MOONSHOT_API_KEY is not set — get one at platform.moonshot.cn")?;
+            openai_compat(key, MOONSHOT_BASE, MOONSHOT_MODEL)
+        }
+        "deepseek" => {
+            let key = std::env::var("DEEPSEEK_API_KEY")
+                .context("DEEPSEEK_API_KEY is not set — get one at platform.deepseek.com")?;
+            openai_compat(key, DEEPSEEK_BASE, DEEPSEEK_MODEL)
+        }
+        "groq" => {
+            let key = std::env::var("GROQ_API_KEY")
+                .context("GROQ_API_KEY is not set — get one at console.groq.com")?;
+            openai_compat(key, GROQ_BASE, GROQ_MODEL)
+        }
+        "mistral" => {
+            let key = std::env::var("MISTRAL_API_KEY")
+                .context("MISTRAL_API_KEY is not set — get one at console.mistral.ai")?;
+            openai_compat(key, MISTRAL_BASE, MISTRAL_MODEL)
+        }
+        "xai" | "grok" => {
+            let key = std::env::var("XAI_API_KEY")
+                .context("XAI_API_KEY is not set — get one at console.x.ai")?;
+            openai_compat(key, XAI_BASE, XAI_MODEL)
+        }
+        "openrouter" => {
+            let key = std::env::var("OPENROUTER_API_KEY")
+                .context("OPENROUTER_API_KEY is not set — get one at openrouter.ai")?;
+            openai_compat(key, OPENROUTER_BASE, OPENROUTER_MODEL)
+        }
+        "qwen" | "dashscope" => {
+            let key = std::env::var("DASHSCOPE_API_KEY")
+                .context("DASHSCOPE_API_KEY is not set — get one at dashscope.console.aliyun.com")?;
+            openai_compat(key, QWEN_BASE, QWEN_MODEL)
+        }
+        "zhipu" | "glm" => {
+            let key = std::env::var("ZHIPU_API_KEY")
+                .context("ZHIPU_API_KEY is not set — get one at open.bigmodel.cn")?;
+            openai_compat(key, ZHIPU_BASE, ZHIPU_MODEL)
+        }
+        "bedrock" => {
+            // AWS Bedrock needs SigV4 signing. Until we land a
+            // native adapter, route via an OpenAI-compatible proxy
+            // (LiteLLM, Bedrock Access Gateway, etc.). User sets
+            // AWS_BEDROCK_PROXY_URL + AWS_BEDROCK_API_KEY.
+            let proxy = std::env::var("AWS_BEDROCK_PROXY_URL").context(
+                "AWS_BEDROCK_PROXY_URL is not set — point it at a LiteLLM or Bedrock \
+                 Access Gateway proxy (https://github.com/aws-samples/bedrock-access-gateway)",
+            )?;
+            let key = std::env::var("AWS_BEDROCK_API_KEY")
+                .context("AWS_BEDROCK_API_KEY is not set (the bearer token your proxy expects)")?;
+            openai_compat(key, &proxy, BEDROCK_MODEL)
+        }
         "ollama" => {
             let mut a = OllamaAdapter::new();
             if let Some(host) = std::env::var("OLLAMA_HOST").ok().filter(|s| !s.is_empty()) {
@@ -5123,7 +5198,9 @@ fn pick_chat_adapter(
             (Arc::new(a), model)
         }
         other => anyhow::bail!(
-            "unknown provider `{other}` — supported: anthropic, openai, gemini, ollama, claude-cli"
+            "unknown provider `{other}` — supported: anthropic, openai, gemini, \
+             moonshot (kimi), deepseek, groq, mistral, xai (grok), openrouter, \
+             qwen (dashscope), zhipu (glm), bedrock, ollama, claude-cli"
         ),
     };
 
@@ -5132,8 +5209,8 @@ fn pick_chat_adapter(
 
 /// Mirror of `llm_pick::pick`'s auto-detection logic — picks the
 /// first provider whose env condition is satisfied. Returns the
-/// provider id (`"anthropic"`, etc.) or `"claude-cli"` as the last
-/// fallback when `claude` is on PATH but no API key is set.
+/// provider id or `"claude-cli"` as the final fallback when `claude`
+/// is on PATH but no API key is set.
 fn detect_provider() -> String {
     if env_nonempty("ANTHROPIC_API_KEY") {
         return "anthropic".into();
@@ -5143,6 +5220,33 @@ fn detect_provider() -> String {
     }
     if env_nonempty("GEMINI_API_KEY") {
         return "gemini".into();
+    }
+    if env_nonempty("MOONSHOT_API_KEY") {
+        return "moonshot".into();
+    }
+    if env_nonempty("DEEPSEEK_API_KEY") {
+        return "deepseek".into();
+    }
+    if env_nonempty("GROQ_API_KEY") {
+        return "groq".into();
+    }
+    if env_nonempty("MISTRAL_API_KEY") {
+        return "mistral".into();
+    }
+    if env_nonempty("XAI_API_KEY") {
+        return "xai".into();
+    }
+    if env_nonempty("OPENROUTER_API_KEY") {
+        return "openrouter".into();
+    }
+    if env_nonempty("DASHSCOPE_API_KEY") {
+        return "qwen".into();
+    }
+    if env_nonempty("ZHIPU_API_KEY") {
+        return "zhipu".into();
+    }
+    if env_nonempty("AWS_BEDROCK_PROXY_URL") && env_nonempty("AWS_BEDROCK_API_KEY") {
+        return "bedrock".into();
     }
     if env_nonempty("OLLAMA_HOST") {
         return "ollama".into();
