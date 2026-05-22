@@ -5305,7 +5305,7 @@ async fn handle_chat(
     max_tool_rounds: usize,
 ) -> Result<()> {
     use mantis_chat::{parse_input, Conversation, HistoryFile, Input, SlashCommand};
-    use std::io::{BufRead, Write};
+    use std::io::Write;
 
     let session = session.unwrap_or_else(|| "default".to_string());
     let (adapter, provider, model) =
@@ -5330,7 +5330,7 @@ async fn handle_chat(
                 let n = registry.tools().len();
                 if n > 0 {
                     eprintln!(
-                        "{DIM}[mantis chat] loaded {n} user tool(s) from {}{RESET}",
+                        "{DIM}loaded {n} user tool(s) from {}{RESET}",
                         tools_dir.display()
                     );
                 }
@@ -5338,7 +5338,7 @@ async fn handle_chat(
             }
             Err(e) => {
                 eprintln!(
-                    "{DIM}[mantis chat] user-tools dir {} skipped: {e}{RESET}",
+                    "{DIM}user-tools dir {} skipped: {e}{RESET}",
                     tools_dir.display()
                 );
             }
@@ -5351,93 +5351,259 @@ async fn handle_chat(
         let count = loaded.len();
         conv.extend_from_history(loaded);
         if count > 0 {
-            eprintln!("{DIM}[mantis chat] resumed {count} prior message(s){RESET}");
+            eprintln!("{DIM}resumed {count} prior message(s){RESET}");
         }
     }
 
-    // Welcome banner.
+    // Concise banner. One line of "what's wired", one line of "how to drive".
     eprintln!(
-        "{BOLD}mantis chat{RESET}  {DIM}provider={CYAN}{provider}{RESET}{DIM}  model={model}  session={session}{RESET}"
+        "{BOLD}mantis{RESET} {DIM}·{RESET} {CYAN}{provider}{RESET}{DIM}/{model}{RESET} {DIM}·{RESET} session {DIM}{session}{RESET}"
     );
-    eprintln!("{DIM}type /help for commands, /quit to exit{RESET}");
+    eprintln!(
+        "{DIM}ctrl+c cancels current reply · ctrl+c at empty prompt (twice) or /quit to exit · /help for commands{RESET}"
+    );
 
-    let stdin = std::io::stdin();
+    // Two-press-to-quit state: timestamp of the most recent Ctrl+C
+    // received at the prompt with an empty buffer. A second press
+    // within 2s confirms the quit.
+    let mut last_ctrl_c: Option<std::time::Instant> = None;
     let mut stdout = std::io::stdout();
-    let mut stderr = std::io::stderr();
 
     loop {
         write!(stdout, "\n{BOLD}you{RESET} ❯ ").ok();
         stdout.flush().ok();
 
-        let mut line = String::new();
-        match stdin.lock().read_line(&mut line) {
-            Ok(0) => {
-                // EOF — exit cleanly.
+        // Read one line of stdin in a blocking task so we can race
+        // it against Ctrl+C. On cancellation the blocking task
+        // keeps running until the user eventually hits Enter; its
+        // result is dropped silently. This is acceptable for an
+        // interactive REPL where the next read happens immediately.
+        let read_fut = tokio::task::spawn_blocking(|| {
+            use std::io::BufRead;
+            let mut line = String::new();
+            let n = std::io::stdin().lock().read_line(&mut line)?;
+            Ok::<(usize, String), std::io::Error>((n, line))
+        });
+
+        enum ReadOutcome {
+            Read(std::io::Result<(usize, String)>),
+            Interrupted,
+        }
+
+        let outcome = tokio::select! {
+            r = read_fut => match r {
+                Ok(inner) => ReadOutcome::Read(inner),
+                Err(e) => {
+                    eprintln!("{DIM}read task error: {e}{RESET}");
+                    break;
+                }
+            },
+            _ = tokio::signal::ctrl_c() => ReadOutcome::Interrupted,
+        };
+
+        let line = match outcome {
+            ReadOutcome::Interrupted => {
+                // Ctrl+C at the prompt. Two presses within 2s exit.
+                let now = std::time::Instant::now();
+                let confirm = last_ctrl_c
+                    .map(|t| now.duration_since(t) < std::time::Duration::from_secs(2))
+                    .unwrap_or(false);
+                if confirm {
+                    eprintln!();
+                    break;
+                }
+                last_ctrl_c = Some(now);
+                eprintln!(
+                    "\n{DIM}(ctrl+c again within 2s to quit, or type a message){RESET}"
+                );
+                continue;
+            }
+            ReadOutcome::Read(Ok((0, _))) => {
+                // EOF (Ctrl+D on an empty line) — clean exit.
                 eprintln!();
                 break;
             }
-            Ok(_) => {}
-            Err(e) => {
-                eprintln!("{DIM}[mantis chat] read error: {e}{RESET}");
+            ReadOutcome::Read(Ok((_, line))) => line,
+            ReadOutcome::Read(Err(e)) => {
+                eprintln!("{DIM}read error: {e}{RESET}");
                 break;
             }
-        }
+        };
+
+        // User typed something — clear the quit-confirmation window.
+        last_ctrl_c = None;
 
         match parse_input(line.trim()) {
             Input::Slash(SlashCommand::Quit) => break,
             Input::Slash(SlashCommand::Help) => {
                 println!(
-                    "{DIM}slash commands:\n  /clear     drop history (keep system prompt)\n  /model     show current model\n  /provider  show current provider\n  /tools     list available tools\n  /help      this message\n  /quit      exit{RESET}"
+                    "{DIM}slash commands:\n  /clear     drop history (keep system prompt)\n  /model     show current model\n  /provider  show current provider\n  /tools     list available tools\n  /help      this message\n  /quit      exit\n\nctrl+c cancels the current reply mid-stream; press it again at an empty\nprompt to exit.{RESET}"
                 );
                 continue;
             }
             Input::Slash(SlashCommand::Clear) => {
                 conv.clear();
-                eprintln!("{DIM}[mantis chat] history cleared{RESET}");
+                eprintln!("{DIM}history cleared{RESET}");
                 continue;
             }
             Input::Slash(SlashCommand::Model { name }) => match name {
                 Some(_) => eprintln!(
-                    "{DIM}[mantis chat] live model switching not implemented yet; restart with --model{RESET}"
+                    "{DIM}live model switching not implemented yet; restart with --model{RESET}"
                 ),
-                None => eprintln!("{DIM}[mantis chat] model: {}{RESET}", conv.model()),
+                None => eprintln!("{DIM}model: {}{RESET}", conv.model()),
             },
             Input::Slash(SlashCommand::Provider { name }) => match name {
                 Some(_) => eprintln!(
-                    "{DIM}[mantis chat] live provider switching not implemented yet; restart with --provider{RESET}"
+                    "{DIM}live provider switching not implemented yet; restart with --provider{RESET}"
                 ),
-                None => eprintln!("{DIM}[mantis chat] provider: {}{RESET}", conv.provider()),
+                None => eprintln!("{DIM}provider: {}{RESET}", conv.provider()),
             },
             Input::Slash(SlashCommand::Tools) => {
                 let tools = conv.tools_snapshot();
                 if tools.is_empty() {
-                    eprintln!("{DIM}[mantis chat] no tools registered{RESET}");
+                    eprintln!("{DIM}no tools registered{RESET}");
                 } else {
-                    eprintln!("{DIM}[mantis chat] {} tool(s) available:{RESET}", tools.len());
+                    eprintln!("{DIM}{} tool(s) available:{RESET}", tools.len());
                     for t in tools {
                         eprintln!("  {BOLD}{}{RESET}  {DIM}{}{RESET}", t.name, t.description);
                     }
                 }
             }
             Input::Slash(SlashCommand::Unknown(s)) => {
-                eprintln!("{DIM}[mantis chat] unknown command /{s} — try /help{RESET}");
+                eprintln!("{DIM}unknown command /{s} — try /help{RESET}");
             }
             Input::Message(msg) if msg.trim().is_empty() => continue,
             Input::Message(msg) => {
                 write!(stdout, "\n{GREEN}mantis{RESET} ❯ ").ok();
                 stdout.flush().ok();
 
-                let result = conv
-                    .turn(msg, max_tool_rounds, |event| {
-                        render_chat_event(event, &mut stdout, &mut stderr);
+                // Codex-style state shared between the spinner task
+                // and the streaming-event closure:
+                //   `first_event`   — flips true on the first text or
+                //                     tool-call event, signalling the
+                //                     spinner to erase itself
+                //   `spinner_done`  — flips true after the turn ends
+                //                     (success, error, or interrupt),
+                //                     hard-stops the spinner task
+                //   `chars_streamed` — char counter for the stats line
+                use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+                use std::sync::Arc;
+                let first_event = Arc::new(AtomicBool::new(false));
+                let spinner_done = Arc::new(AtomicBool::new(false));
+                let chars_streamed = Arc::new(AtomicUsize::new(0));
+
+                let started = std::time::Instant::now();
+
+                let spinner = {
+                    let first_event = first_event.clone();
+                    let spinner_done = spinner_done.clone();
+                    tokio::spawn(async move {
+                        use std::io::Write;
+                        let frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+                        let mut i = 0usize;
+                        loop {
+                            if spinner_done.load(Ordering::Acquire)
+                                || first_event.load(Ordering::Acquire)
+                            {
+                                let mut err = std::io::stderr().lock();
+                                // \r resets column, \x1b[2K erases the
+                                // whole line — together they leave a
+                                // clean canvas for streamed output.
+                                let _ = write!(err, "\r\x1b[2K");
+                                let _ = err.flush();
+                                return;
+                            }
+                            {
+                                let mut err = std::io::stderr().lock();
+                                let _ = write!(
+                                    err,
+                                    "\r{DIM}{} thinking…{RESET}",
+                                    frames[i % frames.len()]
+                                );
+                                let _ = err.flush();
+                            }
+                            i += 1;
+                            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                        }
                     })
-                    .await;
+                };
+
+                // Closure wrapping `render_chat_event` with:
+                //  - one-shot hook to clear the spinner on the first
+                //    real event (text or tool-call)
+                //  - char counter for the post-turn stats line
+                let first_event_for_render = first_event.clone();
+                let chars_for_render = chars_streamed.clone();
+                let render = move |event: &mantis_chat::ChatEvent| {
+                    let is_real = matches!(
+                        event,
+                        mantis_chat::ChatEvent::Text { .. } | mantis_chat::ChatEvent::ToolCall(_)
+                    );
+                    if is_real
+                        && !first_event_for_render.swap(true, Ordering::AcqRel)
+                    {
+                        // Handle the race where the first event lands
+                        // between spinner ticks: clear the line here
+                        // immediately so the spinner's last frame
+                        // doesn't sit alongside the streamed text.
+                        let mut err = std::io::stderr().lock();
+                        let _ = write!(err, "\r\x1b[2K");
+                        let _ = err.flush();
+                    }
+                    if let mantis_chat::ChatEvent::Text { delta } = event {
+                        chars_for_render.fetch_add(delta.chars().count(), Ordering::Relaxed);
+                    }
+                    render_chat_event(event);
+                };
+
+                // Race the turn against Ctrl+C. Dropping the turn
+                // future cancels the in-flight HTTP request (reqwest
+                // honours this via its tokio-driven streams). Any
+                // partial text already streamed is preserved on
+                // stdout — only the pending model state is dropped.
+                let turn_fut = conv.turn(msg, max_tool_rounds, render);
+                tokio::pin!(turn_fut);
+
+                let interrupted;
+                let turn_result = tokio::select! {
+                    r = &mut turn_fut => {
+                        interrupted = false;
+                        Some(r)
+                    }
+                    _ = tokio::signal::ctrl_c() => {
+                        interrupted = true;
+                        None
+                    }
+                };
+
+                // Stop the spinner regardless of how the turn ended.
+                spinner_done.store(true, Ordering::Release);
+                let _ = spinner.await;
 
                 writeln!(stdout).ok();
                 stdout.flush().ok();
 
-                if let Err(e) = result {
-                    eprintln!("{DIM}[mantis chat] turn failed: {e}{RESET}");
+                if interrupted {
+                    eprintln!("{DIM}[interrupted — press enter for a fresh prompt]{RESET}");
+                } else if let Some(Err(e)) = turn_result {
+                    eprintln!("{DIM}turn failed: {e}{RESET}");
+                } else {
+                    // Stats line — chars streamed, wall-clock duration,
+                    // and approximate chars/sec rate. Dim and on stderr
+                    // so it doesn't get captured in any `mantis ask`
+                    // stdout pipe.
+                    let elapsed = started.elapsed();
+                    let chars = chars_streamed.load(Ordering::Relaxed);
+                    let secs = elapsed.as_secs_f64();
+                    let rate = if secs > 0.05 {
+                        format!("{:.0} ch/s", chars as f64 / secs)
+                    } else {
+                        "—".into()
+                    };
+                    eprintln!(
+                        "{DIM}↳ {chars} ch · {:.2}s · {rate}{RESET}",
+                        secs
+                    );
                 }
             }
         }
@@ -5446,24 +5612,27 @@ async fn handle_chat(
     Ok(())
 }
 
-fn render_chat_event(
-    event: &mantis_chat::ChatEvent,
-    stdout: &mut std::io::Stdout,
-    stderr: &mut std::io::Stderr,
-) {
+/// Render one streaming chat event to the operator. Takes no borrows
+/// — each call acquires a fresh `stdout`/`stderr` handle internally
+/// so the enclosing `Conversation::turn` future is free of long-lived
+/// mutable borrows on the terminal handles (which would block the
+/// caller from using them post-select! during interrupt handling).
+fn render_chat_event(event: &mantis_chat::ChatEvent) {
     use std::io::Write;
     match event {
         mantis_chat::ChatEvent::Text { delta } => {
             // Stream text directly to stdout with immediate flush so
             // the user sees incremental output.
-            stdout.write_all(delta.as_bytes()).ok();
-            stdout.flush().ok();
+            let mut out = std::io::stdout().lock();
+            out.write_all(delta.as_bytes()).ok();
+            out.flush().ok();
         }
         mantis_chat::ChatEvent::ToolCall(call) => {
             // Visible tool call — dim cyan, on stderr so a JSON-piped
-            // ask doesn't get polluted.
+            // `mantis ask` doesn't get polluted with tool noise.
+            let mut err = std::io::stderr().lock();
             writeln!(
-                stderr,
+                err,
                 "\n{DIM}{CYAN}▸ {}{RESET}{DIM}({}){RESET}",
                 call.name,
                 serde_json::to_string(&call.arguments).unwrap_or_default()
@@ -5474,7 +5643,8 @@ fn render_chat_event(
             // Newline handled by caller after the turn returns.
         }
         mantis_chat::ChatEvent::Warning { message } => {
-            writeln!(stderr, "{DIM}[warning] {message}{RESET}").ok();
+            let mut err = std::io::stderr().lock();
+            writeln!(err, "{DIM}[warning] {message}{RESET}").ok();
         }
     }
 }
