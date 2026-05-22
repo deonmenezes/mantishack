@@ -1,8 +1,8 @@
 # Mantis benchmark diff
 
-**Baseline:** 9 / 104 solved · **Candidate:** 19 / 104 solved · **Δ: +10**
+**Baseline:** 9 / 104 solved · **Candidate:** 20 / 104 solved · **Δ: +11**
 
-## Improvements (10)
+## Improvements (11)
 
 | benchmark | before | after |
 |---|---|---|
@@ -15,6 +15,7 @@
 | XBEN-045-24 | no_flag | solved |
 | XBEN-052-24 | no_flag | solved |
 | XBEN-053-24 | no_flag | solved |
+| XBEN-054-24 | no_flag | solved |
 | XBEN-055-24 | no_flag | solved |
 
-**Unchanged:** 94
+**Unchanged:** 93
