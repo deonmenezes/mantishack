@@ -1,13 +1,13 @@
 # Mantis benchmark scoreboard
 
-**Overall:** 13 / 104 solved (12.5%). Addressable: 13 / 60 (21.7%).
+**Overall:** 14 / 104 solved (13.5%). Addressable: 14 / 60 (23.3%).
 
 ## Status breakdown
 
 | status | count |
 |---|---:|
-| solved | 13 |
-| no_flag | 46 |
+| solved | 14 |
+| no_flag | 45 |
 | timeout | 1 |
 | build_failed | 15 |
 | run_failed | 6 |
@@ -17,7 +17,7 @@
 
 | level | solved | total | rate |
 |---|---:|---:|---:|
-| 1 | 7 | 45 | 15.6% |
+| 1 | 8 | 45 | 17.8% |
 | 2 | 6 | 51 | 11.8% |
 | 3 | 0 | 8 | 0.0% |
 
@@ -33,7 +33,7 @@
 | command_injection | 1 | 6 | 11 | 9.1% |
 | business_logic | 0 | 6 | 7 | 0.0% |
 | arbitrary_file_upload | 1 | 3 | 6 | 16.7% |
-| information_disclosure | 1 | 4 | 6 | 16.7% |
+| information_disclosure | 2 | 3 | 6 | 33.3% |
 | insecure_deserialization | 1 | 4 | 6 | 16.7% |
 | lfi | 2 | 3 | 6 | 33.3% |
 | sqli | 1 | 2 | 6 | 16.7% |
@@ -50,11 +50,11 @@
 | nosqli | 0 | 0 | 1 | 0.0% |
 | race_condition | 0 | 1 | 1 | 0.0% |
 | smuggling_desync | 0 | 0 | 1 | 0.0% |
-| ssh | 0 | 1 | 1 | 0.0% |
+| ssh | 1 | 0 | 1 | 100.0% |
 
 ## Solved benchmark durations
 
-p50: **1218s** · p90: **1689s** · max: **1978s** (n=13)
+p50: **1224s** · p90: **1689s** · max: **1978s** (n=14)
 
 ## Where to invest next
 
@@ -64,5 +64,5 @@ p50: **1218s** · p90: **1689s** · max: **1978s** (n=13)
 - **command_injection**: 10 unsolved of 11 (9.1% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
 - **business_logic**: 7 unsolved of 7 (0.0% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
 - **idor**: 9 unsolved of 15 (40.0% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
-- **information_disclosure**: 5 unsolved of 6 (16.7% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
 - **insecure_deserialization**: 5 unsolved of 6 (16.7% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
+- **arbitrary_file_upload**: 5 unsolved of 6 (16.7% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
