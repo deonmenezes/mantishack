@@ -196,6 +196,22 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Benchmark scoring and snapshot comparison. Reads
+    /// xbow-benchmarks-style result JSON files and renders
+    /// scoreboards / diffs. Closes the manual loop the operator
+    /// would otherwise drive by hand to prove a Mantis change
+    /// moved the needle.
+    ///
+    /// Subcommands:
+    ///   score   render the scoreboard for one results dir
+    ///   diff    compare two snapshots, highlight improvements + regressions
+    ///   rerun-failures
+    ///           list the benchmarks the operator should re-run
+    ///           (status = no_flag, optionally filtered by tag)
+    Bench {
+        #[command(subcommand)]
+        action: BenchAction,
+    },
     /// Run the Mantis HTTP/SSE API server. Exposes `/v1/chat`
     /// (SSE-streamed conversational chat), `/v1/engagements`,
     /// `/v1/scan`, `/v1/findings/:id`, and `/healthz`. Other
@@ -685,6 +701,54 @@ enum ModelAction {
 }
 
 #[derive(Subcommand, Debug)]
+enum BenchAction {
+    /// Render a scoreboard from one results directory.
+    Score {
+        /// Directory containing per-benchmark JSON result files
+        /// (e.g. `reports/xbow-benchmarks/results/`).
+        #[arg(long)]
+        results: Utf8PathBuf,
+        /// Write the markdown render to this file instead of
+        /// stdout. Useful for committing scoreboards.
+        #[arg(long)]
+        out: Option<Utf8PathBuf>,
+    },
+    /// Compare two snapshots and render a markdown diff.
+    Diff {
+        #[arg(long)]
+        baseline: Utf8PathBuf,
+        #[arg(long)]
+        candidate: Utf8PathBuf,
+        #[arg(long)]
+        out: Option<Utf8PathBuf>,
+    },
+    /// List the benchmarks currently in a `no_flag` state,
+    /// optionally filtered by tag. Output is one benchmark id per
+    /// line on stdout — pipe to `run_one.sh` or `xargs` to re-
+    /// attempt them with the latest Mantis build.
+    ///
+    /// Example:
+    ///   mantis bench rerun-failures \
+    ///     --results /Users/deonmenezes/mantishack/reports/xbow-benchmarks/results \
+    ///     --tags xss,command_injection \
+    ///     | xargs -I {} /Users/deonmenezes/mantishack/reports/xbow-benchmarks/run_one.sh {} 1800
+    RerunFailures {
+        #[arg(long)]
+        results: Utf8PathBuf,
+        /// Comma-separated tag filter. Only benchmarks whose
+        /// `tags` array intersects this list are emitted. Empty
+        /// list = no tag filter.
+        #[arg(long, value_delimiter = ',', num_args = 0..)]
+        tags: Vec<String>,
+        /// Include `timeout` results too, not just `no_flag`. By
+        /// default only `no_flag` is emitted (timeouts may reflect
+        /// real difficulty, not a Mantis bug).
+        #[arg(long)]
+        include_timeouts: bool,
+    },
+}
+
+#[derive(Subcommand, Debug)]
 enum LlmAction {
     /// One-shot health check against a provider. For `anthropic` and
     /// `openai`, the API key comes from the environment variable
@@ -963,6 +1027,7 @@ fn main() -> Result<()> {
             system,
             json,
         } => run_async(handle_ask(prompt, provider, providers, model, system, json)),
+        Command::Bench { action } => handle_bench(action),
         Command::Serve {
             bind,
             no_auth,
@@ -6051,6 +6116,102 @@ async fn handle_tui(
     };
 
     mantis_chat_tui::run(config).await
+}
+
+// ---------------------------------------------------------------------------
+// `mantis bench` — scoreboard + diff + rerun-failures planner.
+//
+// All three actions are synchronous (no LLM / network) so they're
+// dispatched from `main` directly without `run_async`.
+// ---------------------------------------------------------------------------
+
+fn handle_bench(action: BenchAction) -> Result<()> {
+    use mantis_bench::{diff_runs, load_results, Scoreboard};
+
+    match action {
+        BenchAction::Score { results, out } => {
+            let rows = load_results(results.as_std_path())
+                .with_context(|| format!("read results dir {results}"))?;
+            let sb = Scoreboard::from_results(&rows);
+            let markdown = sb.to_markdown();
+            if let Some(path) = out {
+                std::fs::write(path.as_std_path(), &markdown)
+                    .with_context(|| format!("write scoreboard to {path}"))?;
+                eprintln!(
+                    "{DIM}scoreboard rendered to {path} ({} benchmarks, {} solved){RESET}",
+                    sb.total, sb.solved
+                );
+            } else {
+                println!("{markdown}");
+            }
+            Ok(())
+        }
+        BenchAction::Diff {
+            baseline,
+            candidate,
+            out,
+        } => {
+            let base = load_results(baseline.as_std_path())
+                .with_context(|| format!("read baseline {baseline}"))?;
+            let cand = load_results(candidate.as_std_path())
+                .with_context(|| format!("read candidate {candidate}"))?;
+            let diff = diff_runs(&base, &cand);
+            let markdown = diff.to_markdown();
+            if let Some(path) = out {
+                std::fs::write(path.as_std_path(), &markdown)
+                    .with_context(|| format!("write diff to {path}"))?;
+                eprintln!(
+                    "{DIM}diff written to {path} (Δ {:+} solved){RESET}",
+                    diff.solve_delta
+                );
+            } else {
+                println!("{markdown}");
+            }
+            Ok(())
+        }
+        BenchAction::RerunFailures {
+            results,
+            tags,
+            include_timeouts,
+        } => {
+            use mantis_bench::result::Status;
+            let rows = load_results(results.as_std_path())
+                .with_context(|| format!("read results dir {results}"))?;
+            let tag_filter: std::collections::HashSet<String> =
+                tags.iter().map(|t| t.to_ascii_lowercase()).collect();
+            let mut emitted = 0usize;
+            for r in &rows {
+                let s = r.status_enum();
+                let matches_status = matches!(s, Status::NoFlag)
+                    || (include_timeouts && matches!(s, Status::Timeout));
+                if !matches_status {
+                    continue;
+                }
+                if !tag_filter.is_empty() {
+                    let row_tags: std::collections::HashSet<String> =
+                        r.tags.iter().map(|t| t.to_ascii_lowercase()).collect();
+                    if row_tags.is_disjoint(&tag_filter) {
+                        continue;
+                    }
+                }
+                println!("{}", r.benchmark);
+                emitted += 1;
+            }
+            eprintln!(
+                "{DIM}rerun list: {emitted} benchmark(s) (status=no_flag{}{}) — pipe to run_one.sh{RESET}",
+                if include_timeouts { ",timeout" } else { "" },
+                if tag_filter.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        ", tags={}",
+                        tag_filter.iter().cloned().collect::<Vec<_>>().join(",")
+                    )
+                }
+            );
+            Ok(())
+        }
+    }
 }
 
 async fn handle_serve(

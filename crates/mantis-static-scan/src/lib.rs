@@ -29,11 +29,12 @@
 //!     binaries. They're installed via `brew install` /
 //!     `go install` / `apt install` etc. Mantis just orchestrates.
 
+pub mod httpx;
+pub mod interactsh;
 pub mod nuclei;
 pub mod subfinder;
-pub mod httpx;
-pub mod trufflehog;
 pub mod trivy;
+pub mod trufflehog;
 
 use std::collections::BTreeMap;
 

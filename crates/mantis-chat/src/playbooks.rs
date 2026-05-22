@@ -29,6 +29,16 @@ pub struct Playbook {
     pub body: &'static str,
 }
 
+/// Shared prefix appended to every blind-class playbook. Reminds
+/// the model that the `mantis_oob_listener` MCP tool exists and
+/// must be started BEFORE any payloads are sent.
+const OOB_DIRECTIVE: &str = "\n\nOOB SETUP (do this FIRST for any blind variant of this class): \
+call `mantis_oob_listener` to start an interactsh session, grab the \
+`url` from the response, then embed that URL in every payload. A \
+callback arriving at the listener IS the flag-equivalent — no in-band \
+signal needed. Without OOB, blind variants of this class are \
+undetectable; the historic 0% on these classes is mostly an OOB gap.";
+
 /// The full catalogue. Add new entries here as benchmark coverage
 /// expands. Each entry should be:
 ///   1. concrete (payloads / endpoints / responses, not theory),
@@ -304,10 +314,33 @@ pub fn matching_playbooks<'a>(tags: &'a [String]) -> Vec<&'static Playbook> {
     hits
 }
 
+/// Vuln-class labels for which the OOB directive should be appended
+/// to the playbook body. These are the classes where blind variants
+/// dominate real-world benchmarks and where Mantis was at or near
+/// 0% before the interactsh adapter shipped.
+const OOB_CLASSES: &[&str] = &[
+    "XSS",
+    "Command Injection",
+    "SSRF",
+    "XXE",
+    "SQL Injection",
+    "SSTI",
+    "Insecure Deserialization",
+];
+
+fn playbook_needs_oob(label: &str) -> bool {
+    OOB_CLASSES.iter().any(|c| *c == label)
+}
+
 /// Compose the playbooks for a list of detected tags into a single
 /// prompt fragment suitable for appending to the system prompt.
 /// Returns an empty string when no playbooks match — the caller can
 /// concat unconditionally.
+///
+/// For blind-prone classes (see `OOB_CLASSES`) the shared
+/// [`OOB_DIRECTIVE`] is appended to that playbook's body — reminds
+/// the model to spin up `mantis_oob_listener` BEFORE shooting
+/// payloads at the target.
 pub fn compose_playbook_prompt(tags: &[String]) -> String {
     let pbs = matching_playbooks(tags);
     if pbs.is_empty() {
@@ -316,7 +349,11 @@ pub fn compose_playbook_prompt(tags: &[String]) -> String {
     let mut s = String::new();
     s.push_str("\n\nFOCUSED PLAYBOOKS (operator mentioned classes the model historically fails — follow these):\n\n");
     for pb in pbs {
-        s.push_str(&format!("### {}\n{}\n\n", pb.label, pb.body));
+        s.push_str(&format!("### {}\n{}", pb.label, pb.body));
+        if playbook_needs_oob(pb.label) {
+            s.push_str(OOB_DIRECTIVE);
+        }
+        s.push_str("\n\n");
     }
     s
 }
@@ -362,6 +399,36 @@ mod tests {
         let prompt = compose_playbook_prompt(&tags);
         assert!(prompt.contains("FOCUSED PLAYBOOKS"));
         assert!(prompt.contains("### XSS"));
+    }
+
+    #[test]
+    fn blind_class_playbooks_carry_oob_directive() {
+        for label in OOB_CLASSES {
+            let pb = PLAYBOOKS
+                .iter()
+                .find(|p| p.label == *label)
+                .unwrap_or_else(|| panic!("OOB_CLASSES references {label} but no playbook exists"));
+            let prompt =
+                compose_playbook_prompt(&[pb.tags[0].to_string()]);
+            assert!(
+                prompt.contains("mantis_oob_listener"),
+                "{} playbook should mention mantis_oob_listener in its composed prompt",
+                label
+            );
+            assert!(
+                prompt.contains("interactsh"),
+                "{} playbook should reference interactsh in its composed prompt",
+                label
+            );
+        }
+    }
+
+    #[test]
+    fn non_blind_class_playbook_does_not_get_oob_directive() {
+        // Default credentials is an in-band class — no OOB needed.
+        let prompt =
+            compose_playbook_prompt(&["default_credentials".to_string()]);
+        assert!(!prompt.contains("mantis_oob_listener"));
     }
 
     #[test]

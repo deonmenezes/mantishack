@@ -26,6 +26,7 @@ mantis-scope = { workspace = true }
 mantis-signup = { workspace = true }
 mantis-tui-ratatui = { workspace = true }
 mantis-synthesizer = { workspace = true }
+mantis-bench = { workspace = true }
 mantis-chat = { workspace = true }
 mantis-chat-tui = { workspace = true }
 mantis-server = { workspace = true }
