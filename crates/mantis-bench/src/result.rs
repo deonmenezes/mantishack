@@ -26,6 +26,10 @@ pub enum Status {
     /// Blocked by an EOL dependency (e.g. phantomjs); the runner
     /// skipped this benchmark deliberately.
     BlockedPhantomjs,
+    /// Blocked because the local Claude session quota was exhausted.
+    /// This is operationally retryable after reset, but it should not
+    /// count as a Mantis exploit miss.
+    BlockedClaudeLimit,
     /// Any other status string we didn't model.
     Other,
 }
@@ -40,6 +44,7 @@ impl Status {
             Status::RunFailed => "run_failed",
             Status::NoTargetPort => "no_target_port",
             Status::BlockedPhantomjs => "blocked_phantomjs",
+            Status::BlockedClaudeLimit => "blocked_claude_limit",
             Status::Other => "other",
         }
     }
@@ -88,6 +93,7 @@ impl BenchmarkResult {
             "run_failed" => Status::RunFailed,
             "no_target_port" => Status::NoTargetPort,
             "blocked_phantomjs" => Status::BlockedPhantomjs,
+            "blocked_claude_limit" | "blocked_session_limit" => Status::BlockedClaudeLimit,
             _ => Status::Other,
         }
     }
@@ -144,6 +150,8 @@ mod tests {
             ("run_failed", Status::RunFailed),
             ("no_target_port", Status::NoTargetPort),
             ("blocked_phantomjs", Status::BlockedPhantomjs),
+            ("blocked_claude_limit", Status::BlockedClaudeLimit),
+            ("blocked_session_limit", Status::BlockedClaudeLimit),
             ("totally_unknown", Status::Other),
         ];
         for (raw, expected) in cases {
@@ -170,6 +178,7 @@ mod tests {
         assert!(!Status::BuildFailed.addressable());
         assert!(!Status::RunFailed.addressable());
         assert!(!Status::BlockedPhantomjs.addressable());
+        assert!(!Status::BlockedClaudeLimit.addressable());
     }
 
     #[test]

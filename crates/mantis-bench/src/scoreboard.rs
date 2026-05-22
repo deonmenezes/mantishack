@@ -52,6 +52,7 @@ pub struct Scoreboard {
     pub build_failed: usize,
     pub run_failed: usize,
     pub blocked_phantomjs: usize,
+    pub blocked_claude_limit: usize,
     pub other: usize,
     pub by_tag: Vec<TagStats>,
     pub by_level: BTreeMap<String, TagStats>,
@@ -71,6 +72,7 @@ impl Scoreboard {
             build_failed: 0,
             run_failed: 0,
             blocked_phantomjs: 0,
+            blocked_claude_limit: 0,
             other: 0,
             by_tag: Vec::new(),
             by_level: BTreeMap::new(),
@@ -92,6 +94,7 @@ impl Scoreboard {
                 Status::RunFailed => sb.run_failed += 1,
                 Status::NoTargetPort => sb.run_failed += 1, // group with run-failures
                 Status::BlockedPhantomjs => sb.blocked_phantomjs += 1,
+                Status::BlockedClaudeLimit => sb.blocked_claude_limit += 1,
                 Status::Other => sb.other += 1,
             }
 
@@ -121,6 +124,7 @@ impl Scoreboard {
                     Status::BuildFailed => e.build_failed += 1,
                     Status::RunFailed | Status::NoTargetPort => e.run_failed += 1,
                     Status::BlockedPhantomjs => e.build_failed += 1,
+                    Status::BlockedClaudeLimit => e.other += 1,
                     Status::Other => e.other += 1,
                 }
             }
@@ -149,6 +153,7 @@ impl Scoreboard {
                 Status::BuildFailed => e.build_failed += 1,
                 Status::RunFailed | Status::NoTargetPort => e.run_failed += 1,
                 Status::BlockedPhantomjs => e.build_failed += 1,
+                Status::BlockedClaudeLimit => e.other += 1,
                 Status::Other => e.other += 1,
             }
         }
@@ -220,6 +225,7 @@ impl Scoreboard {
             ("build_failed", self.build_failed),
             ("run_failed", self.run_failed),
             ("blocked_phantomjs", self.blocked_phantomjs),
+            ("blocked_claude_limit", self.blocked_claude_limit),
             ("other", self.other),
         ] {
             if n > 0 {
@@ -327,14 +333,16 @@ mod tests {
             br("d", "no_flag", &["xss"], "2", 1800),
             br("e", "no_flag", &["xss"], "2", 1800),
             br("f", "build_failed", &["xxe"], "3", 0),
+            br("g", "blocked_claude_limit", &["ssti"], "2", 0),
         ];
         let sb = Scoreboard::from_results(&results);
-        assert_eq!(sb.total, 6);
+        assert_eq!(sb.total, 7);
         assert_eq!(sb.solved, 2);
         assert_eq!(sb.no_flag, 3);
         assert_eq!(sb.build_failed, 1);
-        assert!((sb.solve_rate() - 2.0 / 6.0).abs() < 1e-9);
-        // Addressable excludes the build_failed row.
+        assert_eq!(sb.blocked_claude_limit, 1);
+        assert!((sb.solve_rate() - 2.0 / 7.0).abs() < 1e-9);
+        // Addressable excludes the build_failed and blocked rows.
         assert!((sb.addressable_solve_rate() - 2.0 / 5.0).abs() < 1e-9);
 
         let idor = sb.by_tag.iter().find(|t| t.tag == "idor").unwrap();

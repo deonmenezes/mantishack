@@ -745,6 +745,10 @@ enum BenchAction {
         /// real difficulty, not a Mantis bug).
         #[arg(long)]
         include_timeouts: bool,
+        /// Include retryable operational blockers such as
+        /// `blocked_claude_limit`. Useful after a provider quota reset.
+        #[arg(long)]
+        include_blocked: bool,
     },
 }
 
@@ -3081,6 +3085,10 @@ async fn run_slash_with_resume(
         if err.is_none() && status.success() {
             return Ok(status);
         }
+        if let Some(reason) = err.as_deref().and_then(run_log::non_resumable_reason) {
+            log_non_resumable(json_mode, reason);
+            anyhow::bail!("claude reported a non-resumable condition: {reason}");
+        }
         if attempt >= max_resumes {
             log_resume_exhausted(json_mode, max_resumes, status, err.as_deref());
             return Ok(status);
@@ -3117,6 +3125,10 @@ async fn run_one_shot_with_resume(
         if err.is_none() && status.success() {
             return Ok(status);
         }
+        if let Some(reason) = err.as_deref().and_then(run_log::non_resumable_reason) {
+            log_non_resumable(json_mode, reason);
+            anyhow::bail!("claude reported a non-resumable condition: {reason}");
+        }
         if attempt >= max_resumes {
             log_resume_exhausted(json_mode, max_resumes, status, err.as_deref());
             return Ok(status);
@@ -3141,6 +3153,17 @@ fn log_resume_attempt(json_mode: bool, attempt: u32, max_resumes: u32, reason: &
     eprintln!(
         "[mantishack] ⚠ claude session failed — auto-resume #{attempt}/{budget} \
          (reason: {reason})"
+    );
+}
+
+fn log_non_resumable(json_mode: bool, reason: &str) {
+    if json_mode {
+        return;
+    }
+    eprintln!();
+    eprintln!(
+        "[mantishack] claude session stopped with non-resumable condition: {reason}. \
+         Not auto-resuming."
     );
 }
 
@@ -3228,7 +3251,8 @@ async fn run_claude_one_shot(
                     log.record(&ev);
                 }
                 if api_error.is_none() {
-                    api_error = run_log::detect_api_error(&ev);
+                    api_error = run_log::detect_non_resumable_error(&ev)
+                        .or_else(|| run_log::detect_api_error(&ev));
                 }
             }
             println!("{line}");
@@ -3240,7 +3264,8 @@ async fn run_claude_one_shot(
                     log.record(&event);
                 }
                 if api_error.is_none() {
-                    api_error = run_log::detect_api_error(&event);
+                    api_error = run_log::detect_non_resumable_error(&event)
+                        .or_else(|| run_log::detect_api_error(&event));
                 }
                 if let Some(pretty) = format_stream_event(&event) {
                     eprintln!("{pretty}");
@@ -4417,7 +4442,8 @@ async fn run_claude_slash_command(
                     log.record(&event);
                 }
                 if api_error.is_none() {
-                    api_error = run_log::detect_api_error(&event);
+                    api_error = run_log::detect_non_resumable_error(&event)
+                        .or_else(|| run_log::detect_api_error(&event));
                 }
                 if let Some(pretty) = format_stream_event(&event) {
                     eprintln!("{pretty}");
@@ -6173,6 +6199,7 @@ fn handle_bench(action: BenchAction) -> Result<()> {
             results,
             tags,
             include_timeouts,
+            include_blocked,
         } => {
             use mantis_bench::result::Status;
             let rows = load_results(results.as_std_path())
@@ -6183,7 +6210,8 @@ fn handle_bench(action: BenchAction) -> Result<()> {
             for r in &rows {
                 let s = r.status_enum();
                 let matches_status = matches!(s, Status::NoFlag)
-                    || (include_timeouts && matches!(s, Status::Timeout));
+                    || (include_timeouts && matches!(s, Status::Timeout))
+                    || (include_blocked && matches!(s, Status::BlockedClaudeLimit));
                 if !matches_status {
                     continue;
                 }
@@ -6198,8 +6226,13 @@ fn handle_bench(action: BenchAction) -> Result<()> {
                 emitted += 1;
             }
             eprintln!(
-                "{DIM}rerun list: {emitted} benchmark(s) (status=no_flag{}{}) — pipe to run_one.sh{RESET}",
+                "{DIM}rerun list: {emitted} benchmark(s) (status=no_flag{}{}{}) — pipe to run_one.sh{RESET}",
                 if include_timeouts { ",timeout" } else { "" },
+                if include_blocked {
+                    ",blocked_claude_limit"
+                } else {
+                    ""
+                },
                 if tag_filter.is_empty() {
                     String::new()
                 } else {

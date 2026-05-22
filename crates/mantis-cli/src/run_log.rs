@@ -21,6 +21,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
+const NON_RESUMABLE_PREFIX: &str = "non_resumable:";
+
 /// Markdown log writer. One per `claude --print` invocation; calls
 /// to [`Self::record`] are cheap (no fsync) and best-effort —
 /// failures are logged to stderr but never propagated to the caller
@@ -384,6 +386,47 @@ pub(crate) fn detect_api_error(event: &serde_json::Value) -> Option<String> {
     ))
 }
 
+/// Detect assistant messages that are not recoverable by immediately
+/// spawning another `claude --print` process. The important benchmark
+/// case is the Claude session-limit banner: the process exits cleanly
+/// with `subtype=success is_error=true`, so plain API-error detection
+/// would otherwise auto-resume forever until the external harness
+/// timeout kills the benchmark.
+pub(crate) fn detect_non_resumable_error(event: &serde_json::Value) -> Option<String> {
+    if event.get("type").and_then(|t| t.as_str()) != Some("assistant") {
+        return None;
+    }
+    if value_contains_string(
+        event,
+        &[
+            "You've hit your session limit",
+            "You have hit your session limit",
+            "Claude usage limit",
+            "usage limit resets",
+        ],
+    ) {
+        return Some(format!("{NON_RESUMABLE_PREFIX}claude_session_limit"));
+    }
+    None
+}
+
+pub(crate) fn non_resumable_reason(reason: &str) -> Option<&str> {
+    reason.strip_prefix(NON_RESUMABLE_PREFIX)
+}
+
+fn value_contains_string(value: &serde_json::Value, needles: &[&str]) -> bool {
+    match value {
+        serde_json::Value::String(s) => needles.iter().any(|needle| s.contains(needle)),
+        serde_json::Value::Array(items) => items
+            .iter()
+            .any(|item| value_contains_string(item, needles)),
+        serde_json::Value::Object(map) => map
+            .values()
+            .any(|item| value_contains_string(item, needles)),
+        _ => false,
+    }
+}
+
 /// Read back the current contents of the log file so an
 /// auto-resume on top of an API error can seed the new claude
 /// session with everything that already happened. Capped at `cap`
@@ -603,6 +646,36 @@ mod tests {
 
         let not_result = json!({"type": "assistant"});
         assert!(detect_api_error(&not_result).is_none());
+    }
+
+    #[test]
+    fn detect_non_resumable_error_flags_claude_session_limit() {
+        let event = json!({
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "You've hit your session limit · resets 5:50pm (America/Los_Angeles)"
+                    }
+                ]
+            }
+        });
+        let reason = detect_non_resumable_error(&event).unwrap();
+        assert_eq!(non_resumable_reason(&reason), Some("claude_session_limit"));
+    }
+
+    #[test]
+    fn detect_non_resumable_error_ignores_normal_assistant_text() {
+        let event = json!({
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {"type": "text", "text": "Recon complete; continuing to HUNT."}
+                ]
+            }
+        });
+        assert!(detect_non_resumable_error(&event).is_none());
     }
 
     #[test]
