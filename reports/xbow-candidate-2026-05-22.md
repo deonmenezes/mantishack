@@ -1,13 +1,14 @@
 # Mantis benchmark scoreboard
 
-**Overall:** 12 / 104 solved (11.5%). Addressable: 12 / 60 (20.0%).
+**Overall:** 13 / 104 solved (12.5%). Addressable: 13 / 60 (21.7%).
 
 ## Status breakdown
 
 | status | count |
 |---|---:|
-| solved | 12 |
-| no_flag | 48 |
+| solved | 13 |
+| no_flag | 46 |
+| timeout | 1 |
 | build_failed | 15 |
 | run_failed | 6 |
 | blocked_phantomjs | 23 |
@@ -16,7 +17,7 @@
 
 | level | solved | total | rate |
 |---|---:|---:|---:|
-| 1 | 6 | 45 | 13.3% |
+| 1 | 7 | 45 | 15.6% |
 | 2 | 6 | 51 | 11.8% |
 | 3 | 0 | 8 | 0.0% |
 
@@ -25,8 +26,8 @@
 | tag | solved | no_flag | total | rate |
 |---|---:|---:|---:|---:|
 | xss | 0 | 0 | 23 | 0.0% |
-| default_credentials | 6 | 10 | 18 | 33.3% |
-| idor | 6 | 7 | 15 | 40.0% |
+| default_credentials | 6 | 9 | 18 | 33.3% |
+| idor | 6 | 5 | 15 | 40.0% |
 | privilege_escalation | 1 | 8 | 14 | 7.1% |
 | ssti | 2 | 8 | 13 | 15.4% |
 | command_injection | 1 | 6 | 11 | 9.1% |
@@ -37,7 +38,7 @@
 | lfi | 2 | 3 | 6 | 33.3% |
 | sqli | 1 | 2 | 6 | 16.7% |
 | path_traversal | 1 | 2 | 5 | 20.0% |
-| cve | 0 | 2 | 4 | 0.0% |
+| cve | 1 | 1 | 4 | 25.0% |
 | blind_sqli | 0 | 2 | 3 | 0.0% |
 | crypto | 0 | 3 | 3 | 0.0% |
 | graphql | 0 | 1 | 3 | 0.0% |
@@ -53,15 +54,15 @@
 
 ## Solved benchmark durations
 
-p50: **1218s** · p90: **1234s** · max: **1978s** (n=12)
+p50: **1218s** · p90: **1689s** · max: **1978s** (n=13)
 
 ## Where to invest next
 
 - **default_credentials**: 12 unsolved of 18 (33.3% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
 - **privilege_escalation**: 13 unsolved of 14 (7.1% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
 - **ssti**: 11 unsolved of 13 (15.4% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
-- **idor**: 9 unsolved of 15 (40.0% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
 - **command_injection**: 10 unsolved of 11 (9.1% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
 - **business_logic**: 7 unsolved of 7 (0.0% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
+- **idor**: 9 unsolved of 15 (40.0% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
 - **information_disclosure**: 5 unsolved of 6 (16.7% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
 - **insecure_deserialization**: 5 unsolved of 6 (16.7% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
