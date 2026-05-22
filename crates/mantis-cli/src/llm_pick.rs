@@ -1,27 +1,33 @@
 //! First-available LLM adapter picker.
 //!
 //! Used by the offensive pipeline (`mantis hack`, `mantis pentest`,
-//! `mantis goal`) to opportunistically call an LLM without forcing
-//! the user to configure one. Picker order:
+//! `mantis goal`) and the conversational surface (`mantis chat`,
+//! `mantis ask`, `mantis serve`) to opportunistically call an LLM
+//! without forcing the user to configure one. Picker order:
 //!
-//!   1. `ANTHROPIC_API_KEY`   → [`AnthropicAdapter`]
-//!   2. `OPENAI_API_KEY`      → [`OpenAIAdapter`]
-//!   3. `claude` binary on PATH → [`ClaudeCliAdapter`]
-//!   4. None
+//!   1. `ANTHROPIC_API_KEY`     → [`AnthropicAdapter`]
+//!   2. `OPENAI_API_KEY`        → [`OpenAIAdapter`]
+//!   3. `GEMINI_API_KEY`        → [`GeminiAdapter`]
+//!   4. `OLLAMA_HOST` set       → [`OllamaAdapter`] (local model)
+//!   5. `claude` binary on PATH → [`ClaudeCliAdapter`]
+//!   6. None
 //!
 //! The picker is deliberately ordered: direct-API keys are preferred
 //! over the CLI subprocess (lower latency, no shell-out, no spawn
-//! overhead). The CLI adapter is the fallback because it doesn't
-//! require the user to manage keys — Claude Code's own auth handles
-//! that.
+//! overhead). Ollama is opt-in via `OLLAMA_HOST` rather than auto-
+//! probed so the picker stays network-free. The CLI adapter is the
+//! final fallback because it doesn't require the user to manage keys
+//! — Claude Code's own auth handles that.
 //!
 //! Honors:
 //! - `MANTIS_NO_LLM=1`  → always returns `None`
 //! - `MANTIS_LLM_PROVIDER=<id>` → force a specific provider
-//!   (`anthropic`, `openai`, `claude-cli`); errors if unavailable.
+//!   (`anthropic`, `openai`, `gemini`, `ollama`, `claude-cli`);
+//!   errors if unavailable.
 
 use mantis_synthesizer::{
-    anthropic::AnthropicAdapter, claude_cli::ClaudeCliAdapter, openai::OpenAIAdapter, LlmAdapter,
+    anthropic::AnthropicAdapter, claude_cli::ClaudeCliAdapter, gemini::GeminiAdapter,
+    ollama::OllamaAdapter, openai::OpenAIAdapter, LlmAdapter,
 };
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -32,6 +38,8 @@ use std::sync::Arc;
 pub(crate) enum PickedProvider {
     Anthropic,
     OpenAI,
+    Gemini,
+    Ollama,
     ClaudeCli,
 }
 
@@ -40,6 +48,8 @@ impl PickedProvider {
         match self {
             PickedProvider::Anthropic => "anthropic",
             PickedProvider::OpenAI => "openai",
+            PickedProvider::Gemini => "gemini",
+            PickedProvider::Ollama => "ollama",
             PickedProvider::ClaudeCli => "claude-cli",
         }
     }
@@ -68,6 +78,14 @@ pub(crate) fn pick() -> Option<(Arc<dyn LlmAdapter>, PickedProvider)> {
         let adapter = OpenAIAdapter::new(key).with_max_tokens(1024);
         return Some((Arc::new(adapter), PickedProvider::OpenAI));
     }
+    if let Some(key) = nonempty_env("GEMINI_API_KEY") {
+        let adapter = GeminiAdapter::new(key);
+        return Some((Arc::new(adapter), PickedProvider::Gemini));
+    }
+    if let Some(host) = nonempty_env("OLLAMA_HOST") {
+        let adapter = OllamaAdapter::new().with_base_url(host);
+        return Some((Arc::new(adapter), PickedProvider::Ollama));
+    }
     if which("claude").is_some() {
         let adapter = ClaudeCliAdapter::new();
         return Some((Arc::new(adapter), PickedProvider::ClaudeCli));
@@ -85,6 +103,21 @@ fn force(id: &str) -> Option<(Arc<dyn LlmAdapter>, PickedProvider)> {
             let a: Arc<dyn LlmAdapter> = Arc::new(OpenAIAdapter::new(k).with_max_tokens(1024));
             (a, PickedProvider::OpenAI)
         }),
+        "gemini" => nonempty_env("GEMINI_API_KEY").map(|k| {
+            let a: Arc<dyn LlmAdapter> = Arc::new(GeminiAdapter::new(k));
+            (a, PickedProvider::Gemini)
+        }),
+        "ollama" => {
+            // Ollama doesn't need an API key. Honor OLLAMA_HOST if
+            // set; otherwise the adapter falls back to its built-in
+            // localhost default. Always available when forced.
+            let mut adapter = OllamaAdapter::new();
+            if let Some(host) = nonempty_env("OLLAMA_HOST") {
+                adapter = adapter.with_base_url(host);
+            }
+            let a: Arc<dyn LlmAdapter> = Arc::new(adapter);
+            Some((a, PickedProvider::Ollama))
+        }
         "claude-cli" => which("claude").map(|_| {
             let a: Arc<dyn LlmAdapter> = Arc::new(ClaudeCliAdapter::new());
             (a, PickedProvider::ClaudeCli)
@@ -92,7 +125,7 @@ fn force(id: &str) -> Option<(Arc<dyn LlmAdapter>, PickedProvider)> {
         other => {
             eprintln!(
                 "[mantis] warning: MANTIS_LLM_PROVIDER={other} is not a known provider \
-                 (anthropic, openai, claude-cli) — skipping LLM"
+                 (anthropic, openai, gemini, ollama, claude-cli) — skipping LLM"
             );
             None
         }

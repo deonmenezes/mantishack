@@ -1,16 +1,16 @@
 [package]
-name = "mantis-synthesizer"
+name = "mantis-chat"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Exploit synthesizer pipeline (PRD §5.7.4). Corpus retrieval → fuzzer → LLM, returning the first sandbox-verified payload."
+description = "Conversational chat engine for the mantis CLI. Wraps mantis-synthesizer LlmAdapters with multi-turn state, slash commands, tool dispatch, and JSONL history."
 
 [dependencies]
-mantis-fuzzer = { workspace = true }
-mantis-sandbox = { workspace = true }
+mantis-synthesizer = { workspace = true }
+anyhow = { workspace = true }
 async-trait = { workspace = true }
 futures = { workspace = true }
 reqwest = { workspace = true }
@@ -18,6 +18,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+toml = { workspace = true }
+tracing = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

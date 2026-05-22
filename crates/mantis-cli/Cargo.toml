@@ -26,12 +26,16 @@ mantis-scope = { workspace = true }
 mantis-signup = { workspace = true }
 mantis-tui-ratatui = { workspace = true }
 mantis-synthesizer = { workspace = true }
+mantis-chat = { workspace = true }
+mantis-chat-tui = { workspace = true }
+mantis-server = { workspace = true }
 mantis-workspace = { workspace = true }
 
 anyhow = { workspace = true }
 camino = { workspace = true }
 clap = { workspace = true }
 crossterm = "0.28"
+futures = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }

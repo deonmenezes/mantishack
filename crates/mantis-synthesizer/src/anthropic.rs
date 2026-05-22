@@ -7,10 +7,11 @@
 //! [`AnthropicAdapter::with_model`].
 
 use async_trait::async_trait;
+use futures::stream::{self, BoxStream, StreamExt};
 use serde::{Deserialize, Serialize};
 
 use crate::retry::{classify_status, parse_retry_after, RetryDecision, RetryPolicy};
-use crate::{LlmAdapter, SynthError};
+use crate::{ChatEvent, ChatMessage, ChatRole, LlmAdapter, SynthError, Tool, ToolCall};
 
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 const DEFAULT_MODEL: &str = "claude-opus-4-7";
@@ -130,6 +131,427 @@ impl LlmAdapter for AnthropicAdapter {
             "anthropic exhausted retries: {last_error}"
         )))
     }
+
+    fn stream_chat<'a>(
+        &'a self,
+        messages: &'a [ChatMessage],
+        tools: &'a [Tool],
+    ) -> BoxStream<'a, Result<ChatEvent, SynthError>> {
+        let fut = async move {
+            match self.run_stream_chat(messages, tools).await {
+                Ok(events) => events,
+                Err(e) => vec![Err(e)],
+            }
+        };
+        stream::once(fut).flat_map(stream::iter).boxed()
+    }
+}
+
+impl AnthropicAdapter {
+    /// Issue a streaming `/v1/messages` request and collect SSE events
+    /// into an ordered vector of [`ChatEvent`]s. See the analogous
+    /// note in `openai.rs::run_stream_chat` — we buffer the body
+    /// before parsing because the workspace reqwest config doesn't
+    /// expose `bytes_stream()`. The parser API is identical, so
+    /// flipping to a streaming `Response::bytes_stream()` would be
+    /// a localized change.
+    async fn run_stream_chat(
+        &self,
+        messages: &[ChatMessage],
+        tools: &[Tool],
+    ) -> Result<Vec<Result<ChatEvent, SynthError>>, SynthError> {
+        let (system, request_messages) = chat_messages_to_anthropic(messages);
+        let req_tools: Vec<StreamTool> = tools.iter().map(tool_to_anthropic).collect();
+
+        let body = StreamRequest {
+            model: &self.model,
+            max_tokens: self.max_tokens,
+            stream: true,
+            system,
+            messages: request_messages,
+            tools: if req_tools.is_empty() {
+                None
+            } else {
+                Some(req_tools)
+            },
+        };
+        let url = format!("{}/v1/messages", self.base_url.trim_end_matches('/'));
+        let body_bytes = serde_json::to_vec(&body)
+            .map_err(|e| SynthError::Backend(format!("anthropic stream serialize: {e}")))?;
+
+        let mut last_error = String::new();
+        for attempt in 1..=self.retry.max_attempts {
+            let resp = self
+                .client
+                .post(&url)
+                .header("x-api-key", &self.api_key)
+                .header("anthropic-version", &self.api_version)
+                .header("content-type", "application/json")
+                .header("accept", "text/event-stream")
+                .body(body_bytes.clone())
+                .send()
+                .await
+                .map_err(|e| SynthError::Backend(format!("anthropic stream request: {e}")))?;
+
+            let status = resp.status().as_u16();
+            let retry_after = resp
+                .headers()
+                .get("retry-after")
+                .and_then(|v| v.to_str().ok())
+                .and_then(parse_retry_after);
+
+            match classify_status(status, retry_after, &self.retry, attempt) {
+                RetryDecision::Done => {
+                    let bytes = resp
+                        .bytes()
+                        .await
+                        .map_err(|e| SynthError::Backend(format!("anthropic stream body: {e}")))?;
+                    let text = String::from_utf8_lossy(&bytes).into_owned();
+                    return Ok(parse_anthropic_sse(&text));
+                }
+                RetryDecision::Retry(delay) => {
+                    let text = resp.text().await.unwrap_or_default();
+                    last_error = format!("anthropic stream {status}: {text}");
+                    tokio::time::sleep(delay).await;
+                    continue;
+                }
+                RetryDecision::Fatal => {
+                    let text = resp.text().await.unwrap_or_default();
+                    return Err(SynthError::Backend(format!(
+                        "anthropic stream {status}: {text}"
+                    )));
+                }
+            }
+        }
+        Err(SynthError::Backend(format!(
+            "anthropic stream exhausted retries: {last_error}"
+        )))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SSE / request wire types and parsing for /v1/messages streaming.
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize)]
+struct StreamRequest<'a> {
+    model: &'a str,
+    max_tokens: u32,
+    stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    system: Option<String>,
+    messages: Vec<StreamMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<StreamTool>>,
+}
+
+#[derive(Serialize)]
+struct StreamMessage {
+    role: &'static str,
+    content: StreamContent,
+}
+
+/// Anthropic accepts either a string or an array of content blocks
+/// for `messages[].content`. We always emit blocks when there's
+/// tool-related content; plain text becomes a `String` for brevity.
+#[derive(Serialize)]
+#[serde(untagged)]
+enum StreamContent {
+    Text(String),
+    Blocks(Vec<StreamContentBlock>),
+}
+
+#[derive(Serialize)]
+#[serde(tag = "type")]
+enum StreamContentBlock {
+    #[serde(rename = "text")]
+    Text { text: String },
+    #[serde(rename = "tool_use")]
+    ToolUse {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+    },
+    #[serde(rename = "tool_result")]
+    ToolResult {
+        tool_use_id: String,
+        content: String,
+    },
+}
+
+#[derive(Serialize)]
+struct StreamTool {
+    name: String,
+    description: String,
+    input_schema: serde_json::Value,
+}
+
+/// Convert a transcript into Anthropic's `(system, messages)`
+/// shape. Tool messages render as a `user` turn containing a single
+/// `tool_result` block; assistant messages with `tool_calls` render
+/// as a mixed text + tool_use block list.
+fn chat_messages_to_anthropic(messages: &[ChatMessage]) -> (Option<String>, Vec<StreamMessage>) {
+    let mut system_parts: Vec<String> = Vec::new();
+    let mut out: Vec<StreamMessage> = Vec::new();
+    for m in messages {
+        match m.role {
+            ChatRole::System => {
+                if !m.content.is_empty() {
+                    system_parts.push(m.content.clone());
+                }
+            }
+            ChatRole::User => {
+                out.push(StreamMessage {
+                    role: "user",
+                    content: StreamContent::Text(m.content.clone()),
+                });
+            }
+            ChatRole::Assistant => {
+                if m.tool_calls.is_empty() {
+                    out.push(StreamMessage {
+                        role: "assistant",
+                        content: StreamContent::Text(m.content.clone()),
+                    });
+                } else {
+                    let mut blocks: Vec<StreamContentBlock> = Vec::new();
+                    if !m.content.is_empty() {
+                        blocks.push(StreamContentBlock::Text {
+                            text: m.content.clone(),
+                        });
+                    }
+                    for tc in &m.tool_calls {
+                        blocks.push(StreamContentBlock::ToolUse {
+                            id: tc.id.clone(),
+                            name: tc.name.clone(),
+                            input: tc.arguments.clone(),
+                        });
+                    }
+                    out.push(StreamMessage {
+                        role: "assistant",
+                        content: StreamContent::Blocks(blocks),
+                    });
+                }
+            }
+            ChatRole::Tool => {
+                let id = m.tool_call_id.clone().unwrap_or_default();
+                out.push(StreamMessage {
+                    role: "user",
+                    content: StreamContent::Blocks(vec![StreamContentBlock::ToolResult {
+                        tool_use_id: id,
+                        content: m.content.clone(),
+                    }]),
+                });
+            }
+        }
+    }
+    let system = if system_parts.is_empty() {
+        None
+    } else {
+        Some(system_parts.join("\n\n"))
+    };
+    (system, out)
+}
+
+fn tool_to_anthropic(t: &Tool) -> StreamTool {
+    StreamTool {
+        name: t.name.clone(),
+        description: t.description.clone(),
+        input_schema: t.input_schema.clone(),
+    }
+}
+
+// SSE event payload shapes we care about.
+
+#[derive(Deserialize)]
+struct ContentBlockStart {
+    index: usize,
+    content_block: StartedBlock,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type")]
+enum StartedBlock {
+    #[serde(rename = "tool_use")]
+    ToolUse { id: String, name: String },
+    // `text` blocks emit deltas via `content_block_delta`, so we
+    // don't need to capture their initial (usually empty) text here.
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Deserialize)]
+struct ContentBlockDelta {
+    index: usize,
+    delta: BlockDeltaPayload,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type")]
+enum BlockDeltaPayload {
+    #[serde(rename = "text_delta")]
+    TextDelta { text: String },
+    #[serde(rename = "input_json_delta")]
+    InputJsonDelta { partial_json: String },
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Deserialize)]
+struct ContentBlockStop {
+    index: usize,
+}
+
+#[derive(Deserialize)]
+struct MessageDelta {
+    delta: MessageDeltaInner,
+}
+
+#[derive(Deserialize)]
+struct MessageDeltaInner {
+    #[serde(default)]
+    stop_reason: Option<String>,
+}
+
+#[derive(Default)]
+struct AnthropicToolBuffer {
+    id: String,
+    name: String,
+    arguments: String,
+}
+
+/// Parse a buffered Anthropic SSE response into an ordered list of
+/// `ChatEvent`s. Anthropic emits typed events:
+///   event: <type>
+///   data: <json>
+///   (blank line)
+fn parse_anthropic_sse(body: &str) -> Vec<Result<ChatEvent, SynthError>> {
+    let mut events: Vec<Result<ChatEvent, SynthError>> = Vec::new();
+    // Buffer per content-block index. Only `tool_use` blocks need a
+    // buffer; text blocks emit their delta immediately.
+    let mut tool_buffers: std::collections::HashMap<usize, AnthropicToolBuffer> =
+        std::collections::HashMap::new();
+    let mut stop_reason: Option<String> = None;
+
+    for frame in body.split("\n\n") {
+        let frame = frame.trim_start_matches('\r').trim();
+        if frame.is_empty() {
+            continue;
+        }
+        let mut event_name: Option<String> = None;
+        let mut payload = String::new();
+        for line in frame.lines() {
+            let line = line.trim_end_matches('\r');
+            if let Some(rest) = line.strip_prefix("event:") {
+                event_name = Some(rest.trim().to_string());
+            } else if let Some(rest) = line.strip_prefix("data:") {
+                if !payload.is_empty() {
+                    payload.push('\n');
+                }
+                payload.push_str(rest.trim_start());
+            }
+        }
+        let Some(name) = event_name else { continue };
+        match name.as_str() {
+            "content_block_start" => {
+                let parsed: ContentBlockStart = match serde_json::from_str(&payload) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        events.push(Ok(ChatEvent::Warning {
+                            message: format!("anthropic content_block_start parse: {e}"),
+                        }));
+                        continue;
+                    }
+                };
+                if let StartedBlock::ToolUse { id, name } = parsed.content_block {
+                    tool_buffers.insert(
+                        parsed.index,
+                        AnthropicToolBuffer {
+                            id,
+                            name,
+                            arguments: String::new(),
+                        },
+                    );
+                }
+            }
+            "content_block_delta" => {
+                let parsed: ContentBlockDelta = match serde_json::from_str(&payload) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        events.push(Ok(ChatEvent::Warning {
+                            message: format!("anthropic content_block_delta parse: {e}"),
+                        }));
+                        continue;
+                    }
+                };
+                match parsed.delta {
+                    BlockDeltaPayload::TextDelta { text } => {
+                        if !text.is_empty() {
+                            events.push(Ok(ChatEvent::Text { delta: text }));
+                        }
+                    }
+                    BlockDeltaPayload::InputJsonDelta { partial_json } => {
+                        if let Some(buf) = tool_buffers.get_mut(&parsed.index) {
+                            buf.arguments.push_str(&partial_json);
+                        }
+                    }
+                    BlockDeltaPayload::Other => {}
+                }
+            }
+            "content_block_stop" => {
+                let parsed: ContentBlockStop = match serde_json::from_str(&payload) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        events.push(Ok(ChatEvent::Warning {
+                            message: format!("anthropic content_block_stop parse: {e}"),
+                        }));
+                        continue;
+                    }
+                };
+                if let Some(buf) = tool_buffers.remove(&parsed.index) {
+                    let arguments = if buf.arguments.is_empty() {
+                        serde_json::Value::Object(Default::default())
+                    } else {
+                        match serde_json::from_str::<serde_json::Value>(&buf.arguments) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                events.push(Ok(ChatEvent::Warning {
+                                    message: format!(
+                                        "anthropic tool args parse ({}): {e}",
+                                        buf.name
+                                    ),
+                                }));
+                                serde_json::Value::String(buf.arguments.clone())
+                            }
+                        }
+                    };
+                    events.push(Ok(ChatEvent::ToolCall(ToolCall {
+                        id: buf.id,
+                        name: buf.name,
+                        arguments,
+                    })));
+                }
+            }
+            "message_delta" => {
+                if let Ok(parsed) = serde_json::from_str::<MessageDelta>(&payload) {
+                    if let Some(reason) = parsed.delta.stop_reason {
+                        stop_reason = Some(reason);
+                    }
+                }
+            }
+            "message_stop" => {
+                events.push(Ok(ChatEvent::Done {
+                    stop_reason: stop_reason.clone(),
+                }));
+                return events;
+            }
+            "message_start" | "ping" => {}
+            _ => {}
+        }
+    }
+    // Stream ended without a `message_stop`. Synthesize one so the
+    // caller still sees a clean termination.
+    events.push(Ok(ChatEvent::Done { stop_reason }));
+    events
 }
 
 #[derive(Serialize)]
@@ -283,5 +705,100 @@ mod tests {
         assert_eq!(a.model, DEFAULT_MODEL);
         assert_eq!(a.api_version, DEFAULT_API_VERSION);
         assert_eq!(a.max_tokens, DEFAULT_MAX_TOKENS);
+    }
+
+    /// Spawn a one-shot HTTP server that replies with an SSE body
+    /// (Content-Type: text/event-stream). Adequate for tests that
+    /// only assert the parser handles well-formed Anthropic frames.
+    async fn mock_sse_server(sse_body: String) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 8192];
+            let _ = socket.read(&mut buf).await;
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: text/event-stream\r\n\r\n{}",
+                sse_body.len(),
+                sse_body
+            );
+            socket.write_all(resp.as_bytes()).await.unwrap();
+            socket.shutdown().await.ok();
+        });
+        format!("http://{addr}")
+    }
+
+    #[tokio::test]
+    async fn stream_chat_yields_text_deltas() {
+        use futures::StreamExt as _;
+        let sse = concat!(
+            "event: message_start\ndata: {\"type\":\"message_start\"}\n\n",
+            "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+            "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n\n",
+            "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\", \"}}\n\n",
+            "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"world\"}}\n\n",
+            "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+            "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}\n\n",
+            "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+        );
+        let base = mock_sse_server(sse.to_string()).await;
+        let adapter = AnthropicAdapter::new("sk-ant-test").with_base_url(base);
+        let msgs = vec![crate::ChatMessage::user("hi")];
+        let events: Vec<_> = adapter.stream_chat(&msgs, &[]).collect().await;
+
+        let texts: Vec<String> = events
+            .iter()
+            .filter_map(|e| match e {
+                Ok(ChatEvent::Text { delta }) => Some(delta.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(texts, vec!["Hello", ", ", "world"]);
+        match events.last().expect("at least one event") {
+            Ok(ChatEvent::Done { stop_reason }) => {
+                assert_eq!(stop_reason.as_deref(), Some("end_turn"));
+            }
+            other => panic!("expected Done last, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn stream_chat_emits_tool_call() {
+        use futures::StreamExt as _;
+        let sse = concat!(
+            "event: message_start\ndata: {\"type\":\"message_start\"}\n\n",
+            "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"lookup\",\"input\":{}}}\n\n",
+            "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"q\\\":\"}}\n\n",
+            "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"mantis\\\"}\"}}\n\n",
+            "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+            "event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"}}\n\n",
+            "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+        );
+        let base = mock_sse_server(sse.to_string()).await;
+        let adapter = AnthropicAdapter::new("sk-ant-test").with_base_url(base);
+        let msgs = vec![crate::ChatMessage::user("call the tool")];
+        let tools = vec![crate::Tool {
+            name: "lookup".into(),
+            description: "look up".into(),
+            input_schema: serde_json::json!({"type":"object"}),
+        }];
+        let events: Vec<_> = adapter.stream_chat(&msgs, &tools).collect().await;
+
+        let tool_call = events
+            .iter()
+            .find_map(|e| match e {
+                Ok(ChatEvent::ToolCall(tc)) => Some(tc.clone()),
+                _ => None,
+            })
+            .expect("expected a ToolCall event");
+        assert_eq!(tool_call.id, "toolu_1");
+        assert_eq!(tool_call.name, "lookup");
+        assert_eq!(tool_call.arguments, serde_json::json!({"q": "mantis"}));
+        match events.last() {
+            Some(Ok(ChatEvent::Done { stop_reason })) => {
+                assert_eq!(stop_reason.as_deref(), Some("tool_use"));
+            }
+            other => panic!("expected Done last, got {other:?}"),
+        }
     }
 }

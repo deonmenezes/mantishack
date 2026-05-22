@@ -50,6 +50,9 @@ members = [
     "crates/mantis-orchestrator",
     "crates/mantis-recon-tools",
     "crates/mantis-tiered-exec",
+    "crates/mantis-chat",
+    "crates/mantis-chat-tui",
+    "crates/mantis-server",
 ]
 
 [workspace.package]
@@ -89,6 +92,8 @@ mantis-k8s = { path = "crates/mantis-k8s" }
 mantis-registry = { path = "crates/mantis-registry" }
 mantis-sandbox = { path = "crates/mantis-sandbox" }
 mantis-synthesizer = { path = "crates/mantis-synthesizer" }
+mantis-chat = { path = "crates/mantis-chat" }
+mantis-chat-tui = { path = "crates/mantis-chat-tui" }
 mantis-fuzzer = { path = "crates/mantis-fuzzer" }
 mantis-tui = { path = "crates/mantis-tui" }
 mantis-tui-ratatui = { path = "crates/mantis-tui-ratatui" }
@@ -108,6 +113,7 @@ mantis-signup = { path = "crates/mantis-signup" }
 mantis-orchestrator = { path = "crates/mantis-orchestrator" }
 mantis-recon-tools = { path = "crates/mantis-recon-tools" }
 mantis-tiered-exec = { path = "crates/mantis-tiered-exec" }
+mantis-server = { path = "crates/mantis-server" }
 core_affinity = "0.8"
 num_cpus = "1.16"
 criterion = { version = "0.5", default-features = false, features = ["plotters", "cargo_bench_support"] }
@@ -155,6 +161,11 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 
 rmcp = { version = "1.7", features = ["server", "macros", "transport-io", "schemars"] }
 schemars = "1"
+
+axum = { version = "0.7", features = ["macros"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+tokio-stream = "0.1"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

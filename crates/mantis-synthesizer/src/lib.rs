@@ -28,6 +28,8 @@
 
 pub mod anthropic;
 pub mod claude_cli;
+pub mod gemini;
+pub mod ollama;
 pub mod openai;
 pub mod retry;
 pub mod symbolic;
@@ -39,6 +41,7 @@ use std::sync::Arc;
 use mantis_sandbox::{ExecutionInput, SandboxBudget, SandboxRuntime};
 
 use async_trait::async_trait;
+use futures::stream::{self, BoxStream, StreamExt};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -78,10 +81,174 @@ pub enum EngineKind {
     Llm,
 }
 
+// ---------------------------------------------------------------------------
+// Chat / streaming surface (mantis-chat foundation).
+//
+// `complete` is one-shot and text-only. The chat surface adds three
+// things on top, all opt-in via a single new trait method
+// (`stream_chat`) with a default implementation that degrades to
+// `complete`:
+//   - Multi-turn messages (system/user/assistant/tool roles)
+//   - Tool calling (providers see &[Tool], emit ToolCall events)
+//   - Streaming (BoxStream<ChatEvent> instead of one String)
+// ---------------------------------------------------------------------------
+
+/// Role of a chat message. `Tool` is used for messages carrying a
+/// tool-call result back to the model after the caller executed the
+/// tool the model requested.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ChatRole {
+    System,
+    User,
+    Assistant,
+    Tool,
+}
+
+/// A single turn in a chat conversation. Assistant messages may
+/// carry `tool_calls`; tool messages must carry a `tool_call_id`
+/// referencing the assistant call they answer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatMessage {
+    pub role: ChatRole,
+    pub content: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_calls: Vec<ToolCall>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+}
+
+impl ChatMessage {
+    pub fn system(content: impl Into<String>) -> Self {
+        Self {
+            role: ChatRole::System,
+            content: content.into(),
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+        }
+    }
+    pub fn user(content: impl Into<String>) -> Self {
+        Self {
+            role: ChatRole::User,
+            content: content.into(),
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+        }
+    }
+    pub fn assistant(content: impl Into<String>) -> Self {
+        Self {
+            role: ChatRole::Assistant,
+            content: content.into(),
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+        }
+    }
+    pub fn tool_result(call_id: impl Into<String>, content: impl Into<String>) -> Self {
+        Self {
+            role: ChatRole::Tool,
+            content: content.into(),
+            tool_calls: Vec::new(),
+            tool_call_id: Some(call_id.into()),
+        }
+    }
+}
+
+/// A tool exposed to the model. The schema goes verbatim into
+/// provider-specific tool_use blocks; the caller is responsible for
+/// validating model-produced arguments against it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Tool {
+    pub name: String,
+    pub description: String,
+    /// JSON Schema (draft-07) describing the tool input shape.
+    pub input_schema: serde_json::Value,
+}
+
+/// A tool invocation requested by the model. `id` is the provider-
+/// assigned identifier used to match the eventual `tool_result`
+/// message back to this call.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolCall {
+    pub id: String,
+    pub name: String,
+    pub arguments: serde_json::Value,
+}
+
+/// One event in a streaming chat completion. Streams terminate on
+/// `Done` (or an outer `Err`). `Warning` is non-fatal — the stream
+/// may continue after one.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ChatEvent {
+    Text { delta: String },
+    ToolCall(ToolCall),
+    Done { stop_reason: Option<String> },
+    Warning { message: String },
+}
+
+/// Flatten a chat transcript into a single prompt string. Used by
+/// the default `stream_chat` impl for adapters that only implement
+/// one-shot `complete`. Tool messages are rendered as `[tool result:
+/// ...]` blocks so the model gets the loop-closure information.
+fn flatten_messages_to_prompt(messages: &[ChatMessage]) -> String {
+    let mut out = String::new();
+    for m in messages {
+        match m.role {
+            ChatRole::System => {
+                out.push_str("[system] ");
+                out.push_str(&m.content);
+                out.push_str("\n\n");
+            }
+            ChatRole::User => {
+                out.push_str("[user] ");
+                out.push_str(&m.content);
+                out.push_str("\n\n");
+            }
+            ChatRole::Assistant => {
+                out.push_str("[assistant] ");
+                out.push_str(&m.content);
+                out.push_str("\n\n");
+            }
+            ChatRole::Tool => {
+                let id = m.tool_call_id.as_deref().unwrap_or("?");
+                out.push_str(&format!("[tool result {id}] "));
+                out.push_str(&m.content);
+                out.push_str("\n\n");
+            }
+        }
+    }
+    out.push_str("[assistant] ");
+    out
+}
+
 /// Trait the daemon implements to plug in an LLM provider.
 #[async_trait]
 pub trait LlmAdapter: Send + Sync {
     async fn complete(&self, prompt: &str) -> Result<String, SynthError>;
+
+    /// Stream a multi-turn chat completion, optionally with tool
+    /// access. Default impl degrades to a one-shot `complete` call
+    /// by flattening the transcript and yielding a single `Text`
+    /// + `Done` event. Adapters with native SSE/streaming support
+    /// should override this to stream incremental deltas and emit
+    /// `ToolCall` events.
+    fn stream_chat<'a>(
+        &'a self,
+        messages: &'a [ChatMessage],
+        _tools: &'a [Tool],
+    ) -> BoxStream<'a, Result<ChatEvent, SynthError>> {
+        let prompt = flatten_messages_to_prompt(messages);
+        let fut = async move {
+            match self.complete(&prompt).await {
+                Ok(text) => vec![
+                    Ok(ChatEvent::Text { delta: text }),
+                    Ok(ChatEvent::Done { stop_reason: None }),
+                ],
+                Err(e) => vec![Err(e)],
+            }
+        };
+        stream::once(fut).flat_map(stream::iter).boxed()
+    }
 }
 
 /// Static-corpus retriever. The default `CorpusRetriever` (unit
@@ -467,5 +634,84 @@ mod tests {
         std::fs::write(corpus_dir.join("broken.json"), "not json").unwrap();
         let result = CorpusRetriever::from_workspace(dir.path());
         assert!(result.is_err());
+    }
+
+    // -----------------------------------------------------------------
+    // Chat / streaming surface.
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn flatten_messages_renders_roles() {
+        let msgs = vec![
+            ChatMessage::system("you are mantis"),
+            ChatMessage::user("scan example.com"),
+            ChatMessage::assistant("on it"),
+            ChatMessage::tool_result("call_1", "{\"ok\":true}"),
+        ];
+        let p = flatten_messages_to_prompt(&msgs);
+        assert!(p.contains("[system] you are mantis"));
+        assert!(p.contains("[user] scan example.com"));
+        assert!(p.contains("[assistant] on it"));
+        assert!(p.contains("[tool result call_1] {\"ok\":true}"));
+        // Trailing assistant prefix so the LLM continues as assistant.
+        assert!(p.trim_end().ends_with("[assistant]"));
+    }
+
+    #[test]
+    fn chat_message_constructors_set_roles() {
+        assert_eq!(ChatMessage::system("x").role, ChatRole::System);
+        assert_eq!(ChatMessage::user("x").role, ChatRole::User);
+        assert_eq!(ChatMessage::assistant("x").role, ChatRole::Assistant);
+        let tr = ChatMessage::tool_result("c1", "x");
+        assert_eq!(tr.role, ChatRole::Tool);
+        assert_eq!(tr.tool_call_id.as_deref(), Some("c1"));
+    }
+
+    #[test]
+    fn chat_event_serialises_with_tag() {
+        let ev = ChatEvent::Text {
+            delta: "hi".into(),
+        };
+        let j = serde_json::to_string(&ev).unwrap();
+        assert!(j.contains("\"type\":\"text\""));
+        assert!(j.contains("\"delta\":\"hi\""));
+    }
+
+    struct CannedChat(&'static str);
+    #[async_trait]
+    impl LlmAdapter for CannedChat {
+        async fn complete(&self, _prompt: &str) -> Result<String, SynthError> {
+            Ok(self.0.into())
+        }
+    }
+
+    #[tokio::test]
+    async fn default_stream_chat_degrades_to_complete() {
+        use futures::StreamExt as _;
+        let adapter = CannedChat("hello world");
+        let msgs = vec![ChatMessage::user("hi")];
+        let events: Vec<_> = adapter.stream_chat(&msgs, &[]).collect().await;
+        assert_eq!(events.len(), 2, "expected Text + Done");
+        match &events[0] {
+            Ok(ChatEvent::Text { delta }) => assert_eq!(delta, "hello world"),
+            other => panic!("expected Text, got {other:?}"),
+        }
+        assert!(matches!(events[1], Ok(ChatEvent::Done { .. })));
+    }
+
+    struct ErrChat;
+    #[async_trait]
+    impl LlmAdapter for ErrChat {
+        async fn complete(&self, _prompt: &str) -> Result<String, SynthError> {
+            Err(SynthError::Backend("nope".into()))
+        }
+    }
+
+    #[tokio::test]
+    async fn default_stream_chat_surfaces_complete_errors() {
+        use futures::StreamExt as _;
+        let events: Vec<_> = ErrChat.stream_chat(&[], &[]).collect().await;
+        assert_eq!(events.len(), 1);
+        assert!(matches!(events[0], Err(SynthError::Backend(_))));
     }
 }
