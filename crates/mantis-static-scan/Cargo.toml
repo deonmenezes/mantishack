@@ -1,0 +1,24 @@
+[package]
+name = "mantis-static-scan"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Shell-out adapters for best-of-breed OSS security scanners (nuclei, subfinder, httpx, trufflehog, trivy). Each adapter parses the tool's JSON output into Mantis's unified Finding type."
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

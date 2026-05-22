@@ -53,6 +53,7 @@ members = [
     "crates/mantis-chat",
     "crates/mantis-chat-tui",
     "crates/mantis-server",
+    "crates/mantis-static-scan",
 ]
 
 [workspace.package]
@@ -114,6 +115,7 @@ mantis-orchestrator = { path = "crates/mantis-orchestrator" }
 mantis-recon-tools = { path = "crates/mantis-recon-tools" }
 mantis-tiered-exec = { path = "crates/mantis-tiered-exec" }
 mantis-server = { path = "crates/mantis-server" }
+mantis-static-scan = { path = "crates/mantis-static-scan" }
 core_affinity = "0.8"
 num_cpus = "1.16"
 criterion = { version = "0.5", default-features = false, features = ["plotters", "cargo_bench_support"] }

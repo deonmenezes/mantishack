@@ -415,6 +415,77 @@ pub struct WriteHandoffArgs {
     pub coverage: Vec<String>,
 }
 
+// ---------- mantis-static-scan adapter args ----------
+//
+// Argument structs for the five `mantis_*` tools that shell out to
+// nuclei / subfinder / httpx / trufflehog / trivy. Each tool keeps
+// its argument surface minimal — the upstream binary owns the rich
+// configuration; the MCP wrapper only exposes the knobs an operator
+// (or the LLM acting on their behalf) actually changes per call.
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct NucleiArgs {
+    /// URL, hostname, or IP to scan. Passed verbatim to `nuclei -u`.
+    pub target: String,
+    /// Optional list of template paths (relative to the nuclei
+    /// templates root) to run, e.g. `["cves/", "exposures/"]`. Empty
+    /// runs every loaded template.
+    #[serde(default)]
+    pub templates: Vec<String>,
+    /// Optional include filter on template tags, e.g.
+    /// `["ssrf", "rce"]`. Joined and passed as `-tags`.
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// Optional exclude filter on template tags.
+    #[serde(default)]
+    pub exclude_tags: Vec<String>,
+    /// Optional severity floor. Accepts `info|low|medium|high|critical`.
+    /// Findings strictly below the floor are not emitted.
+    #[serde(default)]
+    pub severity_floor: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SubfinderArgs {
+    /// Root domain to enumerate, e.g. `example.com` (no scheme).
+    pub domain: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct HttpxArgs {
+    /// URLs or hostnames to probe. Each line of stdin to `httpx`.
+    pub targets: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct TrufflehogArgs {
+    /// Either `"path"` (filesystem scan) or `"git"` (git repository
+    /// scan via clone-and-walk). Defaults to `"path"`.
+    #[serde(default = "default_secret_source")]
+    pub source: String,
+    /// Filesystem path or git repo URL, depending on `source`.
+    pub target: String,
+}
+
+fn default_secret_source() -> String {
+    "path".into()
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct TrivyArgs {
+    /// Either `"path"` (filesystem / IaC / lockfile scan) or
+    /// `"image"` (container image scan). Defaults to `"path"`.
+    #[serde(default = "default_container_source")]
+    pub source: String,
+    /// Filesystem path or container image reference, depending on
+    /// `source`.
+    pub target: String,
+}
+
+fn default_container_source() -> String {
+    "path".into()
+}
+
 // ---------- response shapes (for LLM-friendly JSON) ----------
 
 #[derive(Debug, Serialize)]
@@ -2683,6 +2754,168 @@ impl MantisMcpServer {
         Parameters(args): Parameters<ChainToolArgs>,
     ) -> Result<CallToolResult, McpError> {
         json_ok(&chain_deferred_response("cosmwasm_run", "cosmwasm", &args))
+    }
+
+    // ----------------------------------------------------------------
+    // mantis-static-scan adapters — nuclei, subfinder, httpx,
+    // trufflehog, trivy. Each tool shells out to the upstream binary
+    // (operator-installable via brew / go install / etc.) and returns
+    // the parsed findings as a `{"findings": [...]}` JSON object. The
+    // upstream binary must be on PATH; missing tools return a clear
+    // ScanError::Unavailable with an install hint that the model can
+    // surface back to the operator.
+    // ----------------------------------------------------------------
+
+    #[tool(
+        description = "Run Nuclei against a URL or host. Nuclei runs the projectdiscovery \
+                       community template repository (8000+ CVE/misconfig/exposure templates) \
+                       against the target and returns findings as structured JSON. Requires \
+                       `nuclei` on PATH (`brew install nuclei`)."
+    )]
+    async fn mantis_hunt_nuclei(
+        &self,
+        Parameters(args): Parameters<NucleiArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        use mantis_static_scan::{nuclei::NucleiAdapter, Severity};
+        let mut adapter = NucleiAdapter::new();
+        if !args.tags.is_empty() {
+            adapter = adapter.with_tags(args.tags);
+        }
+        if !args.exclude_tags.is_empty() {
+            adapter = adapter.with_exclude_tags(args.exclude_tags);
+        }
+        if !args.templates.is_empty() {
+            adapter = adapter.with_templates(args.templates);
+        }
+        if let Some(floor) = args.severity_floor.as_deref() {
+            adapter = adapter.with_severity_floor(Severity::parse(floor));
+        }
+        let findings = adapter
+            .scan(&args.target)
+            .await
+            .map_err(|e| to_internal("nuclei scan", e))?;
+        json_ok(&serde_json::json!({
+            "tool": "nuclei",
+            "target": args.target,
+            "count": findings.len(),
+            "findings": findings,
+        }))
+    }
+
+    #[tool(
+        description = "Enumerate subdomains for a root domain via Subfinder's 30+ passive \
+                       data sources (crt.sh, VirusTotal, Shodan, etc. — no active probing). \
+                       Returns each discovered host as a finding with `kind: \"subdomain\"`. \
+                       Requires `subfinder` on PATH (`brew install subfinder`)."
+    )]
+    async fn mantis_recon_subdomains(
+        &self,
+        Parameters(args): Parameters<SubfinderArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        use mantis_static_scan::subfinder::SubfinderAdapter;
+        let adapter = SubfinderAdapter::new();
+        let findings = adapter
+            .enumerate(&args.domain)
+            .await
+            .map_err(|e| to_internal("subfinder enumerate", e))?;
+        json_ok(&serde_json::json!({
+            "tool": "subfinder",
+            "domain": args.domain,
+            "count": findings.len(),
+            "findings": findings,
+        }))
+    }
+
+    #[tool(
+        description = "Probe a list of hosts/URLs with HTTPX to capture status, title, \
+                       tech fingerprint, TLS, and webserver info. The canonical companion to \
+                       `mantis_recon_subdomains` — pipe subfinder hosts through httpx to find \
+                       the ones actually serving HTTP. Requires `httpx` on PATH \
+                       (`brew install httpx`)."
+    )]
+    async fn mantis_recon_http_fingerprint(
+        &self,
+        Parameters(args): Parameters<HttpxArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        use mantis_static_scan::httpx::HttpxAdapter;
+        let adapter = HttpxAdapter::new();
+        let findings = adapter
+            .probe(&args.targets)
+            .await
+            .map_err(|e| to_internal("httpx probe", e))?;
+        json_ok(&serde_json::json!({
+            "tool": "httpx",
+            "input_count": args.targets.len(),
+            "count": findings.len(),
+            "findings": findings,
+        }))
+    }
+
+    #[tool(
+        description = "Scan a filesystem path or git repository for leaked secrets using \
+                       TruffleHog. TruffleHog uniquely *verifies* found credentials — keys \
+                       that pass the live-auth check are returned as Critical, unverified \
+                       matches as Medium. Pass `source: \"path\"` with `target` as a local \
+                       filesystem path, or `source: \"git\"` with `target` as a clone-able \
+                       repository URL. Requires `trufflehog` on PATH (`brew install trufflehog`)."
+    )]
+    async fn mantis_scan_secrets(
+        &self,
+        Parameters(args): Parameters<TrufflehogArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        use mantis_static_scan::trufflehog::TrufflehogAdapter;
+        let adapter = TrufflehogAdapter::new();
+        let findings = match args.source.as_str() {
+            "git" => adapter
+                .scan_git(&args.target)
+                .await
+                .map_err(|e| to_internal("trufflehog scan_git", e))?,
+            _ => adapter
+                .scan_filesystem(std::path::Path::new(&args.target))
+                .await
+                .map_err(|e| to_internal("trufflehog scan_filesystem", e))?,
+        };
+        json_ok(&serde_json::json!({
+            "tool": "trufflehog",
+            "source": args.source,
+            "target": args.target,
+            "count": findings.len(),
+            "findings": findings,
+        }))
+    }
+
+    #[tool(
+        description = "Scan a filesystem path or container image for vulnerabilities with \
+                       Trivy. Covers OS packages, language deps, IaC misconfigurations, \
+                       secrets, and SBOMs in one call. Pass `source: \"path\"` with `target` \
+                       as a filesystem path (Trivy auto-detects lockfiles / Dockerfiles / \
+                       Terraform / k8s YAML), or `source: \"image\"` with `target` as a \
+                       container image reference (e.g. `nginx:1.25`). Requires `trivy` on \
+                       PATH (`brew install trivy`)."
+    )]
+    async fn mantis_scan_containers(
+        &self,
+        Parameters(args): Parameters<TrivyArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        use mantis_static_scan::trivy::TrivyAdapter;
+        let adapter = TrivyAdapter::new();
+        let findings = match args.source.as_str() {
+            "image" => adapter
+                .scan_image(&args.target)
+                .await
+                .map_err(|e| to_internal("trivy scan_image", e))?,
+            _ => adapter
+                .scan_filesystem(std::path::Path::new(&args.target))
+                .await
+                .map_err(|e| to_internal("trivy scan_filesystem", e))?,
+        };
+        json_ok(&serde_json::json!({
+            "tool": "trivy",
+            "source": args.source,
+            "target": args.target,
+            "count": findings.len(),
+            "findings": findings,
+        }))
     }
 }
 
