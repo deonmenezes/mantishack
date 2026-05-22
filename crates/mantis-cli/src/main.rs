@@ -108,6 +108,98 @@ enum Command {
         #[command(subcommand)]
         action: LlmAction,
     },
+    /// Conversational chat with the active LLM provider. Inline
+    /// REPL by default — prints to your normal terminal scrollback
+    /// like Codex CLI does, so you can scroll back, copy text, and
+    /// see your shell prompt above. Pass `--tui` to opt into the
+    /// full-screen ratatui split-screen UI.
+    ///
+    /// History is persisted to `$MANTIS_HOME/chat/<session>.jsonl`.
+    /// Slash commands: `/clear`, `/model`, `/provider`, `/tools`,
+    /// `/help`, `/quit`.
+    ///
+    /// Provider picked via the standard `MANTIS_LLM_PROVIDER` env
+    /// override or the auto-picker (Anthropic → OpenAI → Gemini →
+    /// Ollama → claude-cli). Honors `--provider` and `--model` for
+    /// per-invocation overrides.
+    Chat {
+        /// Optional engagement label — used as the chat history
+        /// filename. Defaults to "default" if unset.
+        #[arg(long)]
+        session: Option<String>,
+        /// Force a specific provider for this session.
+        #[arg(long)]
+        provider: Option<String>,
+        /// Override the model id. Provider-specific; e.g.
+        /// `claude-opus-4-7`, `gpt-4o-mini`, `gemini-2.0-flash-exp`,
+        /// `llama3.2`.
+        #[arg(long)]
+        model: Option<String>,
+        /// Custom system prompt. If unset, uses a short default
+        /// that introduces Mantis and its capabilities.
+        #[arg(long)]
+        system: Option<String>,
+        /// Disable tool-calling for this session. The model won't
+        /// see any tools and can't trigger external API calls.
+        #[arg(long)]
+        no_tools: bool,
+        /// Resume the previous chat history for this `--session`
+        /// instead of starting fresh.
+        #[arg(long)]
+        resume: bool,
+        /// Maximum tool-call rounds per turn before bailing out.
+        #[arg(long, default_value_t = 6)]
+        max_tool_rounds: usize,
+        /// Opt into the full-screen ratatui TUI. Default is the
+        /// inline Codex-CLI-style REPL that prints to your normal
+        /// terminal scrollback (you can scroll back, copy-paste,
+        /// and your shell prompt is still visible).
+        #[arg(long)]
+        tui: bool,
+    },
+    /// One-shot ask: send a single prompt and print the streamed
+    /// reply, then exit. No history persisted. Useful for scripting
+    /// and CI pipelines.
+    Ask {
+        /// Prompt text. Read from stdin if `-` (or omitted).
+        prompt: Option<String>,
+        #[arg(long)]
+        provider: Option<String>,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long)]
+        system: Option<String>,
+        /// Output as JSON `{"reply":"...","provider":"..."}` instead
+        /// of plain streaming text.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Run the Mantis HTTP/SSE API server. Exposes `/v1/chat`
+    /// (SSE-streamed conversational chat), `/v1/engagements`,
+    /// `/v1/scan`, `/v1/findings/:id`, and `/healthz`. Other
+    /// applications can drive Mantis through this API instead of
+    /// the CLI.
+    ///
+    /// First run with auth enabled writes a bearer token to
+    /// `$MANTIS_HOME/server.token` (mode 0600) and logs it. Use
+    /// `--no-auth` for localhost-only dev — it disables the bearer
+    /// gate entirely.
+    Serve {
+        /// Socket to bind. Default `127.0.0.1:8787`.
+        #[arg(long, env = "MANTIS_SERVE_BIND", default_value = "127.0.0.1:8787")]
+        bind: std::net::SocketAddr,
+        /// Disable bearer-token auth. Localhost-only dev — never use
+        /// on a non-loopback bind without an external auth proxy.
+        #[arg(long)]
+        no_auth: bool,
+        /// Override `$MANTIS_HOME`. Tokens, user tools, and chat
+        /// history are read/written under this root.
+        #[arg(long, env = "MANTIS_HOME")]
+        mantis_home: Option<Utf8PathBuf>,
+        /// gRPC daemon endpoint.
+        #[arg(long, env = "MANTIS_DAEMON", default_value = DEFAULT_DAEMON_ENDPOINT)]
+        daemon: String,
+    },
     /// End-to-end pentest: one command, every step. Detects target
     /// type (web URL, domain, .apk/.ipa/.exe/.dmg/.app), creates
     /// an engagement, generates a default scope manifest, runs
@@ -809,6 +901,51 @@ fn main() -> Result<()> {
             daemon: DEFAULT_DAEMON_ENDPOINT.to_owned(),
         })),
         Command::Llm { action } => run_async(handle_llm(action)),
+        Command::Chat {
+            session,
+            provider,
+            model,
+            system,
+            no_tools,
+            resume,
+            max_tool_rounds,
+            tui,
+        } => {
+            if tui {
+                run_async(handle_tui(
+                    session,
+                    provider,
+                    model,
+                    system,
+                    no_tools,
+                    resume,
+                    max_tool_rounds,
+                ))
+            } else {
+                run_async(handle_chat(
+                    session,
+                    provider,
+                    model,
+                    system,
+                    no_tools,
+                    resume,
+                    max_tool_rounds,
+                ))
+            }
+        }
+        Command::Ask {
+            prompt,
+            provider,
+            model,
+            system,
+            json,
+        } => run_async(handle_ask(prompt, provider, model, system, json)),
+        Command::Serve {
+            bind,
+            no_auth,
+            mantis_home,
+            daemon,
+        } => run_async(handle_serve(bind, no_auth, mantis_home, daemon)),
         Command::Pentest {
             target,
             i_have_authorization,
@@ -3908,6 +4045,18 @@ fn maybe_migrate_keystore_from_os(ws_path: &std::path::Path) {
     use mantis_workspace::keystore::{FileKeyStore, KeyStore, OsKeyStore};
     use mantis_workspace::{operator_keystore_service, workspace_keystore_service};
 
+    // Opt-in only. On macOS, probing the keychain (even just calling
+    // `is_available`) triggers a Keychain Access password prompt for
+    // unsigned binaries — and every fresh `cargo build` produces a
+    // new signature, so the prompt comes back even after the user
+    // clicked "Always Allow". Fresh installs of v0.0.9+ never used
+    // the keychain backend and have nothing to migrate; the prompt
+    // is pure friction. Existing v0.0.8 users who *do* have keys in
+    // the keychain can opt in with `MANTIS_MIGRATE_FROM_KEYCHAIN=1`.
+    if std::env::var("MANTIS_MIGRATE_FROM_KEYCHAIN").as_deref() != Ok("1") {
+        return;
+    }
+
     if std::env::var("MANTIS_KEYSTORE").as_deref() == Ok("keychain") {
         return;
     }
@@ -4823,8 +4972,8 @@ fn build_summary(name: &str, id: &str, target_kind: &TargetKind, info: &Engageme
 
 async fn handle_llm(action: LlmAction) -> Result<()> {
     use mantis_synthesizer::{
-        anthropic::AnthropicAdapter, claude_cli::ClaudeCliAdapter, openai::OpenAIAdapter,
-        LlmAdapter,
+        anthropic::AnthropicAdapter, claude_cli::ClaudeCliAdapter, gemini::GeminiAdapter,
+        ollama::OllamaAdapter, openai::OpenAIAdapter, LlmAdapter,
     };
     match action {
         LlmAction::Probe {
@@ -4852,6 +5001,26 @@ async fn handle_llm(action: LlmAction) -> Result<()> {
                     }
                     adapter.complete(&prompt).await
                 }
+                "gemini" => {
+                    let key = std::env::var("GEMINI_API_KEY")
+                        .context("GEMINI_API_KEY is not set; export it and rerun")?;
+                    let mut adapter = GeminiAdapter::new(key);
+                    if let Some(m) = model {
+                        adapter = adapter.with_model(m);
+                    }
+                    adapter.complete(&prompt).await
+                }
+                "ollama" => {
+                    let mut adapter = OllamaAdapter::new();
+                    if let Some(host) = std::env::var("OLLAMA_HOST").ok().filter(|s| !s.is_empty())
+                    {
+                        adapter = adapter.with_base_url(host);
+                    }
+                    if let Some(m) = model {
+                        adapter = adapter.with_model(m);
+                    }
+                    adapter.complete(&prompt).await
+                }
                 "claude-cli" => {
                     let mut adapter = ClaudeCliAdapter::new();
                     if let Some(m) = model {
@@ -4860,7 +5029,7 @@ async fn handle_llm(action: LlmAction) -> Result<()> {
                     adapter.complete(&prompt).await
                 }
                 other => anyhow::bail!(
-                    "unknown provider `{other}`; supported: anthropic, openai, claude-cli"
+                    "unknown provider `{other}`; supported: anthropic, openai, gemini, ollama, claude-cli"
                 ),
             };
             match result {
@@ -4872,6 +5041,504 @@ async fn handle_llm(action: LlmAction) -> Result<()> {
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// `mantis chat` / `mantis ask` — conversational surface.
+// ---------------------------------------------------------------------------
+
+const DEFAULT_CHAT_SYSTEM_PROMPT: &str = "You are Mantis, a helpful security \
+assistant embedded in a terminal CLI. Answer naturally and conversationally — \
+respond directly to whatever the operator says, including casual chat. \
+When the operator asks for a security scan, hunt, or analysis of a target, \
+use the available mantis tools. Only require explicit authorization for \
+actions that actually touch an external system.";
+
+/// Build a chat-ready adapter, honoring `--provider` / `--model` /
+/// the same env vars the offensive pipeline picker honors. Returns
+/// `(adapter, provider_label, model_label)`.
+fn pick_chat_adapter(
+    provider_override: Option<&str>,
+    model_override: Option<&str>,
+) -> Result<(std::sync::Arc<dyn mantis_synthesizer::LlmAdapter>, String, String)> {
+    use mantis_synthesizer::{
+        anthropic::AnthropicAdapter, claude_cli::ClaudeCliAdapter, gemini::GeminiAdapter,
+        ollama::OllamaAdapter, openai::OpenAIAdapter, LlmAdapter,
+    };
+    use std::sync::Arc;
+
+    let provider = match provider_override {
+        Some(p) => p.to_string(),
+        None => std::env::var("MANTIS_LLM_PROVIDER").unwrap_or_else(|_| detect_provider()),
+    };
+
+    let (adapter, model_label): (Arc<dyn LlmAdapter>, String) = match provider.as_str() {
+        "anthropic" => {
+            let key = std::env::var("ANTHROPIC_API_KEY")
+                .context("ANTHROPIC_API_KEY is not set — export it or pick a different provider")?;
+            let mut a = AnthropicAdapter::new(key).with_max_tokens(4096);
+            let model = model_override
+                .map(str::to_string)
+                .unwrap_or_else(|| "claude-opus-4-7".to_string());
+            a = a.with_model(model.clone());
+            (Arc::new(a), model)
+        }
+        "openai" => {
+            let key = std::env::var("OPENAI_API_KEY")
+                .context("OPENAI_API_KEY is not set — export it or pick a different provider")?;
+            let mut a = OpenAIAdapter::new(key).with_max_tokens(4096);
+            let model = model_override
+                .map(str::to_string)
+                .unwrap_or_else(|| "gpt-4o-mini".to_string());
+            a = a.with_model(model.clone());
+            (Arc::new(a), model)
+        }
+        "gemini" => {
+            let key = std::env::var("GEMINI_API_KEY")
+                .context("GEMINI_API_KEY is not set — export it or pick a different provider")?;
+            let mut a = GeminiAdapter::new(key);
+            let model = model_override
+                .map(str::to_string)
+                .unwrap_or_else(|| "gemini-2.0-flash-exp".to_string());
+            a = a.with_model(model.clone());
+            (Arc::new(a), model)
+        }
+        "ollama" => {
+            let mut a = OllamaAdapter::new();
+            if let Some(host) = std::env::var("OLLAMA_HOST").ok().filter(|s| !s.is_empty()) {
+                a = a.with_base_url(host);
+            }
+            let model = model_override
+                .map(str::to_string)
+                .unwrap_or_else(|| "llama3.2".to_string());
+            a = a.with_model(model.clone());
+            (Arc::new(a), model)
+        }
+        "claude-cli" => {
+            let mut a = ClaudeCliAdapter::new();
+            let model = model_override
+                .map(str::to_string)
+                .unwrap_or_else(|| "claude-opus-4-7".to_string());
+            a = a.with_model(model.clone());
+            (Arc::new(a), model)
+        }
+        other => anyhow::bail!(
+            "unknown provider `{other}` — supported: anthropic, openai, gemini, ollama, claude-cli"
+        ),
+    };
+
+    Ok((adapter, provider, model_label))
+}
+
+/// Mirror of `llm_pick::pick`'s auto-detection logic — picks the
+/// first provider whose env condition is satisfied. Returns the
+/// provider id (`"anthropic"`, etc.) or `"claude-cli"` as the last
+/// fallback when `claude` is on PATH but no API key is set.
+fn detect_provider() -> String {
+    if env_nonempty("ANTHROPIC_API_KEY") {
+        return "anthropic".into();
+    }
+    if env_nonempty("OPENAI_API_KEY") {
+        return "openai".into();
+    }
+    if env_nonempty("GEMINI_API_KEY") {
+        return "gemini".into();
+    }
+    if env_nonempty("OLLAMA_HOST") {
+        return "ollama".into();
+    }
+    "claude-cli".into()
+}
+
+fn env_nonempty(name: &str) -> bool {
+    std::env::var(name)
+        .map(|v| !v.trim().is_empty())
+        .unwrap_or(false)
+}
+
+/// Resolve the chat-history file path for a given session label. Uses
+/// `$MANTIS_HOME` (default `~/.mantis`) and writes to
+/// `chat/<session>.jsonl`.
+fn chat_history_path(session: &str) -> std::path::PathBuf {
+    let root = std::env::var_os("MANTIS_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            let home = std::env::var_os("HOME").unwrap_or_default();
+            std::path::PathBuf::from(home).join(".mantis")
+        });
+    root.join("chat").join(format!("{session}.jsonl"))
+}
+
+/// User-tools directory, `$MANTIS_HOME/tools/`. Missing directory
+/// is fine — the loader returns an empty registry.
+fn user_tools_dir() -> std::path::PathBuf {
+    let root = std::env::var_os("MANTIS_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            let home = std::env::var_os("HOME").unwrap_or_default();
+            std::path::PathBuf::from(home).join(".mantis")
+        });
+    root.join("tools")
+}
+
+// ANSI escape codes for terminal styling. Kept inline to avoid a
+// `crossterm` dependency creep into the chat handler — the rest of
+// the file uses crossterm in interactive flows that need cursor
+// control, which the chat REPL does not.
+const DIM: &str = "\x1b[2m";
+const BOLD: &str = "\x1b[1m";
+const CYAN: &str = "\x1b[36m";
+const GREEN: &str = "\x1b[32m";
+const RESET: &str = "\x1b[0m";
+
+async fn handle_chat(
+    session: Option<String>,
+    provider_override: Option<String>,
+    model_override: Option<String>,
+    system: Option<String>,
+    no_tools: bool,
+    resume: bool,
+    max_tool_rounds: usize,
+) -> Result<()> {
+    use mantis_chat::{parse_input, Conversation, HistoryFile, Input, SlashCommand};
+    use std::io::{BufRead, Write};
+
+    let session = session.unwrap_or_else(|| "default".to_string());
+    let (adapter, provider, model) =
+        pick_chat_adapter(provider_override.as_deref(), model_override.as_deref())?;
+
+    let system_prompt = system.unwrap_or_else(|| DEFAULT_CHAT_SYSTEM_PROMPT.to_string());
+
+    let history_path = chat_history_path(&session);
+    let history_file = HistoryFile::open(&history_path)
+        .with_context(|| format!("opening chat history at {}", history_path.display()))?;
+
+    let mut conv = Conversation::new(adapter, provider.clone())
+        .with_system(system_prompt)
+        .with_model_label(model.clone())
+        .with_history(history_file);
+
+    if !no_tools {
+        use mantis_chat::ChatToolRegistry as _;
+        let tools_dir = user_tools_dir();
+        match mantis_chat::UserToolRegistry::from_dir(&tools_dir) {
+            Ok(registry) => {
+                let n = registry.tools().len();
+                if n > 0 {
+                    eprintln!(
+                        "{DIM}[mantis chat] loaded {n} user tool(s) from {}{RESET}",
+                        tools_dir.display()
+                    );
+                }
+                conv = conv.with_tools(std::sync::Arc::new(registry));
+            }
+            Err(e) => {
+                eprintln!(
+                    "{DIM}[mantis chat] user-tools dir {} skipped: {e}{RESET}",
+                    tools_dir.display()
+                );
+            }
+        }
+    }
+
+    if resume {
+        let loaded = HistoryFile::load(&history_path)
+            .with_context(|| format!("loading chat history from {}", history_path.display()))?;
+        let count = loaded.len();
+        conv.extend_from_history(loaded);
+        if count > 0 {
+            eprintln!("{DIM}[mantis chat] resumed {count} prior message(s){RESET}");
+        }
+    }
+
+    // Welcome banner.
+    eprintln!(
+        "{BOLD}mantis chat{RESET}  {DIM}provider={CYAN}{provider}{RESET}{DIM}  model={model}  session={session}{RESET}"
+    );
+    eprintln!("{DIM}type /help for commands, /quit to exit{RESET}");
+
+    let stdin = std::io::stdin();
+    let mut stdout = std::io::stdout();
+    let mut stderr = std::io::stderr();
+
+    loop {
+        write!(stdout, "\n{BOLD}you{RESET} ❯ ").ok();
+        stdout.flush().ok();
+
+        let mut line = String::new();
+        match stdin.lock().read_line(&mut line) {
+            Ok(0) => {
+                // EOF — exit cleanly.
+                eprintln!();
+                break;
+            }
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("{DIM}[mantis chat] read error: {e}{RESET}");
+                break;
+            }
+        }
+
+        match parse_input(line.trim()) {
+            Input::Slash(SlashCommand::Quit) => break,
+            Input::Slash(SlashCommand::Help) => {
+                println!(
+                    "{DIM}slash commands:\n  /clear     drop history (keep system prompt)\n  /model     show current model\n  /provider  show current provider\n  /tools     list available tools\n  /help      this message\n  /quit      exit{RESET}"
+                );
+                continue;
+            }
+            Input::Slash(SlashCommand::Clear) => {
+                conv.clear();
+                eprintln!("{DIM}[mantis chat] history cleared{RESET}");
+                continue;
+            }
+            Input::Slash(SlashCommand::Model { name }) => match name {
+                Some(_) => eprintln!(
+                    "{DIM}[mantis chat] live model switching not implemented yet; restart with --model{RESET}"
+                ),
+                None => eprintln!("{DIM}[mantis chat] model: {}{RESET}", conv.model()),
+            },
+            Input::Slash(SlashCommand::Provider { name }) => match name {
+                Some(_) => eprintln!(
+                    "{DIM}[mantis chat] live provider switching not implemented yet; restart with --provider{RESET}"
+                ),
+                None => eprintln!("{DIM}[mantis chat] provider: {}{RESET}", conv.provider()),
+            },
+            Input::Slash(SlashCommand::Tools) => {
+                let tools = conv.tools_snapshot();
+                if tools.is_empty() {
+                    eprintln!("{DIM}[mantis chat] no tools registered{RESET}");
+                } else {
+                    eprintln!("{DIM}[mantis chat] {} tool(s) available:{RESET}", tools.len());
+                    for t in tools {
+                        eprintln!("  {BOLD}{}{RESET}  {DIM}{}{RESET}", t.name, t.description);
+                    }
+                }
+            }
+            Input::Slash(SlashCommand::Unknown(s)) => {
+                eprintln!("{DIM}[mantis chat] unknown command /{s} — try /help{RESET}");
+            }
+            Input::Message(msg) if msg.trim().is_empty() => continue,
+            Input::Message(msg) => {
+                write!(stdout, "\n{GREEN}mantis{RESET} ❯ ").ok();
+                stdout.flush().ok();
+
+                let result = conv
+                    .turn(msg, max_tool_rounds, |event| {
+                        render_chat_event(event, &mut stdout, &mut stderr);
+                    })
+                    .await;
+
+                writeln!(stdout).ok();
+                stdout.flush().ok();
+
+                if let Err(e) = result {
+                    eprintln!("{DIM}[mantis chat] turn failed: {e}{RESET}");
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn render_chat_event(
+    event: &mantis_chat::ChatEvent,
+    stdout: &mut std::io::Stdout,
+    stderr: &mut std::io::Stderr,
+) {
+    use std::io::Write;
+    match event {
+        mantis_chat::ChatEvent::Text { delta } => {
+            // Stream text directly to stdout with immediate flush so
+            // the user sees incremental output.
+            stdout.write_all(delta.as_bytes()).ok();
+            stdout.flush().ok();
+        }
+        mantis_chat::ChatEvent::ToolCall(call) => {
+            // Visible tool call — dim cyan, on stderr so a JSON-piped
+            // ask doesn't get polluted.
+            writeln!(
+                stderr,
+                "\n{DIM}{CYAN}▸ {}{RESET}{DIM}({}){RESET}",
+                call.name,
+                serde_json::to_string(&call.arguments).unwrap_or_default()
+            )
+            .ok();
+        }
+        mantis_chat::ChatEvent::Done { .. } => {
+            // Newline handled by caller after the turn returns.
+        }
+        mantis_chat::ChatEvent::Warning { message } => {
+            writeln!(stderr, "{DIM}[warning] {message}{RESET}").ok();
+        }
+    }
+}
+
+async fn handle_ask(
+    prompt: Option<String>,
+    provider_override: Option<String>,
+    model_override: Option<String>,
+    system: Option<String>,
+    json_output: bool,
+) -> Result<()> {
+    use futures::StreamExt;
+    use mantis_chat::{ChatEvent, ChatMessage};
+    use std::io::Read;
+
+    // Resolve prompt — explicit arg wins, else stdin.
+    let prompt = match prompt {
+        Some(p) if p != "-" => p,
+        _ => {
+            let mut buf = String::new();
+            std::io::stdin()
+                .read_to_string(&mut buf)
+                .context("reading prompt from stdin")?;
+            buf
+        }
+    };
+    if prompt.trim().is_empty() {
+        anyhow::bail!("empty prompt; pass one as an argument or via stdin");
+    }
+
+    let (adapter, provider, _model) =
+        pick_chat_adapter(provider_override.as_deref(), model_override.as_deref())?;
+
+    let mut messages = Vec::new();
+    if let Some(s) = system {
+        messages.push(ChatMessage::system(s));
+    }
+    messages.push(ChatMessage::user(prompt));
+
+    let mut stream = adapter.stream_chat(&messages, &[]);
+    let mut collected = String::new();
+    while let Some(event) = stream.next().await {
+        let event = event.context("provider stream errored")?;
+        match event {
+            ChatEvent::Text { delta } => {
+                collected.push_str(&delta);
+                if !json_output {
+                    use std::io::Write;
+                    let mut out = std::io::stdout();
+                    out.write_all(delta.as_bytes()).ok();
+                    out.flush().ok();
+                }
+            }
+            ChatEvent::ToolCall(_) => {
+                // `mantis ask` is tool-free by design — one-shot.
+            }
+            ChatEvent::Done { .. } => break,
+            ChatEvent::Warning { message } => {
+                eprintln!("[mantis ask warning] {message}");
+            }
+        }
+    }
+
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string(&serde_json::json!({
+                "provider": provider,
+                "reply": collected,
+            }))?
+        );
+    } else {
+        println!();
+    }
+    Ok(())
+}
+
+fn is_stdout_tty() -> bool {
+    use std::io::IsTerminal;
+    std::io::stdout().is_terminal()
+}
+
+async fn handle_tui(
+    session: Option<String>,
+    provider_override: Option<String>,
+    model_override: Option<String>,
+    system: Option<String>,
+    no_tools: bool,
+    resume: bool,
+    max_tool_rounds: usize,
+) -> Result<()> {
+    use mantis_chat::ChatToolRegistry;
+
+    // Show the session picker iff the user didn't pin a session
+    // with `--session`. The picker scans `$MANTIS_HOME/chat/` and
+    // either resumes a prior conversation or returns the default.
+    let allow_picker = session.is_none();
+    let session = session.unwrap_or_else(|| "default".to_string());
+    let (adapter, provider, model) =
+        pick_chat_adapter(provider_override.as_deref(), model_override.as_deref())?;
+    let system_prompt = Some(system.unwrap_or_else(|| DEFAULT_CHAT_SYSTEM_PROMPT.to_string()));
+
+    let history_path = chat_history_path(&session);
+
+    let tools: Option<std::sync::Arc<dyn ChatToolRegistry>> = if no_tools {
+        None
+    } else {
+        let tools_dir = user_tools_dir();
+        match mantis_chat::UserToolRegistry::from_dir(&tools_dir) {
+            Ok(registry) => Some(std::sync::Arc::new(registry)),
+            Err(e) => {
+                eprintln!(
+                    "[mantis tui] user-tools dir {} skipped: {e}",
+                    tools_dir.display()
+                );
+                None
+            }
+        }
+    };
+
+    let config = mantis_chat_tui::Config {
+        adapter,
+        provider,
+        model,
+        session,
+        system_prompt,
+        history_path,
+        resume,
+        tools,
+        max_tool_rounds,
+        allow_picker,
+    };
+
+    mantis_chat_tui::run(config).await
+}
+
+async fn handle_serve(
+    bind: std::net::SocketAddr,
+    no_auth: bool,
+    mantis_home: Option<Utf8PathBuf>,
+    _daemon: String,
+) -> Result<()> {
+    let mantis_home = mantis_home
+        .map(|p| p.into_std_path_buf())
+        .unwrap_or_else(|| {
+            let home = std::env::var_os("HOME").unwrap_or_default();
+            std::path::PathBuf::from(home).join(".mantis")
+        });
+    std::fs::create_dir_all(&mantis_home)
+        .with_context(|| format!("creating $MANTIS_HOME at {}", mantis_home.display()))?;
+
+    let mut config = mantis_server::ServerConfig::new(mantis_home);
+    config.bind = bind;
+    config.require_auth = !no_auth;
+
+    if no_auth {
+        eprintln!(
+            "{DIM}[mantis serve] WARNING: --no-auth is set; bearer-token gating disabled. \
+             Use only on loopback or behind an external auth proxy.{RESET}"
+        );
+    }
+
+    eprintln!(
+        "{BOLD}mantis serve{RESET}  {DIM}bind={CYAN}{bind}{RESET}{DIM}  auth={}{RESET}",
+        if no_auth { "disabled" } else { "bearer" }
+    );
+
+    mantis_server::run(config).await
 }
 
 fn run_async<F: std::future::Future<Output = Result<()>>>(fut: F) -> Result<()> {

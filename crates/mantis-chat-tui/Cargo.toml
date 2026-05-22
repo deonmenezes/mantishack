@@ -1,0 +1,29 @@
+[package]
+name = "mantis-chat-tui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Codex-CLI-style ratatui TUI for the mantis conversational surface."
+
+[dependencies]
+mantis-chat = { workspace = true }
+mantis-synthesizer = { workspace = true }
+anyhow = { workspace = true }
+crossterm = "0.28"
+futures = { workspace = true }
+pulldown-cmark = "0.12"
+ratatui = { workspace = true }
+serde_json = { workspace = true }
+syntect = { version = "5", default-features = false, features = ["default-fancy"] }
+tokio = { workspace = true }
+tracing = { workspace = true }
+unicode-width = "0.1"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true
