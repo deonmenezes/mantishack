@@ -5409,6 +5409,11 @@ async fn handle_chat(
     // received at the prompt with an empty buffer. A second press
     // within 2s confirms the quit.
     let mut last_ctrl_c: Option<std::time::Instant> = None;
+    // Whether vuln-class playbooks have been injected into the
+    // system prompt this session. One-shot: once armed, we don't
+    // re-arm on subsequent turns even if more classes are
+    // mentioned, to keep the prompt-cache hot.
+    let mut playbooks_armed = false;
     let mut stdout = std::io::stdout();
 
     loop {
@@ -5523,6 +5528,30 @@ async fn handle_chat(
             }
             Input::Message(msg) if msg.trim().is_empty() => continue,
             Input::Message(msg) => {
+                // Auto-arm vuln-class playbooks based on the user's
+                // message. Once a class is detected (xss, sqli,
+                // command_injection, ...) we re-inject the chat
+                // system prompt with the matching playbook(s)
+                // appended — but only on the FIRST hit per session,
+                // so we don't bloat the prompt on every turn.
+                // The playbook text is dense, payload-focused, and
+                // sits inside the 5-min Anthropic prompt cache, so
+                // the cost is paid once and read cheaply thereafter.
+                if !playbooks_armed {
+                    let hits = mantis_chat::matching_playbooks(&[msg.clone()]);
+                    if !hits.is_empty() {
+                        let pb_prompt = mantis_chat::compose_playbook_prompt(&[msg.clone()]);
+                        conv.augment_system_prompt(&pb_prompt);
+                        let names: Vec<&str> =
+                            hits.iter().map(|p| p.label).collect();
+                        eprintln!(
+                            "{DIM}armed playbooks: {}{RESET}",
+                            names.join(", ")
+                        );
+                        playbooks_armed = true;
+                    }
+                }
+
                 // `mantis ❯` is the assistant prompt — kept short and
                 // tonally neutral. The operator's prompt above uses
                 // `operator ❯` to mirror the codebase's vocabulary.

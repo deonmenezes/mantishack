@@ -52,6 +52,33 @@ impl Conversation {
         self
     }
 
+    /// Append additional text to the first system message in the
+    /// transcript (or push a new system message if none exists).
+    /// Used to inject vuln-class playbooks mid-session without
+    /// rebuilding the conversation.
+    ///
+    /// Idempotent on the byte content: if the existing system
+    /// message already contains the addition verbatim, this is a
+    /// no-op. Lets callers safely re-arm playbooks on every turn
+    /// without bloating the prompt.
+    pub fn augment_system_prompt(&mut self, addition: &str) {
+        if addition.trim().is_empty() {
+            return;
+        }
+        if let Some(sys) = self
+            .messages
+            .iter_mut()
+            .find(|m| m.role == ChatRole::System)
+        {
+            if !sys.content.contains(addition) {
+                sys.content.push_str(addition);
+            }
+        } else {
+            self.messages
+                .insert(0, ChatMessage::system(addition.to_string()));
+        }
+    }
+
     pub fn with_tools(mut self, tools: Arc<dyn ChatToolRegistry>) -> Self {
         self.tools = tools;
         self
@@ -348,5 +375,48 @@ mod tests {
         conv.clear();
         assert_eq!(conv.messages().len(), 1);
         assert_eq!(conv.messages()[0].role, ChatRole::System);
+    }
+
+    #[test]
+    fn augment_system_prompt_appends_to_existing_system() {
+        let adapter = Arc::new(ScriptedAdapter::new(vec![vec![text("x"), done()]]));
+        let mut conv =
+            Conversation::new(adapter, "scripted").with_system("you are mantis");
+        conv.augment_system_prompt("\n\nadditional context");
+        assert_eq!(conv.messages().len(), 1);
+        assert_eq!(conv.messages()[0].role, ChatRole::System);
+        assert!(conv.messages()[0].content.contains("you are mantis"));
+        assert!(conv.messages()[0].content.contains("additional context"));
+    }
+
+    #[test]
+    fn augment_system_prompt_is_idempotent_on_byte_content() {
+        let adapter = Arc::new(ScriptedAdapter::new(vec![vec![text("x"), done()]]));
+        let mut conv = Conversation::new(adapter, "scripted").with_system("base");
+        conv.augment_system_prompt("\n\nextra");
+        let after_first = conv.messages()[0].content.clone();
+        // Second call with the same text should NOT duplicate.
+        conv.augment_system_prompt("\n\nextra");
+        assert_eq!(conv.messages()[0].content, after_first);
+    }
+
+    #[test]
+    fn augment_system_prompt_creates_one_when_missing() {
+        let adapter = Arc::new(ScriptedAdapter::new(vec![vec![text("x"), done()]]));
+        let mut conv = Conversation::new(adapter, "scripted");
+        assert!(conv.messages().is_empty());
+        conv.augment_system_prompt("brand-new system text");
+        assert_eq!(conv.messages().len(), 1);
+        assert_eq!(conv.messages()[0].role, ChatRole::System);
+        assert_eq!(conv.messages()[0].content, "brand-new system text");
+    }
+
+    #[test]
+    fn augment_system_prompt_skips_empty_input() {
+        let adapter = Arc::new(ScriptedAdapter::new(vec![vec![text("x"), done()]]));
+        let mut conv = Conversation::new(adapter, "scripted").with_system("base");
+        conv.augment_system_prompt("");
+        conv.augment_system_prompt("   ");
+        assert_eq!(conv.messages()[0].content, "base");
     }
 }
