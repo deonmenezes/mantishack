@@ -5047,12 +5047,19 @@ async fn handle_llm(action: LlmAction) -> Result<()> {
 // `mantis chat` / `mantis ask` — conversational surface.
 // ---------------------------------------------------------------------------
 
-const DEFAULT_CHAT_SYSTEM_PROMPT: &str = "You are Mantis, a helpful security \
-assistant embedded in a terminal CLI. Answer naturally and conversationally — \
-respond directly to whatever the operator says, including casual chat. \
-When the operator asks for a security scan, hunt, or analysis of a target, \
-use the available mantis tools. Only require explicit authorization for \
-actions that actually touch an external system.";
+const DEFAULT_CHAT_SYSTEM_PROMPT: &str = "You are Mantis, a helpful general-purpose \
+AI assistant in a terminal CLI. Have a normal conversation with the operator — \
+small talk, coding help, writing, explanations, anything. \
+\
+You happen to also have access to security tools (recon, scanning, vulnerability \
+hunting), but only reach for them when the operator explicitly asks for security \
+work — phrases like \"scan example.com\", \"hunt for vulns in X\", \"recon this \
+target\", or when they hand you a URL/domain and ask you to look at it from a \
+security angle. \
+\
+Do NOT open the conversation by asking for a target. Do NOT bring up authorization \
+unless the operator has already started a security-oriented task. Just chat \
+naturally until security work is requested.";
 
 /// Build a chat-ready adapter, honoring `--provider` / `--model` /
 /// the same env vars the offensive pipeline picker honors. Returns
@@ -5190,7 +5197,13 @@ fn pick_chat_adapter(
             (Arc::new(a), model)
         }
         "claude-cli" => {
-            let mut a = ClaudeCliAdapter::new();
+            // Chat mode: strip the legacy synthesizer's payload-only
+            // system prompt (the adapter's `new()` default) so the
+            // user's chat system prompt and the flattened transcript
+            // are what drive the reply. Without this override, every
+            // turn would pivot to "drop a target URL" because the
+            // synth prompt coerces Claude into payload-only mode.
+            let mut a = ClaudeCliAdapter::new().with_system_prompt(None);
             let model = model_override
                 .map(str::to_string)
                 .unwrap_or_else(|| "claude-opus-4-7".to_string());
@@ -5330,7 +5343,7 @@ async fn handle_chat(
                 let n = registry.tools().len();
                 if n > 0 {
                     eprintln!(
-                        "{DIM}loaded {n} user tool(s) from {}{RESET}",
+                        "{DIM}armed {n} primitive(s) from {}{RESET}",
                         tools_dir.display()
                     );
                 }
@@ -5338,7 +5351,7 @@ async fn handle_chat(
             }
             Err(e) => {
                 eprintln!(
-                    "{DIM}user-tools dir {} skipped: {e}{RESET}",
+                    "{DIM}primitive armory {} skipped: {e}{RESET}",
                     tools_dir.display()
                 );
             }
@@ -5351,16 +5364,22 @@ async fn handle_chat(
         let count = loaded.len();
         conv.extend_from_history(loaded);
         if count > 0 {
-            eprintln!("{DIM}resumed {count} prior message(s){RESET}");
+            eprintln!(
+                "{DIM}engagement resumed · {count} prior dispatches loaded{RESET}"
+            );
         }
     }
 
-    // Concise banner. One line of "what's wired", one line of "how to drive".
+    // Mantis-themed banner. Identity line + tactics line. Maps the
+    // chat surface vocabulary onto the FSM (RECON / AUTH / HUNT /
+    // CHAIN / VERIFY / GRADE / REPORT) so the conversational mode
+    // feels like an extension of the offensive pipeline rather than
+    // a separate product.
     eprintln!(
-        "{BOLD}mantis{RESET} {DIM}·{RESET} {CYAN}{provider}{RESET}{DIM}/{model}{RESET} {DIM}·{RESET} session {DIM}{session}{RESET}"
+        "{BOLD}mantis{RESET} {DIM}·{RESET} operator engagement {DIM}·{RESET} {CYAN}{provider}{RESET}{DIM}/{model}{RESET} {DIM}·{RESET} session {DIM}{session}{RESET}"
     );
     eprintln!(
-        "{DIM}ctrl+c cancels current reply · ctrl+c at empty prompt (twice) or /quit to exit · /help for commands{RESET}"
+        "{DIM}ctrl+c breaks current ambush · ctrl+c twice at idle ends engagement · /help for tactics{RESET}"
     );
 
     // Two-press-to-quit state: timestamp of the most recent Ctrl+C
@@ -5370,7 +5389,9 @@ async fn handle_chat(
     let mut stdout = std::io::stdout();
 
     loop {
-        write!(stdout, "\n{BOLD}you{RESET} ❯ ").ok();
+        // `operator` mirrors the codebase's term for the human
+        // driving the engagement (vs `mantis` as the assistant).
+        write!(stdout, "\n{BOLD}operator{RESET} ❯ ").ok();
         stdout.flush().ok();
 
         // Read one line of stdin in a blocking task so we can race
@@ -5394,7 +5415,7 @@ async fn handle_chat(
             r = read_fut => match r {
                 Ok(inner) => ReadOutcome::Read(inner),
                 Err(e) => {
-                    eprintln!("{DIM}read task error: {e}{RESET}");
+                    eprintln!("{DIM}dispatch read task error: {e}{RESET}");
                     break;
                 }
             },
@@ -5403,7 +5424,9 @@ async fn handle_chat(
 
         let line = match outcome {
             ReadOutcome::Interrupted => {
-                // Ctrl+C at the prompt. Two presses within 2s exit.
+                // Ctrl+C at the idle prompt. Two presses within 2s
+                // confirm "end engagement" (clean exit). Single
+                // press just arms the confirmation window.
                 let now = std::time::Instant::now();
                 let confirm = last_ctrl_c
                     .map(|t| now.duration_since(t) < std::time::Duration::from_secs(2))
@@ -5414,7 +5437,7 @@ async fn handle_chat(
                 }
                 last_ctrl_c = Some(now);
                 eprintln!(
-                    "\n{DIM}(ctrl+c again within 2s to quit, or type a message){RESET}"
+                    "\n{DIM}(ctrl+c again within 2s to end engagement, or dispatch a message){RESET}"
                 );
                 continue;
             }
@@ -5425,7 +5448,7 @@ async fn handle_chat(
             }
             ReadOutcome::Read(Ok((_, line))) => line,
             ReadOutcome::Read(Err(e)) => {
-                eprintln!("{DIM}read error: {e}{RESET}");
+                eprintln!("{DIM}dispatch read error: {e}{RESET}");
                 break;
             }
         };
@@ -5437,43 +5460,49 @@ async fn handle_chat(
             Input::Slash(SlashCommand::Quit) => break,
             Input::Slash(SlashCommand::Help) => {
                 println!(
-                    "{DIM}slash commands:\n  /clear     drop history (keep system prompt)\n  /model     show current model\n  /provider  show current provider\n  /tools     list available tools\n  /help      this message\n  /quit      exit\n\nctrl+c cancels the current reply mid-stream; press it again at an empty\nprompt to exit.{RESET}"
+                    "{DIM}tactics:\n  /clear     purge engagement log (scope intact)\n  /model     show or switch the active model\n  /provider  show or switch the active provider\n  /tools     list armed primitives (hunters available for dispatch)\n  /help      this card\n  /quit      end engagement\n\nctrl+c during an ambush breaks the model's reply and returns you to\nthe prompt; partial intel stays on screen. press it again at an idle\nprompt to end the engagement.\n\nphases (mapped from the offensive pipeline):\n  RECON → AUTH → HUNT → CHAIN → VERIFY → GRADE → REPORT\nthe conversational surface stays in RECON/HUNT — primitives can\nescalate a thread into a full engagement via mantis pentest / goal.{RESET}"
                 );
                 continue;
             }
             Input::Slash(SlashCommand::Clear) => {
                 conv.clear();
-                eprintln!("{DIM}history cleared{RESET}");
+                eprintln!("{DIM}engagement log purged · scope intact{RESET}");
                 continue;
             }
             Input::Slash(SlashCommand::Model { name }) => match name {
                 Some(_) => eprintln!(
-                    "{DIM}live model switching not implemented yet; restart with --model{RESET}"
+                    "{DIM}live model switching not implemented yet · restart with --model{RESET}"
                 ),
                 None => eprintln!("{DIM}model: {}{RESET}", conv.model()),
             },
             Input::Slash(SlashCommand::Provider { name }) => match name {
                 Some(_) => eprintln!(
-                    "{DIM}live provider switching not implemented yet; restart with --provider{RESET}"
+                    "{DIM}live provider switching not implemented yet · restart with --provider{RESET}"
                 ),
                 None => eprintln!("{DIM}provider: {}{RESET}", conv.provider()),
             },
             Input::Slash(SlashCommand::Tools) => {
                 let tools = conv.tools_snapshot();
                 if tools.is_empty() {
-                    eprintln!("{DIM}no tools registered{RESET}");
+                    eprintln!("{DIM}no primitives armed{RESET}");
                 } else {
-                    eprintln!("{DIM}{} tool(s) available:{RESET}", tools.len());
+                    eprintln!(
+                        "{DIM}{} primitive(s) armed · hunters ready for dispatch:{RESET}",
+                        tools.len()
+                    );
                     for t in tools {
                         eprintln!("  {BOLD}{}{RESET}  {DIM}{}{RESET}", t.name, t.description);
                     }
                 }
             }
             Input::Slash(SlashCommand::Unknown(s)) => {
-                eprintln!("{DIM}unknown command /{s} — try /help{RESET}");
+                eprintln!("{DIM}unknown tactic /{s} — try /help{RESET}");
             }
             Input::Message(msg) if msg.trim().is_empty() => continue,
             Input::Message(msg) => {
+                // `mantis ❯` is the assistant prompt — kept short and
+                // tonally neutral. The operator's prompt above uses
+                // `operator ❯` to mirror the codebase's vocabulary.
                 write!(stdout, "\n{GREEN}mantis{RESET} ❯ ").ok();
                 stdout.flush().ok();
 
@@ -5517,7 +5546,7 @@ async fn handle_chat(
                                 let mut err = std::io::stderr().lock();
                                 let _ = write!(
                                     err,
-                                    "\r{DIM}{} thinking…{RESET}",
+                                    "\r{DIM}{} stalking…{RESET}",
                                     frames[i % frames.len()]
                                 );
                                 let _ = err.flush();
@@ -5584,14 +5613,16 @@ async fn handle_chat(
                 stdout.flush().ok();
 
                 if interrupted {
-                    eprintln!("{DIM}[interrupted — press enter for a fresh prompt]{RESET}");
+                    eprintln!(
+                        "{DIM}[ambush broken · ready for next dispatch]{RESET}"
+                    );
                 } else if let Some(Err(e)) = turn_result {
-                    eprintln!("{DIM}turn failed: {e}{RESET}");
+                    eprintln!("{DIM}engagement turn failed: {e}{RESET}");
                 } else {
-                    // Stats line — chars streamed, wall-clock duration,
-                    // and approximate chars/sec rate. Dim and on stderr
-                    // so it doesn't get captured in any `mantis ask`
-                    // stdout pipe.
+                    // Stats line — chars streamed, wall-clock
+                    // duration, and approximate chars/sec rate.
+                    // "engaged" maps to a completed RECON/HUNT
+                    // pass in the offensive pipeline's vocabulary.
                     let elapsed = started.elapsed();
                     let chars = chars_streamed.load(Ordering::Relaxed);
                     let secs = elapsed.as_secs_f64();
@@ -5601,7 +5632,7 @@ async fn handle_chat(
                         "—".into()
                     };
                     eprintln!(
-                        "{DIM}↳ {chars} ch · {:.2}s · {rate}{RESET}",
+                        "{DIM}↳ engaged · {chars} ch · {:.2}s · {rate}{RESET}",
                         secs
                     );
                 }
@@ -5628,12 +5659,15 @@ fn render_chat_event(event: &mantis_chat::ChatEvent) {
             out.flush().ok();
         }
         mantis_chat::ChatEvent::ToolCall(call) => {
-            // Visible tool call — dim cyan, on stderr so a JSON-piped
-            // `mantis ask` doesn't get polluted with tool noise.
+            // Visible tool call rendered in Mantis vocabulary: a
+            // "hunter dispatch" is a parallel agent spawning out
+            // against a surface (mapped from the offensive pipeline's
+            // HUNT phase). Dim cyan, on stderr so JSON-piped output
+            // from `mantis ask` stays clean.
             let mut err = std::io::stderr().lock();
             writeln!(
                 err,
-                "\n{DIM}{CYAN}▸ {}{RESET}{DIM}({}){RESET}",
+                "\n{DIM}{CYAN}▸ hunter spawned · {}{RESET}{DIM}({}){RESET}",
                 call.name,
                 serde_json::to_string(&call.arguments).unwrap_or_default()
             )
