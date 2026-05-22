@@ -18,11 +18,13 @@
 
 pub mod conversation;
 pub mod history;
+pub mod playbooks;
 pub mod slash;
 pub mod tools;
 
 pub use conversation::Conversation;
 pub use history::HistoryFile;
+pub use playbooks::{compose_playbook_prompt, matching_playbooks, playbook_index, Playbook, PLAYBOOKS};
 pub use slash::{parse_input, Input, SlashCommand};
 pub use tools::user::UserToolRegistry;
 pub use tools::{ChatToolRegistry, NoTools};

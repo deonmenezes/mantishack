@@ -55,6 +55,7 @@ members = [
     "crates/mantis-server",
     "crates/mantis-static-scan",
     "crates/mantis-recon-pipeline",
+    "crates/mantis-bench",
 ]
 
 [workspace.package]
@@ -118,6 +119,7 @@ mantis-tiered-exec = { path = "crates/mantis-tiered-exec" }
 mantis-server = { path = "crates/mantis-server" }
 mantis-static-scan = { path = "crates/mantis-static-scan" }
 mantis-recon-pipeline = { path = "crates/mantis-recon-pipeline" }
+mantis-bench = { path = "crates/mantis-bench" }
 core_affinity = "0.8"
 num_cpus = "1.16"
 criterion = { version = "0.5", default-features = false, features = ["plotters", "cargo_bench_support"] }
