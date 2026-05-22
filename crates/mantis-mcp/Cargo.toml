@@ -21,6 +21,7 @@ mantis-auth = { workspace = true }
 mantis-auth-differential = { workspace = true }
 mantis-recon-tools = { workspace = true }
 mantis-static-scan = { workspace = true }
+mantis-recon-pipeline = { workspace = true }
 mantis-tiered-exec = { workspace = true }
 mantis-workspace = { workspace = true }
 

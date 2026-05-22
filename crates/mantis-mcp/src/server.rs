@@ -486,6 +486,40 @@ fn default_container_source() -> String {
     "path".into()
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ReconBurstArgs {
+    /// URL or bare domain to recon (e.g. `example.com`,
+    /// `https://api.example.com`). The pipeline auto-strips
+    /// scheme/path for the subdomain enum and re-adds https://
+    /// for the HTTP probe.
+    pub target: String,
+    /// `"quick"` (default, ~30-90s, high+critical only) or
+    /// `"deep"` (full battery, 2-10min).
+    #[serde(default = "default_depth")]
+    pub depth: String,
+    /// Optional filesystem path for `trufflehog` / `trivy` to scan
+    /// — e.g. a cloned repository for the target. Only used in
+    /// deep mode.
+    #[serde(default)]
+    pub filesystem_root: Option<String>,
+    /// Optional scope-manifest hash mixed into the cache key.
+    /// Different scope = different bundle.
+    #[serde(default)]
+    pub scope_hash: Option<String>,
+    /// Cache TTL in seconds. 0 disables caching for this call.
+    /// Defaults to 1800 (30 minutes).
+    #[serde(default = "default_cache_ttl")]
+    pub cache_ttl_secs: u64,
+}
+
+fn default_depth() -> String {
+    "quick".into()
+}
+
+fn default_cache_ttl() -> u64 {
+    1800
+}
+
 // ---------- response shapes (for LLM-friendly JSON) ----------
 
 #[derive(Debug, Serialize)]
@@ -2915,6 +2949,54 @@ impl MantisMcpServer {
             "target": args.target,
             "count": findings.len(),
             "findings": findings,
+        }))
+    }
+
+    #[tool(
+        description = "Run the parallel recon pipeline against a target. Fans out subfinder + \
+                       httpx + nuclei + (optionally trufflehog + trivy if filesystem_root is set) \
+                       concurrently via tokio::join!, then aggregates the results into a \
+                       structured ReconBundle. Wall-clock is max(scanner_durations), not the sum \
+                       — typically a 4–6× speedup over issuing one MCP tool call per scanner. \
+                       Includes a deterministic anomaly-detection pass that flags admin endpoints, \
+                       IDOR-shaped URLs, exposed config, JWT signals, etc. Results cached on disk \
+                       by (target, scope_hash, depth) — repeat calls within the TTL are instant. \
+                       Returns both the structured bundle JSON and a markdown handoff brief the \
+                       caller can paste directly into an LLM context."
+    )]
+    async fn mantis_recon_burst(
+        &self,
+        Parameters(args): Parameters<ReconBurstArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        use mantis_recon_pipeline::{
+            run_pipeline, PipelineDepth, PipelineOptions,
+        };
+        let depth = match args.depth.to_ascii_lowercase().as_str() {
+            "deep" | "full" => PipelineDepth::Deep,
+            _ => PipelineDepth::Quick,
+        };
+        let mut opts = PipelineOptions::default();
+        opts.depth = depth;
+        opts.filesystem_root = args.filesystem_root.map(std::path::PathBuf::from);
+        opts.scope_hash = args.scope_hash;
+        opts.cache_ttl = std::time::Duration::from_secs(args.cache_ttl_secs);
+
+        let bundle = run_pipeline(&args.target, opts)
+            .await
+            .map_err(|e| to_internal("recon pipeline", e))?;
+
+        let markdown = bundle.to_handoff_markdown();
+        json_ok(&serde_json::json!({
+            "tool": "mantis_recon_burst",
+            "target": bundle.target,
+            "elapsed_ms": bundle.elapsed_ms,
+            "subdomain_count": bundle.subdomains.len(),
+            "surface_count": bundle.live_surfaces.len(),
+            "finding_count": bundle.findings.len(),
+            "anomaly_count": bundle.anomalies.len(),
+            "scanner_stats": bundle.scanner_stats,
+            "bundle": bundle,
+            "handoff_markdown": markdown,
         }))
     }
 }
