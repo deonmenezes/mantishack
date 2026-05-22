@@ -2247,6 +2247,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "mantis-bench"
+version = "0.0.9"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "mantis-benches"
 version = "0.0.9"
 dependencies = [
@@ -2340,6 +2351,7 @@ dependencies = [
  "futures",
  "mantis-auth",
  "mantis-auth-differential",
+ "mantis-bench",
  "mantis-chat",
  "mantis-chat-tui",
  "mantis-core",
@@ -2544,8 +2556,10 @@ dependencies = [
  "mantis-core",
  "mantis-pack",
  "mantis-proto",
+ "mantis-recon-pipeline",
  "mantis-recon-tools",
  "mantis-scope",
+ "mantis-static-scan",
  "mantis-tiered-exec",
  "mantis-workspace",
  "reqwest",
@@ -2674,6 +2688,22 @@ dependencies = [
  "prost",
  "tonic",
  "tonic-build",
+]
+
+[[package]]
+name = "mantis-recon-pipeline"
+version = "0.0.9"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "blake3",
+ "mantis-static-scan",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -2820,6 +2850,20 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "ulid",
+]
+
+[[package]]
+name = "mantis-static-scan"
+version = "0.0.9"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
