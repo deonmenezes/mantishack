@@ -108,11 +108,11 @@ enum Command {
         #[command(subcommand)]
         action: LlmAction,
     },
-    /// Conversational chat with the active LLM provider. By default
-    /// launches a Codex-CLI-style full-screen TUI (ratatui split-
-    /// screen with markdown rendering, multiline input, ↑/↓ history,
-    /// inline tool-call display). Pass `--no-tui` for the plain
-    /// BufRead REPL — useful when piping input or running in CI.
+    /// Conversational chat with the active LLM provider. Inline
+    /// REPL by default — prints to your normal terminal scrollback
+    /// like Codex CLI does, so you can scroll back, copy text, and
+    /// see your shell prompt above. Pass `--tui` to opt into the
+    /// full-screen ratatui split-screen UI.
     ///
     /// History is persisted to `$MANTIS_HOME/chat/<session>.jsonl`.
     /// Slash commands: `/clear`, `/model`, `/provider`, `/tools`,
@@ -150,11 +150,12 @@ enum Command {
         /// Maximum tool-call rounds per turn before bailing out.
         #[arg(long, default_value_t = 6)]
         max_tool_rounds: usize,
-        /// Disable the TUI. Forces the plain stdin/stdout REPL even
-        /// when launched from a TTY. Useful for `echo "..." | mantis chat`
-        /// scripting.
+        /// Opt into the full-screen ratatui TUI. Default is the
+        /// inline Codex-CLI-style REPL that prints to your normal
+        /// terminal scrollback (you can scroll back, copy-paste,
+        /// and your shell prompt is still visible).
         #[arg(long)]
-        no_tui: bool,
+        tui: bool,
     },
     /// One-shot ask: send a single prompt and print the streamed
     /// reply, then exit. No history persisted. Useful for scripting
@@ -908,10 +909,9 @@ fn main() -> Result<()> {
             no_tools,
             resume,
             max_tool_rounds,
-            no_tui,
+            tui,
         } => {
-            let want_tui = !no_tui && is_stdout_tty();
-            if want_tui {
+            if tui {
                 run_async(handle_tui(
                     session,
                     provider,
@@ -5047,11 +5047,12 @@ async fn handle_llm(action: LlmAction) -> Result<()> {
 // `mantis chat` / `mantis ask` — conversational surface.
 // ---------------------------------------------------------------------------
 
-const DEFAULT_CHAT_SYSTEM_PROMPT: &str = "You are Mantis, an offensive-security \
-assistant embedded in a CLI. Be concise. When the operator asks you to scan, \
-hunt, or analyse a target, call the appropriate mantis tools rather than \
-describing what you would do. Refuse any request against a target the operator \
-has not explicitly authorized.";
+const DEFAULT_CHAT_SYSTEM_PROMPT: &str = "You are Mantis, a helpful security \
+assistant embedded in a terminal CLI. Answer naturally and conversationally — \
+respond directly to whatever the operator says, including casual chat. \
+When the operator asks for a security scan, hunt, or analysis of a target, \
+use the available mantis tools. Only require explicit authorization for \
+actions that actually touch an external system.";
 
 /// Build a chat-ready adapter, honoring `--provider` / `--model` /
 /// the same env vars the offensive pipeline picker honors. Returns

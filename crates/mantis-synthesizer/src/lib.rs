@@ -188,36 +188,47 @@ pub enum ChatEvent {
 
 /// Flatten a chat transcript into a single prompt string. Used by
 /// the default `stream_chat` impl for adapters that only implement
-/// one-shot `complete`. Tool messages are rendered as `[tool result:
-/// ...]` blocks so the model gets the loop-closure information.
+/// one-shot `complete` (e.g. `claude --print`). The format places
+/// any system message as a natural-language preamble, renders
+/// prior turns as a `Human: …\n\nAssistant: …` transcript (which
+/// every Anthropic-style model understands natively), and leaves
+/// the trailing turn open for the assistant to continue.
 fn flatten_messages_to_prompt(messages: &[ChatMessage]) -> String {
     let mut out = String::new();
+
+    // Pull system messages to the top as plain preamble.
+    let system_blocks: Vec<&str> = messages
+        .iter()
+        .filter(|m| m.role == ChatRole::System)
+        .map(|m| m.content.as_str())
+        .collect();
+    if !system_blocks.is_empty() {
+        out.push_str(&system_blocks.join("\n\n"));
+        out.push_str("\n\n");
+    }
+
     for m in messages {
         match m.role {
-            ChatRole::System => {
-                out.push_str("[system] ");
-                out.push_str(&m.content);
-                out.push_str("\n\n");
-            }
+            ChatRole::System => {} // already handled
             ChatRole::User => {
-                out.push_str("[user] ");
+                out.push_str("Human: ");
                 out.push_str(&m.content);
                 out.push_str("\n\n");
             }
             ChatRole::Assistant => {
-                out.push_str("[assistant] ");
+                out.push_str("Assistant: ");
                 out.push_str(&m.content);
                 out.push_str("\n\n");
             }
             ChatRole::Tool => {
                 let id = m.tool_call_id.as_deref().unwrap_or("?");
-                out.push_str(&format!("[tool result {id}] "));
+                out.push_str(&format!("[tool result {id}]: "));
                 out.push_str(&m.content);
                 out.push_str("\n\n");
             }
         }
     }
-    out.push_str("[assistant] ");
+    out.push_str("Assistant:");
     out
 }
 
@@ -649,12 +660,13 @@ mod tests {
             ChatMessage::tool_result("call_1", "{\"ok\":true}"),
         ];
         let p = flatten_messages_to_prompt(&msgs);
-        assert!(p.contains("[system] you are mantis"));
-        assert!(p.contains("[user] scan example.com"));
-        assert!(p.contains("[assistant] on it"));
-        assert!(p.contains("[tool result call_1] {\"ok\":true}"));
-        // Trailing assistant prefix so the LLM continues as assistant.
-        assert!(p.trim_end().ends_with("[assistant]"));
+        // System block is lifted to the top as a plain preamble.
+        assert!(p.starts_with("you are mantis"));
+        assert!(p.contains("Human: scan example.com"));
+        assert!(p.contains("Assistant: on it"));
+        assert!(p.contains("[tool result call_1]: {\"ok\":true}"));
+        // Open trailing turn so the LLM continues as the assistant.
+        assert!(p.trim_end().ends_with("Assistant:"));
     }
 
     #[test]
