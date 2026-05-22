@@ -128,6 +128,12 @@ pub fn run() -> Result<()> {
     let mut active = providers[0].clone();
     print_banner(&active, &providers);
 
+    // Show exactly one tip per `mantis` session — directly under the
+    // banner. Previously this fired on every spawn (every reply),
+    // which the operator only ever sees as noise once they've read
+    // the tip the first time.
+    println!("{DIM}✦ tip: {}{RESET}", pick_tip());
+
     install_sigint_handler();
 
     let mut rl = DefaultEditor::new().context("init readline")?;
@@ -391,8 +397,9 @@ fn spawn_provider(provider: &str, user_prompt: &str) -> Result<()> {
     // edited, daemon killed, etc).
     ensure_ready_for_spawn();
 
-    // Pick + show a tip above the spinner.
-    println!("{DIM}✦ tip: {}{RESET}", pick_tip());
+    // Tips moved out of per-spawn into a one-shot at session start
+    // (see `print_banner` callsite in `run`). Repeating them on
+    // every turn was clutter the operator never needed.
 
     let pb = ProgressBar::new_spinner();
     pb.set_style(
@@ -543,8 +550,26 @@ fn format_stream_event(event: &Value) -> Option<String> {
     let ty = event.get("type")?.as_str()?;
     match ty {
         "system" => {
+            // The model emits `system` events for session init, hook
+            // start, hook response, and a few other lifecycle pings.
+            // None of them carry operator-actionable info — they
+            // just stack up above the actual reply and make the
+            // chat look like a debug log. Suppress them entirely;
+            // the spinner already conveys "something is happening".
+            // Only surface unrecognised subtypes (defensive — if
+            // Anthropic ships a new subtype we want to see it once
+            // and decide).
             let subtype = event.get("subtype").and_then(Value::as_str).unwrap_or("");
-            Some(format!("{DIM}· session {subtype}{RESET}"))
+            match subtype {
+                "init"
+                | "hook_started"
+                | "hook_response"
+                | "hook_cancelled"
+                | "hook_error"
+                | "compact_boundary"
+                | "" => None,
+                _ => Some(format!("{DIM}· session {subtype}{RESET}")),
+            }
         }
         "assistant" => {
             let content = event.pointer("/message/content")?.as_array()?;
@@ -600,15 +625,18 @@ fn format_stream_event(event: &Value) -> Option<String> {
             None
         }
         "result" => {
+            // The `result` event used to render as
+            //   `· session success (3 turns, $0.0731)`
+            // on every reply. Useful for cost auditing, noise for a
+            // chat. Suppress success entirely (the spinner finalises
+            // with `✓ provider done (Ns)` already); only surface
+            // failure subtypes so operators see real problems.
             let subtype = event.get("subtype").and_then(Value::as_str).unwrap_or("");
-            let cost = event
-                .get("total_cost_usd")
-                .and_then(Value::as_f64)
-                .unwrap_or(0.0);
-            let turns = event.get("num_turns").and_then(Value::as_u64).unwrap_or(0);
-            Some(format!(
-                "{DIM}· session {subtype} ({turns} turns, ${cost:.4}){RESET}"
-            ))
+            if subtype.is_empty() || subtype == "success" {
+                None
+            } else {
+                Some(format!("{HOT}· session {subtype}{RESET}"))
+            }
         }
         _ => None,
     }
