@@ -158,19 +158,41 @@ enum Command {
         tui: bool,
     },
     /// One-shot ask: send a single prompt and print the streamed
-    /// reply, then exit. No history persisted. Useful for scripting
-    /// and CI pipelines.
+    /// reply, then exit. No history persisted. Useful for scripting,
+    /// CI pipelines, and comparing models side-by-side.
+    ///
+    /// Single-provider:
+    ///   mantis ask "what's the time complexity of quicksort?"
+    ///   mantis ask --provider gemini "summarise this" < doc.md
+    ///
+    /// Fan-out to multiple providers in parallel:
+    ///   mantis ask --providers anthropic,openai,gemini,kimi "compare your strengths"
+    ///   mantis ask --providers all "what year was Rust 1.0 released?"
+    ///
+    /// `--providers all` expands to every provider whose API key /
+    /// env condition is satisfied right now (best-effort, skips
+    /// providers without credentials silently).
     Ask {
         /// Prompt text. Read from stdin if `-` (or omitted).
         prompt: Option<String>,
-        #[arg(long)]
+        /// Single provider (legacy). Mutually exclusive with
+        /// `--providers`.
+        #[arg(long, conflicts_with = "providers")]
         provider: Option<String>,
+        /// Comma-separated list of providers to fan out to in
+        /// parallel. Use `all` to dispatch to every provider that
+        /// currently has credentials available. Output is grouped
+        /// by provider with a dim header before each reply.
+        #[arg(long, value_delimiter = ',', num_args = 1..)]
+        providers: Vec<String>,
         #[arg(long)]
         model: Option<String>,
         #[arg(long)]
         system: Option<String>,
-        /// Output as JSON `{"reply":"...","provider":"..."}` instead
-        /// of plain streaming text.
+        /// Output as JSON `{"replies":[{"provider":..,"reply":..}]}`
+        /// instead of plain streaming text. Always uses an array
+        /// even for single-provider invocations so downstream
+        /// scripts don't need to handle two shapes.
         #[arg(long)]
         json: bool,
     },
@@ -936,10 +958,11 @@ fn main() -> Result<()> {
         Command::Ask {
             prompt,
             provider,
+            providers,
             model,
             system,
             json,
-        } => run_async(handle_ask(prompt, provider, model, system, json)),
+        } => run_async(handle_ask(prompt, provider, providers, model, system, json)),
         Command::Serve {
             bind,
             no_auth,
@@ -5686,12 +5709,12 @@ fn render_chat_event(event: &mantis_chat::ChatEvent) {
 async fn handle_ask(
     prompt: Option<String>,
     provider_override: Option<String>,
+    providers_flag: Vec<String>,
     model_override: Option<String>,
     system: Option<String>,
     json_output: bool,
 ) -> Result<()> {
-    use futures::StreamExt;
-    use mantis_chat::{ChatEvent, ChatMessage};
+    use mantis_chat::ChatMessage;
     use std::io::Read;
 
     // Resolve prompt — explicit arg wins, else stdin.
@@ -5709,23 +5732,145 @@ async fn handle_ask(
         anyhow::bail!("empty prompt; pass one as an argument or via stdin");
     }
 
-    let (adapter, provider, _model) =
-        pick_chat_adapter(provider_override.as_deref(), model_override.as_deref())?;
+    // Resolve provider list. Precedence:
+    //   1. `--providers a,b,c`  (one or many)
+    //   2. `--provider X`       (legacy single)
+    //   3. auto-detect          (single, the env-var picker)
+    // `--providers all` expands to every provider whose credentials
+    // are currently available (best-effort, silently skips any with
+    // missing env vars). Useful for quick comparisons.
+    let providers_list: Vec<String> = if !providers_flag.is_empty() {
+        if providers_flag.iter().any(|p| p == "all") {
+            available_providers()
+        } else {
+            providers_flag
+        }
+    } else if let Some(p) = provider_override {
+        vec![p]
+    } else {
+        vec![detect_provider()]
+    };
 
-    let mut messages = Vec::new();
-    if let Some(s) = system {
-        messages.push(ChatMessage::system(s));
+    if providers_list.is_empty() {
+        anyhow::bail!(
+            "no providers available — set ANTHROPIC_API_KEY / OPENAI_API_KEY / \
+             MOONSHOT_API_KEY / etc., or pass --provider explicitly"
+        );
     }
-    messages.push(ChatMessage::user(prompt));
 
-    let mut stream = adapter.stream_chat(&messages, &[]);
+    let mut base_messages = Vec::new();
+    if let Some(s) = system {
+        base_messages.push(ChatMessage::system(s));
+    }
+    base_messages.push(ChatMessage::user(prompt));
+
+    if providers_list.len() == 1 {
+        // Single-provider path keeps the existing streamed-to-stdout
+        // behaviour so piping (`mantis ask "..." | jq`) just works.
+        let reply = run_single_provider(
+            &providers_list[0],
+            model_override.as_deref(),
+            &base_messages,
+            !json_output,
+        )
+        .await?;
+        if json_output {
+            println!(
+                "{}",
+                serde_json::to_string(&serde_json::json!({
+                    "replies": [{
+                        "provider": providers_list[0],
+                        "reply": reply,
+                    }]
+                }))?
+            );
+        } else {
+            println!();
+        }
+        return Ok(());
+    }
+
+    // Multi-provider fan-out. Spawn one task per provider, collect
+    // all replies, then print grouped by provider. We intentionally
+    // suppress streaming for the fan-out (output would be tangled);
+    // each reply is collected and printed atomically when ready.
+    let model_override_owned = model_override.clone();
+    let messages_arc = std::sync::Arc::new(base_messages);
+    let mut handles = Vec::with_capacity(providers_list.len());
+    for provider_id in providers_list.iter().cloned() {
+        let model_override = model_override_owned.clone();
+        let messages = messages_arc.clone();
+        handles.push(tokio::spawn(async move {
+            let result =
+                run_single_provider(&provider_id, model_override.as_deref(), &messages, false)
+                    .await;
+            (provider_id, result)
+        }));
+    }
+
+    let mut replies: Vec<(String, Result<String>)> = Vec::with_capacity(handles.len());
+    for h in handles {
+        match h.await {
+            Ok((id, r)) => replies.push((id, r)),
+            Err(e) => {
+                eprintln!("[mantis ask] task join error: {e}");
+            }
+        }
+    }
+
+    if json_output {
+        let arr: Vec<serde_json::Value> = replies
+            .iter()
+            .map(|(id, r)| match r {
+                Ok(reply) => serde_json::json!({ "provider": id, "reply": reply }),
+                Err(e) => serde_json::json!({
+                    "provider": id,
+                    "error": e.to_string(),
+                }),
+            })
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string(&serde_json::json!({ "replies": arr }))?
+        );
+    } else {
+        for (id, r) in &replies {
+            println!();
+            println!("{BOLD}{CYAN}─── {id} ───{RESET}");
+            match r {
+                Ok(reply) => println!("{}", reply.trim_end()),
+                Err(e) => println!("{DIM}[error: {e}]{RESET}"),
+            }
+        }
+        println!();
+    }
+    Ok(())
+}
+
+/// Stream one provider's reply. When `stream_stdout` is true (single-
+/// provider mode), every text delta is printed live to stdout as it
+/// arrives. When false (fan-out mode), output is silently collected
+/// and returned to the caller for grouped printing.
+async fn run_single_provider(
+    provider_id: &str,
+    model_override: Option<&str>,
+    messages: &[mantis_chat::ChatMessage],
+    stream_stdout: bool,
+) -> Result<String> {
+    use futures::StreamExt;
+    use mantis_chat::ChatEvent;
+
+    let (adapter, _provider, _model) =
+        pick_chat_adapter(Some(provider_id), model_override)?;
+
+    let mut stream = adapter.stream_chat(messages, &[]);
     let mut collected = String::new();
     while let Some(event) = stream.next().await {
-        let event = event.context("provider stream errored")?;
+        let event = event.with_context(|| format!("{provider_id} stream errored"))?;
         match event {
             ChatEvent::Text { delta } => {
                 collected.push_str(&delta);
-                if !json_output {
+                if stream_stdout {
                     use std::io::Write;
                     let mut out = std::io::stdout();
                     out.write_all(delta.as_bytes()).ok();
@@ -5733,27 +5878,75 @@ async fn handle_ask(
                 }
             }
             ChatEvent::ToolCall(_) => {
-                // `mantis ask` is tool-free by design — one-shot.
+                // `mantis ask` is intentionally tool-free.
             }
             ChatEvent::Done { .. } => break,
             ChatEvent::Warning { message } => {
-                eprintln!("[mantis ask warning] {message}");
+                eprintln!("[mantis ask · {provider_id} warning] {message}");
             }
         }
     }
+    Ok(collected)
+}
 
-    if json_output {
-        println!(
-            "{}",
-            serde_json::to_string(&serde_json::json!({
-                "provider": provider,
-                "reply": collected,
-            }))?
-        );
-    } else {
-        println!();
+/// List the provider ids whose env-var conditions are currently
+/// satisfied. Used by `--providers all`. Order matches the picker
+/// priority so the output ordering is stable.
+fn available_providers() -> Vec<String> {
+    let mut out = Vec::new();
+    if env_nonempty("ANTHROPIC_API_KEY") {
+        out.push("anthropic".into());
     }
-    Ok(())
+    if env_nonempty("OPENAI_API_KEY") {
+        out.push("openai".into());
+    }
+    if env_nonempty("GEMINI_API_KEY") {
+        out.push("gemini".into());
+    }
+    if env_nonempty("MOONSHOT_API_KEY") {
+        out.push("moonshot".into());
+    }
+    if env_nonempty("DEEPSEEK_API_KEY") {
+        out.push("deepseek".into());
+    }
+    if env_nonempty("GROQ_API_KEY") {
+        out.push("groq".into());
+    }
+    if env_nonempty("MISTRAL_API_KEY") {
+        out.push("mistral".into());
+    }
+    if env_nonempty("XAI_API_KEY") {
+        out.push("xai".into());
+    }
+    if env_nonempty("OPENROUTER_API_KEY") {
+        out.push("openrouter".into());
+    }
+    if env_nonempty("DASHSCOPE_API_KEY") {
+        out.push("qwen".into());
+    }
+    if env_nonempty("ZHIPU_API_KEY") {
+        out.push("zhipu".into());
+    }
+    if env_nonempty("AWS_BEDROCK_PROXY_URL") && env_nonempty("AWS_BEDROCK_API_KEY") {
+        out.push("bedrock".into());
+    }
+    if env_nonempty("OLLAMA_HOST") {
+        out.push("ollama".into());
+    }
+    // claude-cli fallback only included when nothing else is set —
+    // if the user has even one API key configured, they probably
+    // don't want the slower subprocess path in a multi-fan-out.
+    if out.is_empty() && std::process::Command::new("claude")
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+    {
+        out.push("claude-cli".into());
+    }
+    out
 }
 
 fn is_stdout_tty() -> bool {
