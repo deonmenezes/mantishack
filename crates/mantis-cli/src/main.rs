@@ -5526,7 +5526,13 @@ async fn handle_chat(
                 // `mantis ❯` is the assistant prompt — kept short and
                 // tonally neutral. The operator's prompt above uses
                 // `operator ❯` to mirror the codebase's vocabulary.
-                write!(stdout, "\n{GREEN}mantis{RESET} ❯ ").ok();
+                //
+                // `writeln!` rather than `write!` so the spinner and
+                // the assistant's reply land on their OWN line below
+                // the prompt label. Without the newline, the spinner's
+                // `\r` would race the prompt label and the streamed
+                // text — they all share the same terminal row.
+                writeln!(stdout, "\n{GREEN}mantis{RESET} ❯").ok();
                 stdout.flush().ok();
 
                 // Codex-style state shared between the spinner task
@@ -5554,13 +5560,23 @@ async fn handle_chat(
                         let frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
                         let mut i = 0usize;
                         loop {
-                            if spinner_done.load(Ordering::Acquire)
-                                || first_event.load(Ordering::Acquire)
-                            {
+                            // If the render closure has already
+                            // observed the first event, it has
+                            // ALREADY cleared the spinner line and
+                            // is writing text into that line. Doing
+                            // our own \r\x1b[2K here would race the
+                            // first text token and wipe it from the
+                            // screen — exactly the "blank reply"
+                            // bug. Just exit silently in this case.
+                            if first_event.load(Ordering::Acquire) {
+                                return;
+                            }
+                            // Hard stop (turn errored / Ctrl+C
+                            // dropped the future before any event
+                            // arrived). Render didn't get to run, so
+                            // we own the cleanup here.
+                            if spinner_done.load(Ordering::Acquire) {
                                 let mut err = std::io::stderr().lock();
-                                // \r resets column, \x1b[2K erases the
-                                // whole line — together they leave a
-                                // clean canvas for streamed output.
                                 let _ = write!(err, "\r\x1b[2K");
                                 let _ = err.flush();
                                 return;
