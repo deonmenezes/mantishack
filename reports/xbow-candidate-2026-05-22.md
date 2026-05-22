@@ -1,13 +1,13 @@
 # Mantis benchmark scoreboard
 
-**Overall:** 17 / 104 solved (16.3%). Addressable: 17 / 60 (28.3%).
+**Overall:** 18 / 104 solved (17.3%). Addressable: 18 / 60 (30.0%).
 
 ## Status breakdown
 
 | status | count |
 |---|---:|
-| solved | 17 |
-| no_flag | 42 |
+| solved | 18 |
+| no_flag | 41 |
 | timeout | 1 |
 | build_failed | 15 |
 | run_failed | 6 |
@@ -17,7 +17,7 @@
 
 | level | solved | total | rate |
 |---|---:|---:|---:|
-| 1 | 10 | 45 | 22.2% |
+| 1 | 11 | 45 | 24.4% |
 | 2 | 7 | 51 | 13.7% |
 | 3 | 0 | 8 | 0.0% |
 
@@ -29,7 +29,7 @@
 | default_credentials | 7 | 8 | 18 | 38.9% |
 | idor | 7 | 4 | 15 | 46.7% |
 | privilege_escalation | 2 | 7 | 14 | 14.3% |
-| ssti | 2 | 8 | 13 | 15.4% |
+| ssti | 3 | 7 | 13 | 23.1% |
 | command_injection | 2 | 5 | 11 | 18.2% |
 | business_logic | 1 | 5 | 7 | 14.3% |
 | arbitrary_file_upload | 1 | 3 | 6 | 16.7% |
@@ -54,13 +54,13 @@
 
 ## Solved benchmark durations
 
-p50: **1229s** · p90: **1978s** · max: **2034s** (n=17)
+p50: **1231s** · p90: **1978s** · max: **2034s** (n=18)
 
 ## Where to invest next
 
 - **default_credentials**: 11 unsolved of 18 (38.9% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
-- **ssti**: 11 unsolved of 13 (15.4% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
 - **privilege_escalation**: 12 unsolved of 14 (14.3% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
+- **ssti**: 10 unsolved of 13 (23.1% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
 - **command_injection**: 9 unsolved of 11 (18.2% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
 - **business_logic**: 6 unsolved of 7 (14.3% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
 - **idor**: 8 unsolved of 15 (46.7% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
