@@ -34,7 +34,9 @@ pub struct GeminiAdapter {
 impl GeminiAdapter {
     pub fn new(api_key: impl Into<String>) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            // Pooled HTTP client — TLS handshakes amortise across
+            // every turn / every adapter instance in the process.
+            client: crate::http::shared_client(),
             api_key: api_key.into(),
             base_url: DEFAULT_BASE_URL.into(),
             model: DEFAULT_MODEL.into(),

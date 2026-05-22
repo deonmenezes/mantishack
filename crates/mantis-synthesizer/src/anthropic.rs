@@ -27,18 +27,27 @@ pub struct AnthropicAdapter {
     api_version: String,
     max_tokens: u32,
     retry: RetryPolicy,
+    /// When true (default), attaches `cache_control: ephemeral`
+    /// markers to the system prompt and the last tool definition.
+    /// Anthropic then caches the system + tools prefix for 5
+    /// minutes and bills cache reads at 10% of the input price.
+    /// Reply quality is identical — purely a server-side hint.
+    cache_prompts: bool,
 }
 
 impl AnthropicAdapter {
     pub fn new(api_key: impl Into<String>) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            // Process-wide pooled client — shares TLS sessions and
+            // HTTP/1.1 keep-alive across every adapter instance.
+            client: crate::http::shared_client(),
             api_key: api_key.into(),
             base_url: DEFAULT_BASE_URL.into(),
             model: DEFAULT_MODEL.into(),
             api_version: DEFAULT_API_VERSION.into(),
             max_tokens: DEFAULT_MAX_TOKENS,
             retry: RetryPolicy::default(),
+            cache_prompts: true,
         }
     }
 
@@ -59,6 +68,13 @@ impl AnthropicAdapter {
 
     pub fn with_retry(mut self, retry: RetryPolicy) -> Self {
         self.retry = retry;
+        self
+    }
+
+    /// Toggle prompt caching. On by default — disable only for
+    /// tests that assert on the raw request body shape.
+    pub fn with_prompt_caching(mut self, enabled: bool) -> Self {
+        self.cache_prompts = enabled;
         self
     }
 }
@@ -160,14 +176,38 @@ impl AnthropicAdapter {
         messages: &[ChatMessage],
         tools: &[Tool],
     ) -> Result<Vec<Result<ChatEvent, SynthError>>, SynthError> {
-        let (system, request_messages) = chat_messages_to_anthropic(messages);
-        let req_tools: Vec<StreamTool> = tools.iter().map(tool_to_anthropic).collect();
+        let (system_text, request_messages) = chat_messages_to_anthropic(messages);
+        let mut req_tools: Vec<StreamTool> = tools.iter().map(tool_to_anthropic).collect();
+
+        // Wrap the system prompt in the array-form `SystemField` so
+        // we can attach a cache marker. On the last tool, set the
+        // same marker — Anthropic caches everything up to that
+        // point (system + all tools). Subsequent turns get 10%
+        // input pricing on the cached prefix and ~30% faster TTFT.
+        let system_field = match system_text {
+            None => None,
+            Some(text) if text.is_empty() => None,
+            Some(text) => Some(if self.cache_prompts {
+                SystemField::Blocks(vec![SystemBlock {
+                    typ: "text",
+                    text,
+                    cache_control: Some(CacheControl::ephemeral()),
+                }])
+            } else {
+                SystemField::Text(text)
+            }),
+        };
+        if self.cache_prompts {
+            if let Some(last) = req_tools.last_mut() {
+                last.cache_control = Some(CacheControl::ephemeral());
+            }
+        }
 
         let body = StreamRequest {
             model: &self.model,
             max_tokens: self.max_tokens,
             stream: true,
-            system,
+            system: system_field,
             messages: request_messages,
             tools: if req_tools.is_empty() {
                 None
@@ -239,10 +279,48 @@ struct StreamRequest<'a> {
     max_tokens: u32,
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    system: Option<String>,
+    system: Option<SystemField>,
     messages: Vec<StreamMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<StreamTool>>,
+}
+
+/// Anthropic accepts `system` as either a string or an array of
+/// content blocks. The array form lets us attach a
+/// `cache_control: {"type":"ephemeral"}` marker to the last block,
+/// which caches the system prompt server-side for 5 minutes —
+/// subsequent turns pay 10% of input price on the cached prefix
+/// instead of the full rate. Reply quality is identical; it's
+/// purely an infrastructure hint.
+#[derive(Serialize)]
+#[serde(untagged)]
+enum SystemField {
+    Text(String),
+    Blocks(Vec<SystemBlock>),
+}
+
+#[derive(Serialize)]
+struct SystemBlock {
+    #[serde(rename = "type")]
+    typ: &'static str,
+    text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cache_control: Option<CacheControl>,
+}
+
+/// Marker attached to a system block or the last tool definition to
+/// signal "cache everything up to here on the server for 5 minutes."
+/// See https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
+#[derive(Serialize, Clone, Copy)]
+struct CacheControl {
+    #[serde(rename = "type")]
+    typ: &'static str,
+}
+
+impl CacheControl {
+    const fn ephemeral() -> Self {
+        Self { typ: "ephemeral" }
+    }
 }
 
 #[derive(Serialize)]
@@ -284,6 +362,11 @@ struct StreamTool {
     name: String,
     description: String,
     input_schema: serde_json::Value,
+    /// When set on the LAST tool in the list, Anthropic caches the
+    /// entire system + tools prefix server-side. Subsequent turns
+    /// reuse the cache for 5 minutes at 10% of input price.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cache_control: Option<CacheControl>,
 }
 
 /// Convert a transcript into Anthropic's `(system, messages)`
@@ -357,6 +440,9 @@ fn tool_to_anthropic(t: &Tool) -> StreamTool {
         name: t.name.clone(),
         description: t.description.clone(),
         input_schema: t.input_schema.clone(),
+        // `run_stream_chat` decides which tool gets the cache
+        // marker (the last one) — default is None here.
+        cache_control: None,
     }
 }
 
@@ -800,5 +886,126 @@ mod tests {
             }
             other => panic!("expected Done last, got {other:?}"),
         }
+    }
+
+    // -----------------------------------------------------------------
+    // Prompt caching wire-format tests. We don't need a live API to
+    // verify these — just build a StreamRequest and assert the JSON
+    // shape. The actual cache hit/miss happens server-side.
+    // -----------------------------------------------------------------
+
+    fn build_body_for_test(
+        adapter: &AnthropicAdapter,
+        messages: &[ChatMessage],
+        tools: &[Tool],
+    ) -> serde_json::Value {
+        let (system_text, request_messages) = chat_messages_to_anthropic(messages);
+        let mut req_tools: Vec<StreamTool> = tools.iter().map(tool_to_anthropic).collect();
+        let system_field = match system_text {
+            None => None,
+            Some(text) if text.is_empty() => None,
+            Some(text) => Some(if adapter.cache_prompts {
+                SystemField::Blocks(vec![SystemBlock {
+                    typ: "text",
+                    text,
+                    cache_control: Some(CacheControl::ephemeral()),
+                }])
+            } else {
+                SystemField::Text(text)
+            }),
+        };
+        if adapter.cache_prompts {
+            if let Some(last) = req_tools.last_mut() {
+                last.cache_control = Some(CacheControl::ephemeral());
+            }
+        }
+        let body = StreamRequest {
+            model: &adapter.model,
+            max_tokens: adapter.max_tokens,
+            stream: true,
+            system: system_field,
+            messages: request_messages,
+            tools: if req_tools.is_empty() {
+                None
+            } else {
+                Some(req_tools)
+            },
+        };
+        serde_json::to_value(&body).unwrap()
+    }
+
+    #[test]
+    fn prompt_caching_emits_cache_control_on_system_block() {
+        let adapter = AnthropicAdapter::new("k");
+        let messages = vec![
+            ChatMessage::system("you are mantis, a security assistant"),
+            ChatMessage::user("hello"),
+        ];
+        let body = build_body_for_test(&adapter, &messages, &[]);
+        let system = body.get("system").expect("system field present");
+        // Should be an ARRAY (blocks form) when caching is enabled.
+        let arr = system.as_array().expect("system as blocks array");
+        assert_eq!(arr.len(), 1);
+        let block = &arr[0];
+        assert_eq!(block["type"], "text");
+        assert!(block["text"].as_str().unwrap().contains("mantis"));
+        assert_eq!(block["cache_control"]["type"], "ephemeral");
+    }
+
+    #[test]
+    fn prompt_caching_emits_cache_control_on_last_tool() {
+        let adapter = AnthropicAdapter::new("k");
+        let messages = vec![ChatMessage::user("hi")];
+        let tools = vec![
+            Tool {
+                name: "alpha".into(),
+                description: "first".into(),
+                input_schema: serde_json::json!({}),
+            },
+            Tool {
+                name: "beta".into(),
+                description: "second".into(),
+                input_schema: serde_json::json!({}),
+            },
+            Tool {
+                name: "gamma".into(),
+                description: "last".into(),
+                input_schema: serde_json::json!({}),
+            },
+        ];
+        let body = build_body_for_test(&adapter, &messages, &tools);
+        let tools_arr = body
+            .get("tools")
+            .and_then(|t| t.as_array())
+            .expect("tools array");
+        assert_eq!(tools_arr.len(), 3);
+        // Only the LAST tool carries the cache marker.
+        assert!(tools_arr[0].get("cache_control").is_none());
+        assert!(tools_arr[1].get("cache_control").is_none());
+        assert_eq!(tools_arr[2]["cache_control"]["type"], "ephemeral");
+    }
+
+    #[test]
+    fn prompt_caching_off_falls_back_to_string_system_field() {
+        let adapter = AnthropicAdapter::new("k").with_prompt_caching(false);
+        let messages = vec![
+            ChatMessage::system("you are mantis"),
+            ChatMessage::user("hi"),
+        ];
+        let body = build_body_for_test(&adapter, &messages, &[]);
+        // With caching off, system is a plain string (no blocks).
+        let system = &body["system"];
+        assert!(system.is_string(), "expected string when cache off: {system}");
+    }
+
+    #[test]
+    fn prompt_caching_skips_empty_system() {
+        let adapter = AnthropicAdapter::new("k");
+        let messages = vec![ChatMessage::user("hi")]; // no system
+        let body = build_body_for_test(&adapter, &messages, &[]);
+        assert!(
+            body.get("system").is_none(),
+            "system field should be absent when no system message exists"
+        );
     }
 }

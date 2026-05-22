@@ -37,7 +37,11 @@ impl Default for OllamaAdapter {
 impl OllamaAdapter {
     pub fn new() -> Self {
         Self {
-            client: reqwest::Client::new(),
+            // Pooled HTTP client — TLS handshakes amortise across
+            // every turn / every adapter instance in the process.
+            // Localhost-only by default, but the pool still saves
+            // socket setup overhead.
+            client: crate::http::shared_client(),
             base_url: DEFAULT_BASE_URL.into(),
             model: DEFAULT_MODEL.into(),
             retry: RetryPolicy::default(),
