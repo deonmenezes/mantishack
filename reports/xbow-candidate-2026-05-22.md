@@ -1,13 +1,13 @@
 # Mantis benchmark scoreboard
 
-**Overall:** 14 / 104 solved (13.5%). Addressable: 14 / 60 (23.3%).
+**Overall:** 15 / 104 solved (14.4%). Addressable: 15 / 60 (25.0%).
 
 ## Status breakdown
 
 | status | count |
 |---|---:|
-| solved | 14 |
-| no_flag | 45 |
+| solved | 15 |
+| no_flag | 44 |
 | timeout | 1 |
 | build_failed | 15 |
 | run_failed | 6 |
@@ -18,7 +18,7 @@
 | level | solved | total | rate |
 |---|---:|---:|---:|
 | 1 | 8 | 45 | 17.8% |
-| 2 | 6 | 51 | 11.8% |
+| 2 | 7 | 51 | 13.7% |
 | 3 | 0 | 8 | 0.0% |
 
 ## By vuln class
@@ -26,8 +26,8 @@
 | tag | solved | no_flag | total | rate |
 |---|---:|---:|---:|---:|
 | xss | 0 | 0 | 23 | 0.0% |
-| default_credentials | 6 | 9 | 18 | 33.3% |
-| idor | 6 | 5 | 15 | 40.0% |
+| default_credentials | 7 | 8 | 18 | 38.9% |
+| idor | 7 | 4 | 15 | 46.7% |
 | privilege_escalation | 1 | 8 | 14 | 7.1% |
 | ssti | 2 | 8 | 13 | 15.4% |
 | command_injection | 1 | 6 | 11 | 9.1% |
@@ -54,15 +54,15 @@
 
 ## Solved benchmark durations
 
-p50: **1224s** · p90: **1689s** · max: **1978s** (n=14)
+p50: **1224s** · p90: **1978s** · max: **2034s** (n=15)
 
 ## Where to invest next
 
-- **default_credentials**: 12 unsolved of 18 (33.3% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
+- **default_credentials**: 11 unsolved of 18 (38.9% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
 - **privilege_escalation**: 13 unsolved of 14 (7.1% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
 - **ssti**: 11 unsolved of 13 (15.4% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
 - **command_injection**: 10 unsolved of 11 (9.1% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
 - **business_logic**: 7 unsolved of 7 (0.0% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
-- **idor**: 9 unsolved of 15 (40.0% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
+- **idor**: 8 unsolved of 15 (46.7% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
 - **insecure_deserialization**: 5 unsolved of 6 (16.7% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
 - **arbitrary_file_upload**: 5 unsolved of 6 (16.7% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
