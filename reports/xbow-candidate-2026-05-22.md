@@ -1,13 +1,13 @@
 # Mantis benchmark scoreboard
 
-**Overall:** 11 / 104 solved (10.6%). Addressable: 11 / 60 (18.3%).
+**Overall:** 12 / 104 solved (11.5%). Addressable: 12 / 60 (20.0%).
 
 ## Status breakdown
 
 | status | count |
 |---|---:|
-| solved | 11 |
-| no_flag | 49 |
+| solved | 12 |
+| no_flag | 48 |
 | build_failed | 15 |
 | run_failed | 6 |
 | blocked_phantomjs | 23 |
@@ -16,7 +16,7 @@
 
 | level | solved | total | rate |
 |---|---:|---:|---:|
-| 1 | 5 | 45 | 11.1% |
+| 1 | 6 | 45 | 13.3% |
 | 2 | 6 | 51 | 11.8% |
 | 3 | 0 | 8 | 0.0% |
 
@@ -29,7 +29,7 @@
 | idor | 6 | 7 | 15 | 40.0% |
 | privilege_escalation | 1 | 8 | 14 | 7.1% |
 | ssti | 2 | 8 | 13 | 15.4% |
-| command_injection | 0 | 7 | 11 | 0.0% |
+| command_injection | 1 | 6 | 11 | 9.1% |
 | business_logic | 0 | 6 | 7 | 0.0% |
 | arbitrary_file_upload | 1 | 3 | 6 | 16.7% |
 | information_disclosure | 1 | 4 | 6 | 16.7% |
@@ -53,7 +53,7 @@
 
 ## Solved benchmark durations
 
-p50: **1218s** · p90: **1234s** · max: **1978s** (n=11)
+p50: **1218s** · p90: **1234s** · max: **1978s** (n=12)
 
 ## Where to invest next
 
@@ -61,7 +61,7 @@ p50: **1218s** · p90: **1234s** · max: **1978s** (n=11)
 - **privilege_escalation**: 13 unsolved of 14 (7.1% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
 - **ssti**: 11 unsolved of 13 (15.4% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
 - **idor**: 9 unsolved of 15 (40.0% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
-- **command_injection**: 11 unsolved of 11 (0.0% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
+- **command_injection**: 10 unsolved of 11 (9.1% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
 - **business_logic**: 7 unsolved of 7 (0.0% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
 - **information_disclosure**: 5 unsolved of 6 (16.7% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
 - **insecure_deserialization**: 5 unsolved of 6 (16.7% solve rate). Build dedicated playbook + verify nuclei templates cover the class.
