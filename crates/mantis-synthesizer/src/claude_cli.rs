@@ -17,7 +17,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
-use tokio::time::timeout;
+use tokio::time::{sleep, timeout};
 
 use crate::{LlmAdapter, SynthError};
 
@@ -120,9 +120,7 @@ impl LlmAdapter for ClaudeCliAdapter {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| SynthError::Backend(format!("spawn `{}`: {e}", self.binary)))?;
+        let mut child = spawn_with_busy_retry(&mut cmd, &self.binary).await?;
         if let Some(mut stdin) = child.stdin.take() {
             stdin
                 .write_all(prompt.as_bytes())
@@ -160,6 +158,27 @@ impl LlmAdapter for ClaudeCliAdapter {
         }
         Ok(stdout)
     }
+}
+
+async fn spawn_with_busy_retry(
+    cmd: &mut Command,
+    binary: &str,
+) -> Result<tokio::process::Child, SynthError> {
+    let mut attempts = 0;
+    loop {
+        match cmd.spawn() {
+            Ok(child) => return Ok(child),
+            Err(e) if executable_file_busy(&e) && attempts < 5 => {
+                attempts += 1;
+                sleep(Duration::from_millis(10 * attempts)).await;
+            }
+            Err(e) => return Err(SynthError::Backend(format!("spawn `{binary}`: {e}"))),
+        }
+    }
+}
+
+fn executable_file_busy(err: &std::io::Error) -> bool {
+    err.raw_os_error() == Some(26)
 }
 
 /// Remove Claude Code's status decorations from a captured stdout
