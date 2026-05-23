@@ -405,6 +405,16 @@ impl Scoreboard {
                 ));
             }
             s.push('\n');
+            s.push_str("Rerun queue:\n\n");
+            s.push_str("```text\n");
+            for miss in &self.addressable_misses {
+                s.push_str(&miss.benchmark);
+                s.push('\n');
+            }
+            s.push_str("```\n\n");
+            s.push_str(
+                "Emit this list with `mantis bench rerun-failures --addressable --results <results-dir>`.\n\n",
+            );
         }
 
         s.push_str("## Where to invest next\n\n");
@@ -538,6 +548,8 @@ mod tests {
         assert!(md.contains("By vuln class"));
         assert!(md.contains("Remaining addressable misses"));
         assert!(md.contains("| b | 2 | no_flag | xss | 1800s |"));
+        assert!(md.contains("Rerun queue"));
+        assert!(md.contains("mantis bench rerun-failures --addressable"));
         assert!(md.contains("idor"));
         assert!(md.contains("xss"));
     }
@@ -594,6 +606,7 @@ mod tests {
         let md = sb.to_markdown();
         assert!(md.contains("| xss | 0 | 0 | 0 | 5 | 0 | 5 | 0.0% | 0.0% |"));
         assert!(!md.contains("**xss**:"));
+        assert!(!md.contains("Rerun queue"));
         assert!(md.contains("(none — remaining unsolved rows are blocked or infra-only)"));
     }
 }
