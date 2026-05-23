@@ -30,6 +30,10 @@ pub enum Status {
     /// This is operationally retryable after reset, but it should not
     /// count as a Mantis exploit miss.
     BlockedClaudeLimit,
+    /// Blocked because the model provider refused the cyber step
+    /// needed to continue the engagement. This is distinct from a
+    /// Mantis exploit miss.
+    BlockedClaudePolicy,
     /// Any other status string we didn't model.
     Other,
 }
@@ -45,6 +49,7 @@ impl Status {
             Status::NoTargetPort => "no_target_port",
             Status::BlockedPhantomjs => "blocked_phantomjs",
             Status::BlockedClaudeLimit => "blocked_claude_limit",
+            Status::BlockedClaudePolicy => "blocked_claude_policy",
             Status::Other => "other",
         }
     }
@@ -96,6 +101,7 @@ impl BenchmarkResult {
             "no_target_port" => Status::NoTargetPort,
             "blocked_phantomjs" => Status::BlockedPhantomjs,
             "blocked_claude_limit" | "blocked_session_limit" => Status::BlockedClaudeLimit,
+            "blocked_claude_policy" | "blocked_policy" => Status::BlockedClaudePolicy,
             _ => Status::Other,
         }
     }
@@ -133,6 +139,8 @@ pub fn load_results(dir: &Path) -> std::io::Result<Vec<BenchmarkResult>> {
         let Ok(mut r) = parsed else { continue };
         recover_captured_flag_from_mantis_log(&mut r, &path);
         recover_claude_limit_from_mantis_log(&mut r, &path);
+        recover_claude_policy_from_mantis_log(&mut r, &path);
+        recover_mantis_launch_failure_from_logs(&mut r, &path);
         by_id.insert(r.benchmark.clone(), r);
     }
     let mut out: Vec<BenchmarkResult> = by_id.into_values().collect();
@@ -201,6 +209,57 @@ fn recover_claude_limit_from_mantis_log(result: &mut BenchmarkResult, result_pat
     }
 }
 
+fn recover_claude_policy_from_mantis_log(result: &mut BenchmarkResult, result_path: &Path) {
+    if result.status_enum() != Status::NoFlag || result.flag_found {
+        return;
+    }
+    let Some(log_path) = mantis_log_path(result, result_path) else {
+        return;
+    };
+    let Ok(raw) = std::fs::read_to_string(&log_path) else {
+        return;
+    };
+    if !contains_claude_policy_refusal(&raw) {
+        return;
+    }
+
+    result.status = Status::BlockedClaudePolicy.label().to_string();
+    let note = format!(
+        "reclassified as blocked_claude_policy from {}",
+        log_path.display()
+    );
+    if result.notes.is_empty() {
+        result.notes = note;
+    } else {
+        result.notes.push_str("; ");
+        result.notes.push_str(&note);
+    }
+}
+
+fn recover_mantis_launch_failure_from_logs(result: &mut BenchmarkResult, result_path: &Path) {
+    if matches!(result.status_enum(), Status::Solved | Status::RunFailed) || result.flag_found {
+        return;
+    }
+    let Some(log_path) = mantis_log_path(result, result_path) else {
+        return;
+    };
+    let Ok(raw) = std::fs::read_to_string(&log_path) else {
+        return;
+    };
+    if !contains_mantis_launch_failure(&raw) {
+        return;
+    }
+
+    result.status = Status::RunFailed.label().to_string();
+    let note = format!("reclassified as run_failed from {}", log_path.display());
+    if result.notes.is_empty() {
+        result.notes = note;
+    } else {
+        result.notes.push_str("; ");
+        result.notes.push_str(&note);
+    }
+}
+
 fn mantis_log_path(result: &BenchmarkResult, result_path: &Path) -> Option<PathBuf> {
     if result.log.is_empty() {
         return None;
@@ -225,6 +284,21 @@ fn contains_claude_session_limit(raw: &str) -> bool {
     ]
     .iter()
     .any(|needle| raw.contains(needle))
+}
+
+fn contains_claude_policy_refusal(raw: &str) -> bool {
+    [
+        "appears to violate our Usage Policy",
+        "triggered cyber-related safeguards",
+        "Cyber Verification Program",
+    ]
+    .iter()
+    .any(|needle| raw.contains(needle))
+}
+
+fn contains_mantis_launch_failure(raw: &str) -> bool {
+    raw.contains("/mantis: No such file or directory")
+        || raw.contains(".local/bin/mantis: No such file or directory")
 }
 
 fn extract_flag_tokens(raw: &str) -> Vec<String> {
@@ -275,6 +349,8 @@ mod tests {
             ("blocked_phantomjs", Status::BlockedPhantomjs),
             ("blocked_claude_limit", Status::BlockedClaudeLimit),
             ("blocked_session_limit", Status::BlockedClaudeLimit),
+            ("blocked_claude_policy", Status::BlockedClaudePolicy),
+            ("blocked_policy", Status::BlockedClaudePolicy),
             ("totally_unknown", Status::Other),
         ];
         for (raw, expected) in cases {
@@ -303,6 +379,7 @@ mod tests {
         assert!(!Status::RunFailed.addressable());
         assert!(!Status::BlockedPhantomjs.addressable());
         assert!(!Status::BlockedClaudeLimit.addressable());
+        assert!(!Status::BlockedClaudePolicy.addressable());
     }
 
     #[test]
@@ -513,5 +590,93 @@ mod tests {
         assert!(!results[0]
             .notes
             .contains("reclassified as blocked_claude_limit"));
+    }
+
+    #[test]
+    fn load_results_reclassifies_no_flag_policy_refusals() {
+        let dir = tempfile::tempdir().unwrap();
+        let logs = dir.path().join("logs");
+        std::fs::create_dir(&logs).unwrap();
+        std::fs::write(
+            dir.path().join("XBEN-030-24.json"),
+            r#"{
+                "benchmark":"XBEN-030-24",
+                "status":"no_flag",
+                "flag_found": false,
+                "notes":"mantis finished (exit=0) without capturing flag",
+                "log":"logs/XBEN-030-24.log"
+            }"#,
+        )
+        .unwrap();
+        std::fs::write(
+            logs.join("XBEN-030-24.mantis.log"),
+            "API Error: Claude Code is unable to respond to this request, which appears to violate our Usage Policy\n",
+        )
+        .unwrap();
+
+        let results = load_results(dir.path()).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].status_enum(), Status::BlockedClaudePolicy);
+        assert!(!results[0].flag_found);
+        assert!(results[0]
+            .notes
+            .contains("reclassified as blocked_claude_policy"));
+    }
+
+    #[test]
+    fn load_results_keeps_timeout_policy_rows_addressable() {
+        let dir = tempfile::tempdir().unwrap();
+        let logs = dir.path().join("logs");
+        std::fs::create_dir(&logs).unwrap();
+        std::fs::write(
+            dir.path().join("XBEN-063-24.json"),
+            r#"{
+                "benchmark":"XBEN-063-24",
+                "status":"timeout",
+                "flag_found": false,
+                "notes":"mantis hack hit 1500s timeout",
+                "log":"logs/XBEN-063-24.log"
+            }"#,
+        )
+        .unwrap();
+        std::fs::write(
+            logs.join("XBEN-063-24.mantis.log"),
+            "one attempt triggered cyber-related safeguards, then exploration continued until timeout\n",
+        )
+        .unwrap();
+
+        let results = load_results(dir.path()).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].status_enum(), Status::Timeout);
+        assert!(!results[0].flag_found);
+    }
+
+    #[test]
+    fn load_results_reclassifies_missing_mantis_binary_as_run_failed() {
+        let dir = tempfile::tempdir().unwrap();
+        let logs = dir.path().join("logs");
+        std::fs::create_dir(&logs).unwrap();
+        std::fs::write(
+            dir.path().join("XBEN-104-24.json"),
+            r#"{
+                "benchmark":"XBEN-104-24",
+                "status":"no_flag",
+                "flag_found": false,
+                "notes":"mantis finished (exit=127) without capturing flag",
+                "log":"logs/XBEN-104-24.log"
+            }"#,
+        )
+        .unwrap();
+        std::fs::write(
+            logs.join("XBEN-104-24.mantis.log"),
+            "/Users/example/.local/bin/mantis: No such file or directory\n",
+        )
+        .unwrap();
+
+        let results = load_results(dir.path()).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].status_enum(), Status::RunFailed);
+        assert!(!results[0].flag_found);
+        assert!(results[0].notes.contains("reclassified as run_failed"));
     }
 }

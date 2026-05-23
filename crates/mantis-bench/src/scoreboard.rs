@@ -19,6 +19,7 @@ pub struct TagStats {
     pub run_failed: usize,
     pub blocked_phantomjs: usize,
     pub blocked_claude_limit: usize,
+    pub blocked_claude_policy: usize,
     pub other: usize,
     pub total: usize,
 }
@@ -37,7 +38,7 @@ impl TagStats {
     }
 
     pub fn blocked_total(&self) -> usize {
-        self.blocked_phantomjs + self.blocked_claude_limit
+        self.blocked_phantomjs + self.blocked_claude_limit + self.blocked_claude_policy
     }
 
     pub fn addressable_unsolved(&self) -> usize {
@@ -58,6 +59,16 @@ impl TagStats {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BenchmarkMiss {
+    pub benchmark: String,
+    pub level: String,
+    pub status: String,
+    pub tags: Vec<String>,
+    pub duration_sec: u64,
+    pub notes: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Scoreboard {
     pub total: usize,
     pub solved: usize,
@@ -67,6 +78,7 @@ pub struct Scoreboard {
     pub run_failed: usize,
     pub blocked_phantomjs: usize,
     pub blocked_claude_limit: usize,
+    pub blocked_claude_policy: usize,
     pub other: usize,
     pub by_tag: Vec<TagStats>,
     pub by_level: BTreeMap<String, TagStats>,
@@ -74,6 +86,10 @@ pub struct Scoreboard {
     /// p50 / p90 useful for catching regressions where Mantis
     /// still solves the easy stuff but takes way longer.
     pub solved_durations_sec: Vec<u64>,
+    /// Concrete NoFlag/Timeout rows still worth improving. Blocked
+    /// infra/provider rows stay out of this list so operators focus
+    /// on exploitability gaps.
+    pub addressable_misses: Vec<BenchmarkMiss>,
 }
 
 impl Scoreboard {
@@ -87,10 +103,12 @@ impl Scoreboard {
             run_failed: 0,
             blocked_phantomjs: 0,
             blocked_claude_limit: 0,
+            blocked_claude_policy: 0,
             other: 0,
             by_tag: Vec::new(),
             by_level: BTreeMap::new(),
             solved_durations_sec: Vec::new(),
+            addressable_misses: Vec::new(),
         };
 
         let mut per_tag: BTreeMap<String, TagStats> = BTreeMap::new();
@@ -109,7 +127,22 @@ impl Scoreboard {
                 Status::NoTargetPort => sb.run_failed += 1, // group with run-failures
                 Status::BlockedPhantomjs => sb.blocked_phantomjs += 1,
                 Status::BlockedClaudeLimit => sb.blocked_claude_limit += 1,
+                Status::BlockedClaudePolicy => sb.blocked_claude_policy += 1,
                 Status::Other => sb.other += 1,
+            }
+            if matches!(s, Status::NoFlag | Status::Timeout) {
+                sb.addressable_misses.push(BenchmarkMiss {
+                    benchmark: r.benchmark.clone(),
+                    level: if r.level.is_empty() {
+                        "?".to_string()
+                    } else {
+                        r.level.clone()
+                    },
+                    status: s.label().to_string(),
+                    tags: r.tags.clone(),
+                    duration_sec: r.duration_sec,
+                    notes: r.notes.clone(),
+                });
             }
 
             // Per-tag stats (every tag the benchmark carries).
@@ -129,6 +162,7 @@ impl Scoreboard {
                     run_failed: 0,
                     blocked_phantomjs: 0,
                     blocked_claude_limit: 0,
+                    blocked_claude_policy: 0,
                     other: 0,
                     total: 0,
                 });
@@ -141,6 +175,7 @@ impl Scoreboard {
                     Status::RunFailed | Status::NoTargetPort => e.run_failed += 1,
                     Status::BlockedPhantomjs => e.blocked_phantomjs += 1,
                     Status::BlockedClaudeLimit => e.blocked_claude_limit += 1,
+                    Status::BlockedClaudePolicy => e.blocked_claude_policy += 1,
                     Status::Other => e.other += 1,
                 }
             }
@@ -160,6 +195,7 @@ impl Scoreboard {
                 run_failed: 0,
                 blocked_phantomjs: 0,
                 blocked_claude_limit: 0,
+                blocked_claude_policy: 0,
                 other: 0,
                 total: 0,
             });
@@ -172,6 +208,7 @@ impl Scoreboard {
                 Status::RunFailed | Status::NoTargetPort => e.run_failed += 1,
                 Status::BlockedPhantomjs => e.blocked_phantomjs += 1,
                 Status::BlockedClaudeLimit => e.blocked_claude_limit += 1,
+                Status::BlockedClaudePolicy => e.blocked_claude_policy += 1,
                 Status::Other => e.other += 1,
             }
         }
@@ -181,6 +218,12 @@ impl Scoreboard {
         // appear first in the rendered scoreboard.
         sb.by_tag = per_tag.into_values().collect();
         sb.by_tag.sort_by_key(|tag| std::cmp::Reverse(tag.total));
+        sb.addressable_misses.sort_by(|a, b| {
+            a.benchmark
+                .cmp(&b.benchmark)
+                .then(a.status.cmp(&b.status))
+                .then(a.level.cmp(&b.level))
+        });
 
         sb
     }
@@ -273,6 +316,7 @@ impl Scoreboard {
             ("run_failed", self.run_failed),
             ("blocked_phantomjs", self.blocked_phantomjs),
             ("blocked_claude_limit", self.blocked_claude_limit),
+            ("blocked_claude_policy", self.blocked_claude_policy),
             ("other", self.other),
         ] {
             if n > 0 {
@@ -336,6 +380,33 @@ impl Scoreboard {
             ));
         }
 
+        s.push_str("## Remaining addressable misses\n\n");
+        if self.addressable_misses.is_empty() {
+            s.push_str("(none — remaining unsolved rows are blocked or infra-only)\n\n");
+        } else {
+            s.push_str(
+                "| benchmark | level | status | tags | duration | notes |\n\
+                 |---|---:|---|---|---:|---|\n",
+            );
+            for miss in &self.addressable_misses {
+                let tags = if miss.tags.is_empty() {
+                    "(no-tags)".to_string()
+                } else {
+                    miss.tags.join(", ")
+                };
+                s.push_str(&format!(
+                    "| {} | {} | {} | {} | {}s | {} |\n",
+                    md_cell(&miss.benchmark),
+                    md_cell(&miss.level),
+                    md_cell(&miss.status),
+                    md_cell(&tags),
+                    miss.duration_sec,
+                    md_cell(&truncate_note(&miss.notes))
+                ));
+            }
+            s.push('\n');
+        }
+
         s.push_str("## Where to invest next\n\n");
         // Surface any tags where Mantis had an addressable miss. Large
         // snapshots naturally put the biggest buckets first, while
@@ -371,6 +442,21 @@ impl Scoreboard {
     }
 }
 
+fn md_cell(raw: &str) -> String {
+    raw.replace('\n', " ").replace('|', "\\|")
+}
+
+fn truncate_note(raw: &str) -> String {
+    const MAX: usize = 120;
+    let trimmed = raw.trim();
+    if trimmed.len() <= MAX {
+        return trimmed.to_string();
+    }
+    let mut out = trimmed[..MAX].trim_end().to_string();
+    out.push_str("...");
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -402,15 +488,18 @@ mod tests {
             br("f", "build_failed", &["xxe"], "3", 0),
             br("g", "blocked_claude_limit", &["ssti"], "2", 0),
             br("h", "blocked_phantomjs", &["xss"], "2", 0),
+            br("i", "blocked_claude_policy", &["command_injection"], "2", 0),
         ];
         let sb = Scoreboard::from_results(&results);
-        assert_eq!(sb.total, 8);
+        assert_eq!(sb.total, 9);
         assert_eq!(sb.solved, 2);
         assert_eq!(sb.no_flag, 3);
         assert_eq!(sb.build_failed, 1);
         assert_eq!(sb.blocked_phantomjs, 1);
         assert_eq!(sb.blocked_claude_limit, 1);
-        assert!((sb.solve_rate() - 2.0 / 8.0).abs() < 1e-9);
+        assert_eq!(sb.blocked_claude_policy, 1);
+        assert_eq!(sb.addressable_misses.len(), 3);
+        assert!((sb.solve_rate() - 2.0 / 9.0).abs() < 1e-9);
         // Addressable excludes the build_failed and blocked rows.
         assert!((sb.addressable_solve_rate() - 2.0 / 5.0).abs() < 1e-9);
 
@@ -447,6 +536,8 @@ mod tests {
         assert!(md.contains("Mantis benchmark scoreboard"));
         assert!(md.contains("Overall"));
         assert!(md.contains("By vuln class"));
+        assert!(md.contains("Remaining addressable misses"));
+        assert!(md.contains("| b | 2 | no_flag | xss | 1800s |"));
         assert!(md.contains("idor"));
         assert!(md.contains("xss"));
     }
@@ -503,5 +594,6 @@ mod tests {
         let md = sb.to_markdown();
         assert!(md.contains("| xss | 0 | 0 | 0 | 5 | 0 | 5 | 0.0% | 0.0% |"));
         assert!(!md.contains("**xss**:"));
+        assert!(md.contains("(none — remaining unsolved rows are blocked or infra-only)"));
     }
 }
