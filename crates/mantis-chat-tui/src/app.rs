@@ -11,9 +11,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use crossterm::event::{
-    self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyEventKind,
-};
+use crossterm::event::{self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyEventKind};
 use crossterm::execute;
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
@@ -21,9 +19,7 @@ use crossterm::terminal::{
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
-use mantis_chat::{
-    ChatRole, ChatToolRegistry, Conversation, HistoryFile, LlmAdapter, NoTools,
-};
+use mantis_chat::{ChatRole, ChatToolRegistry, Conversation, HistoryFile, LlmAdapter, NoTools};
 
 use crate::input::{InputAction, InputWidget};
 use crate::messages::{LogEntry, MessageLog};
@@ -146,12 +142,8 @@ pub async fn run(mut config: Config) -> Result<()> {
     // Build the conversation up front so we surface any provider
     // errors before entering the alternate screen (otherwise the
     // user sees a flash and a blank terminal).
-    let history_file = HistoryFile::open(&config.history_path).with_context(|| {
-        format!(
-            "opening chat history at {}",
-            config.history_path.display()
-        )
-    })?;
+    let history_file = HistoryFile::open(&config.history_path)
+        .with_context(|| format!("opening chat history at {}", config.history_path.display()))?;
 
     let mut conv = Conversation::new(config.adapter, config.provider.clone())
         .with_model_label(config.model.clone())
@@ -289,11 +281,9 @@ async fn event_loop(
                         }
                     }
                 }
-                Event::Paste(data) => {
-                    if !state.streaming {
-                        state.input.insert_str(&data);
-                        state.refresh_slash_suggestions();
-                    }
+                Event::Paste(data) if !state.streaming => {
+                    state.input.insert_str(&data);
+                    state.refresh_slash_suggestions();
                 }
                 Event::Resize(_, _) => {}
                 _ => {}
@@ -330,9 +320,9 @@ async fn submit_turn(
     let expansion = crate::attachments::expand(&input, crate::attachments::DEFAULT_BUDGET_BYTES);
     if !expansion.notes.is_empty() {
         for note in &expansion.notes {
-            state.log.push(LogEntry::SystemNote(format!(
-                "attachment: {note}"
-            )));
+            state
+                .log
+                .push(LogEntry::SystemNote(format!("attachment: {note}")));
         }
     }
     let prompt_for_model = expansion.prompt;

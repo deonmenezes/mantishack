@@ -162,7 +162,7 @@ impl Scoreboard {
         // Sort tags by total descending so "biggest dataset" tags
         // appear first in the rendered scoreboard.
         sb.by_tag = per_tag.into_values().collect();
-        sb.by_tag.sort_by(|a, b| b.total.cmp(&a.total));
+        sb.by_tag.sort_by_key(|tag| std::cmp::Reverse(tag.total));
 
         sb
     }
@@ -254,7 +254,7 @@ impl Scoreboard {
         s.push_str("## By vuln class\n\n");
         s.push_str("| tag | solved | no_flag | total | rate |\n|---|---:|---:|---:|---:|\n");
         let mut sorted: Vec<&TagStats> = self.by_tag.iter().collect();
-        sorted.sort_by(|a, b| b.total.cmp(&a.total));
+        sorted.sort_by_key(|tag| std::cmp::Reverse(tag.total));
         for st in sorted {
             s.push_str(&format!(
                 "| {} | {} | {} | {} | {:.1}% |\n",
@@ -284,11 +284,7 @@ impl Scoreboard {
             .iter()
             .filter(|st| st.no_flag >= 3 || (st.total >= 5 && st.solved == 0))
             .collect();
-        weak.sort_by(|a, b| {
-            b.no_flag
-                .cmp(&a.no_flag)
-                .then(b.total.cmp(&a.total))
-        });
+        weak.sort_by(|a, b| b.no_flag.cmp(&a.no_flag).then(b.total.cmp(&a.total)));
         if weak.is_empty() {
             s.push_str("(no weak tags surfaced — bump the threshold or add more benchmarks)\n");
         } else {

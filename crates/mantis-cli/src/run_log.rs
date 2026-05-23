@@ -317,7 +317,7 @@ fn unix_to_ymdhms(secs: i64) -> (i32, u32, u32, u32, u32, u32) {
     let m = (t % 60) as u32;
     t /= 60;
     let h = (t % 24) as u32;
-    let mut days = (t / 24) as i64;
+    let mut days = t / 24;
 
     // Days since 1970-01-01.
     let mut y = 1970i32;
@@ -496,7 +496,7 @@ fn host_from_target(t: &str) -> String {
         .or_else(|| t.strip_prefix("http://"))
         .unwrap_or(t);
     let host = after_scheme
-        .split(|c: char| matches!(c, '/' | '?' | '#'))
+        .split(['/', '?', '#'])
         .next()
         .unwrap_or(after_scheme);
     let cleaned: String = host

@@ -1436,8 +1436,12 @@ async fn handle_goal(
 
     // Build & authorize a permissive single-host scope so the egress
     // proxy admits the candidates we're about to probe.
-    let scope_json = build_signed_scope_json(&engagement_id, &[seed_url.clone()], budget_seconds)
-        .context("build signed scope")?;
+    let scope_json = build_signed_scope_json(
+        &engagement_id,
+        std::slice::from_ref(&seed_url),
+        budget_seconds,
+    )
+    .context("build signed scope")?;
     client
         .authorize(AuthorizeRequest {
             id: engagement_id.clone(),
@@ -1718,11 +1722,11 @@ fn host_port_is_likely_http(host_port: &str) -> bool {
 /// `mantis hack <target>` — the simple-as-bob-hunt command. Auto-
 /// discovers Supabase config from the target's HTML, runs the full
 /// pipeline, archives.
-#[allow(clippy::too_many_arguments)]
 /// Legacy `mantis hack` flags that pre-date the FSM-driven flow.
 /// Kept on the clap struct so old scripts don't hard-fail; we emit a
 /// deprecation warning if any are set and redirect the operator to
 /// `mantis find-auth-bugs`.
+#[derive(Default)]
 struct HackLegacyFlags {
     cookie: Option<String>,
     supabase_signup: Option<String>,
@@ -1744,21 +1748,6 @@ impl HackLegacyFlags {
             || !self.extra_paths.is_empty()
             || self.max_candidates.is_some()
             || self.max_endpoints_probed.is_some()
-    }
-}
-
-impl Default for HackLegacyFlags {
-    fn default() -> Self {
-        Self {
-            cookie: None,
-            supabase_signup: None,
-            supabase_apikey: None,
-            attacker_profile: None,
-            victim_profile: None,
-            extra_paths: vec![],
-            max_candidates: None,
-            max_endpoints_probed: None,
-        }
     }
 }
 
@@ -1866,6 +1855,10 @@ async fn handle_preset(
     .await
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "clap command handler mirrors CLI args"
+)]
 async fn handle_hack(
     target: String,
     i_have_authorization: bool,
@@ -1913,6 +1906,7 @@ async fn handle_hack(
         .and_then(|(_, c)| c.no_auth)
         .unwrap_or(false);
     let project_egress = project_cfg.as_ref().and_then(|(_, c)| c.egress.clone());
+    let project_daemon = project_cfg.as_ref().and_then(|(_, c)| c.daemon.clone());
     if let Some((path, _)) = &project_cfg {
         eprintln!("[mantishack] config:    {}", path.display());
     }
@@ -1927,6 +1921,11 @@ async fn handle_hack(
         project_egress.unwrap_or(egress)
     } else {
         egress
+    };
+    let daemon = if daemon == DEFAULT_DAEMON_ENDPOINT {
+        project_daemon.unwrap_or(daemon)
+    } else {
+        daemon
     };
     if turbo {
         eprintln!("[mantishack] turbo: deep recon + Opus model preset");
@@ -2838,7 +2837,7 @@ fn first_url_in_text(text: &str) -> Option<String> {
             c.is_whitespace() || matches!(c, '"' | '\'' | '`' | '<' | '>' | ')' | ',' | ';' | '\\')
         })
         .unwrap_or(rest.len());
-    let url = rest[..end].trim_end_matches(|c: char| matches!(c, '.' | '!' | '?'));
+    let url = rest[..end].trim_end_matches(['.', '!', '?']);
     if url.len() <= 8 {
         None
     } else {
@@ -4234,13 +4233,10 @@ fn maybe_migrate_keystore_from_os(ws_path: &std::path::Path) {
     let file = FileKeyStore::new(file_root);
     let mut migrated = 0usize;
     for (service, account) in probes {
-        match os.get(&service, account) {
-            Ok(bytes) => {
-                if file.put(&service, account, &bytes).is_ok() {
-                    migrated += 1;
-                }
+        if let Ok(bytes) = os.get(&service, account) {
+            if file.put(&service, account, &bytes).is_ok() {
+                migrated += 1;
             }
-            Err(_) => {}
         }
     }
     if migrated > 0 {
@@ -4340,9 +4336,8 @@ const ORCHESTRATOR_SLASH_COMMAND_SRC: &str =
 /// substitute `$ARGUMENTS` with the supplied target+flags string.
 fn orchestrator_role_body(arguments: &str) -> String {
     let raw = ORCHESTRATOR_SLASH_COMMAND_SRC;
-    let body = if raw.starts_with("---") {
+    let body = if let Some(after_open) = raw.strip_prefix("---") {
         // Find the closing `---` of the frontmatter.
-        let after_open = &raw[3..];
         match after_open
             .find("\n---\n")
             .or_else(|| after_open.find("\r\n---\r\n"))
@@ -4597,6 +4592,10 @@ fn summarize_tool_input(name: &str, input: Option<&serde_json::Value>) -> String
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "clap command handler mirrors CLI args"
+)]
 async fn handle_find_auth_bugs(
     target: String,
     supabase_signup: Option<String>,
@@ -4955,7 +4954,6 @@ fn build_signed_scope_json(
     use mantis_scope::manifest::{Protocol, ScopeManifest, ScopeRules};
     use mantis_scope::port_range::PortMatcher;
     use mantis_scope::signed::SignedScope;
-    use mantis_workspace::keystore::KeyStore;
     use mantis_workspace::{
         default_keystore, default_workspace_root, operator_keystore_service, Keypair, Workspace,
     };
@@ -5181,11 +5179,15 @@ naturally until security work is requested.";
 fn pick_chat_adapter(
     provider_override: Option<&str>,
     model_override: Option<&str>,
-) -> Result<(std::sync::Arc<dyn mantis_synthesizer::LlmAdapter>, String, String)> {
+) -> Result<(
+    std::sync::Arc<dyn mantis_synthesizer::LlmAdapter>,
+    String,
+    String,
+)> {
     use crate::llm_pick::{
         BEDROCK_MODEL, DEEPSEEK_BASE, DEEPSEEK_MODEL, GROQ_BASE, GROQ_MODEL, MISTRAL_BASE,
-        MISTRAL_MODEL, MOONSHOT_BASE, MOONSHOT_MODEL, OPENROUTER_BASE, OPENROUTER_MODEL,
-        QWEN_BASE, QWEN_MODEL, XAI_BASE, XAI_MODEL, ZHIPU_BASE, ZHIPU_MODEL,
+        MISTRAL_MODEL, MOONSHOT_BASE, MOONSHOT_MODEL, OPENROUTER_BASE, OPENROUTER_MODEL, QWEN_BASE,
+        QWEN_MODEL, XAI_BASE, XAI_MODEL, ZHIPU_BASE, ZHIPU_MODEL,
     };
     use mantis_synthesizer::{
         anthropic::AnthropicAdapter, claude_cli::ClaudeCliAdapter, gemini::GeminiAdapter,
@@ -5201,19 +5203,17 @@ fn pick_chat_adapter(
     // Helper for the OpenAI-compatible cluster (Moonshot, DeepSeek,
     // Groq, Mistral, xAI, OpenRouter, Qwen, Zhipu, Bedrock-via-proxy).
     // Closure captures `model_override` so each call honors --model.
-    let openai_compat = |key: String,
-                         base_url: &str,
-                         default_model: &str|
-     -> (Arc<dyn LlmAdapter>, String) {
-        let model = model_override
-            .map(str::to_string)
-            .unwrap_or_else(|| default_model.to_string());
-        let a = OpenAIAdapter::new(key)
-            .with_base_url(base_url)
-            .with_model(model.clone())
-            .with_max_tokens(4096);
-        (Arc::new(a), model)
-    };
+    let openai_compat =
+        |key: String, base_url: &str, default_model: &str| -> (Arc<dyn LlmAdapter>, String) {
+            let model = model_override
+                .map(str::to_string)
+                .unwrap_or_else(|| default_model.to_string());
+            let a = OpenAIAdapter::new(key)
+                .with_base_url(base_url)
+                .with_model(model.clone())
+                .with_max_tokens(4096);
+            (Arc::new(a), model)
+        };
 
     let (adapter, model_label): (Arc<dyn LlmAdapter>, String) = match provider.as_str() {
         "anthropic" => {
@@ -5277,8 +5277,9 @@ fn pick_chat_adapter(
             openai_compat(key, OPENROUTER_BASE, OPENROUTER_MODEL)
         }
         "qwen" | "dashscope" => {
-            let key = std::env::var("DASHSCOPE_API_KEY")
-                .context("DASHSCOPE_API_KEY is not set — get one at dashscope.console.aliyun.com")?;
+            let key = std::env::var("DASHSCOPE_API_KEY").context(
+                "DASHSCOPE_API_KEY is not set — get one at dashscope.console.aliyun.com",
+            )?;
             openai_compat(key, QWEN_BASE, QWEN_MODEL)
         }
         "zhipu" | "glm" => {
@@ -5478,9 +5479,7 @@ async fn handle_chat(
         let count = loaded.len();
         conv.extend_from_history(loaded);
         if count > 0 {
-            eprintln!(
-                "{DIM}engagement resumed · {count} prior dispatches loaded{RESET}"
-            );
+            eprintln!("{DIM}engagement resumed · {count} prior dispatches loaded{RESET}");
         }
     }
 
@@ -5629,9 +5628,10 @@ async fn handle_chat(
                 // sits inside the 5-min Anthropic prompt cache, so
                 // the cost is paid once and read cheaply thereafter.
                 if !playbooks_armed {
-                    let hits = mantis_chat::matching_playbooks(&[msg.clone()]);
+                    let hits = mantis_chat::matching_playbooks(std::slice::from_ref(&msg));
                     if !hits.is_empty() {
-                        let pb_prompt = mantis_chat::compose_playbook_prompt(&[msg.clone()]);
+                        let pb_prompt =
+                            mantis_chat::compose_playbook_prompt(std::slice::from_ref(&msg));
                         conv.augment_system_prompt(&pb_prompt);
                         let names: Vec<&str> =
                             hits.iter().map(|p| p.label).collect();
@@ -5996,8 +5996,7 @@ async fn run_single_provider(
     use futures::StreamExt;
     use mantis_chat::ChatEvent;
 
-    let (adapter, _provider, _model) =
-        pick_chat_adapter(Some(provider_id), model_override)?;
+    let (adapter, _provider, _model) = pick_chat_adapter(Some(provider_id), model_override)?;
 
     let mut stream = adapter.stream_chat(messages, &[]);
     let mut collected = String::new();
@@ -6072,22 +6071,18 @@ fn available_providers() -> Vec<String> {
     // claude-cli fallback only included when nothing else is set —
     // if the user has even one API key configured, they probably
     // don't want the slower subprocess path in a multi-fan-out.
-    if out.is_empty() && std::process::Command::new("claude")
-        .arg("--version")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+    if out.is_empty()
+        && std::process::Command::new("claude")
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
     {
         out.push("claude-cli".into());
     }
     out
-}
-
-fn is_stdout_tty() -> bool {
-    use std::io::IsTerminal;
-    std::io::stdout().is_terminal()
 }
 
 async fn handle_tui(

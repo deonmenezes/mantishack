@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use tokio::process::Command;
 
-use crate::{Finding, ScanError, Severity, binary_available};
+use crate::{binary_available, Finding, ScanError, Severity};
 
 const BIN: &str = "trivy";
 const INSTALL_HINT: &str =
@@ -72,7 +72,8 @@ impl TrivyAdapter {
 
     /// Scan a container image (`trivy image --format json --quiet <image>`).
     pub async fn scan_image(&self, image: &str) -> Result<Vec<Finding>, ScanError> {
-        self.run(&["image", "--format", "json", "--quiet", image]).await
+        self.run(&["image", "--format", "json", "--quiet", image])
+            .await
     }
 
     async fn run(&self, args: &[&str]) -> Result<Vec<Finding>, ScanError> {
@@ -96,7 +97,12 @@ impl TrivyAdapter {
                     stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
                 });
             }
-            Ok(Err(e)) => return Err(ScanError::Spawn { tool: BIN, source: e }),
+            Ok(Err(e)) => {
+                return Err(ScanError::Spawn {
+                    tool: BIN,
+                    source: e,
+                })
+            }
             Err(_) => {
                 return Err(ScanError::Timeout {
                     tool: BIN,
@@ -229,15 +235,10 @@ pub(crate) fn parse_trivy_output(raw: &str) -> Result<Vec<Finding>, ScanError> {
                     format!("{rule_id}: {title}")
                 };
 
-                let mut f = Finding::new(
-                    "trivy",
-                    "secret",
-                    finding_target,
-                    severity,
-                    finding_title,
-                )
-                .with_description(match_text)
-                .with_raw(s.clone());
+                let mut f =
+                    Finding::new("trivy", "secret", finding_target, severity, finding_title)
+                        .with_description(match_text)
+                        .with_raw(s.clone());
                 if !rule_id.is_empty() {
                     f = f.with_meta("rule_id", rule_id);
                 }
@@ -306,13 +307,16 @@ mod tests {
             a.meta.get("installed_version").map(String::as_str),
             Some("3.0.1")
         );
-        assert_eq!(a.meta.get("fixed_version").map(String::as_str), Some("3.0.2"));
+        assert_eq!(
+            a.meta.get("fixed_version").map(String::as_str),
+            Some("3.0.2")
+        );
         assert_eq!(a.meta.get("package").map(String::as_str), Some("openssl"));
 
         let b = &findings[1];
         assert_eq!(b.severity, Severity::Critical);
         // fixed_version was empty → must not be inserted
-        assert!(b.meta.get("fixed_version").is_none());
+        assert!(!b.meta.contains_key("fixed_version"));
     }
 
     #[test]
@@ -358,7 +362,10 @@ mod tests {
         let s = findings.iter().find(|f| f.kind == "secret").unwrap();
         assert_eq!(s.target, "infra/main.tf:11");
         assert_eq!(s.severity, Severity::Critical);
-        assert_eq!(s.meta.get("rule_id").map(String::as_str), Some("aws-access-key"));
+        assert_eq!(
+            s.meta.get("rule_id").map(String::as_str),
+            Some("aws-access-key")
+        );
         assert_eq!(s.meta.get("category").map(String::as_str), Some("AWS"));
         assert_eq!(s.meta.get("line").map(String::as_str), Some("11"));
     }

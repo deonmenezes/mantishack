@@ -521,7 +521,7 @@ pub fn summarize_url(raw: &str) -> UrlSummary {
         out.host = Some(hostport.to_string());
     }
 
-    out.effective_port = out.port.or_else(|| match out.scheme.as_deref() {
+    out.effective_port = out.port.or(match out.scheme.as_deref() {
         Some("http") | Some("ws") => Some(80),
         Some("https") | Some("wss") => Some(443),
         Some("ftp") => Some(21),
@@ -996,7 +996,7 @@ pub fn extract_secrets(args: &ExtractSecretsArgs) -> SecretsReport {
     // (e.g. `sk-`) at the same offset during the overlap dedupe
     // step below.
     let mut pattern_order: Vec<&'static SecretPattern> = PATTERNS.iter().collect();
-    pattern_order.sort_by(|a, b| b.prefix.len().cmp(&a.prefix.len()));
+    pattern_order.sort_by_key(|p| std::cmp::Reverse(p.prefix.len()));
     for p in pattern_order {
         let mut start = 0usize;
         while let Some(idx) = blob[start..].find(p.prefix) {
@@ -1056,7 +1056,7 @@ pub fn extract_secrets(args: &ExtractSecretsArgs) -> SecretsReport {
     let mut matches = kept;
 
     let total_matches = matches.len();
-    let cap = args.match_cap.max(1).min(10_000);
+    let cap = args.match_cap.clamp(1, 10_000);
     matches.truncate(cap);
 
     let mut distinct_kinds = std::collections::BTreeSet::new();
@@ -1933,7 +1933,7 @@ pub fn extract_links(args: &ExtractLinksArgs) -> ExtractLinksResult {
     let mut matches: Vec<LinkMatch> = found.into_values().collect();
     matches.sort_by_key(|m| m.byte_offset);
     let count = matches.len();
-    matches.truncate(args.max_links.max(1).min(10_000));
+    matches.truncate(args.max_links.clamp(1, 10_000));
 
     let mut distinct_hosts: std::collections::BTreeSet<String> = Default::default();
     for m in &matches {
@@ -1977,7 +1977,7 @@ fn scan_url_schemes(
                 })
                 .map(|e| abs + e)
                 .unwrap_or(blob.len());
-            let url = blob[abs..end].trim_end_matches(|c: char| matches!(c, '.' | '!' | '?'));
+            let url = blob[abs..end].trim_end_matches(['.', '!', '?']);
             if url.len() > needle.len() {
                 let (host, origin) = classify_link(url, kind, origin_host.as_deref());
                 found.entry(url.to_string()).or_insert(LinkMatch {
@@ -2089,13 +2089,12 @@ fn classify_link(url: &str, kind: &str, origin_host: Option<&str>) -> (Option<St
     // Extract host from the URL.
     let host = if let Some(after_scheme) = url.find("://") {
         let rest = &url[after_scheme + 3..];
-        rest.split(|c: char| matches!(c, '/' | '?' | '#'))
+        rest.split(['/', '?', '#'])
             .next()
             .map(|h| h.trim_start_matches("//").to_ascii_lowercase())
             .map(|h| h.split('@').next_back().unwrap().to_string())
-    } else if url.starts_with("//") {
-        let rest = &url[2..];
-        rest.split(|c: char| matches!(c, '/' | '?' | '#'))
+    } else if let Some(rest) = url.strip_prefix("//") {
+        rest.split(['/', '?', '#'])
             .next()
             .map(str::to_ascii_lowercase)
     } else {

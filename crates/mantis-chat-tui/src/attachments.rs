@@ -359,7 +359,7 @@ mod tests {
     fn expand_detects_binary_file() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("image.bin");
-        std::fs::write(&path, &[0xFFu8, 0x00, 0xFF, 0xAA, 0x55]).unwrap();
+        std::fs::write(&path, [0xFFu8, 0x00, 0xFF, 0xAA, 0x55]).unwrap();
         let input = format!("@{}", path.display());
         let exp = expand(&input, DEFAULT_BUDGET_BYTES);
         assert!(exp.prompt.contains("binary attachment"));

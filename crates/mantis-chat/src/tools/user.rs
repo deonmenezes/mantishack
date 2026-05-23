@@ -131,7 +131,10 @@ impl UserToolRegistry {
             let entry = match entry {
                 Ok(e) => e,
                 Err(e) => {
-                    eprintln!("mantis-chat: skipping bad dir entry in {}: {e}", path.display());
+                    eprintln!(
+                        "mantis-chat: skipping bad dir entry in {}: {e}",
+                        path.display()
+                    );
                     continue;
                 }
             };
@@ -178,10 +181,9 @@ fn build_client() -> Result<reqwest::Client, anyhow::Error> {
 }
 
 fn load_tool_file(path: &Path) -> Result<ToolDef, anyhow::Error> {
-    let raw = std::fs::read_to_string(path)
-        .with_context(|| format!("read {}", path.display()))?;
-    let file: ToolFile = toml::from_str(&raw)
-        .with_context(|| format!("parse TOML {}", path.display()))?;
+    let raw = std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    let file: ToolFile =
+        toml::from_str(&raw).with_context(|| format!("parse TOML {}", path.display()))?;
     validate_tool_def(&file.tool)
         .with_context(|| format!("invalid tool definition in {}", path.display()))?;
     Ok(file.tool)
@@ -256,11 +258,8 @@ fn to_tool(def: &ToolDef) -> Tool {
 fn url_encode(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     for b in input.bytes() {
-        let unreserved = b.is_ascii_alphanumeric()
-            || b == b'-'
-            || b == b'_'
-            || b == b'.'
-            || b == b'~';
+        let unreserved =
+            b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.' || b == b'~';
         if unreserved {
             out.push(b as char);
         } else {
@@ -352,9 +351,8 @@ fn render_env_placeholders(template: &str) -> Result<String, anyhow::Error> {
                 if name.is_empty() {
                     return Err(anyhow!("empty `${{}}` placeholder in template"));
                 }
-                let val = std::env::var(name).map_err(|_| {
-                    anyhow!("environment variable `${{{name}}}` is not set")
-                })?;
+                let val = std::env::var(name)
+                    .map_err(|_| anyhow!("environment variable `${{{name}}}` is not set"))?;
                 out.push_str(&val);
                 i = end + 1;
                 continue;
@@ -458,9 +456,8 @@ async fn run_http(
         .unwrap_or(false);
     if is_json {
         if let Ok(v) = serde_json::from_slice::<Value>(&bytes) {
-            return Ok(serde_json::to_string_pretty(&v).unwrap_or_else(|_| {
-                String::from_utf8_lossy(&bytes).to_string()
-            }));
+            return Ok(serde_json::to_string_pretty(&v)
+                .unwrap_or_else(|_| String::from_utf8_lossy(&bytes).to_string()));
         }
         // Fall through to text handling on parse failure.
     }
@@ -740,12 +737,7 @@ required = true
     #[tokio::test]
     async fn url_template_encodes_unsafe_argument_chars() {
         let captured = Arc::new(Mutex::new(None));
-        let base = mock_server(
-            "ok".into(),
-            "text/plain",
-            captured.clone(),
-        )
-        .await;
+        let base = mock_server("ok".into(), "text/plain", captured.clone()).await;
         let dir = tempdir().unwrap();
         let toml_body = format!(
             r#"
@@ -787,12 +779,7 @@ required = true
         let var = "MANTIS_TEST_EXPAND_ENV_VAR_TOKEN";
         std::env::set_var(var, "secret-token-123");
         let captured = Arc::new(Mutex::new(None));
-        let base = mock_server(
-            "ok".into(),
-            "text/plain",
-            captured.clone(),
-        )
-        .await;
+        let base = mock_server("ok".into(), "text/plain", captured.clone()).await;
         let dir = tempdir().unwrap();
         let toml_body = format!(
             r#"
@@ -894,12 +881,7 @@ required = true
     #[tokio::test]
     async fn renders_template_in_headers() {
         let captured = Arc::new(Mutex::new(None));
-        let base = mock_server(
-            "ok".into(),
-            "text/plain",
-            captured.clone(),
-        )
-        .await;
+        let base = mock_server("ok".into(), "text/plain", captured.clone()).await;
         let dir = tempdir().unwrap();
         let toml_body = format!(
             r#"
@@ -1023,7 +1005,11 @@ url = "{base}/big"
             arguments: json!({}),
         };
         let out = reg.execute(&call).await.unwrap();
-        assert!(out.ends_with("[...truncated]"), "tail: ...{}", &out[out.len().saturating_sub(40)..]);
+        assert!(
+            out.ends_with("[...truncated]"),
+            "tail: ...{}",
+            &out[out.len().saturating_sub(40)..]
+        );
         assert!(out.len() < big.len(), "expected truncation");
     }
 

@@ -150,6 +150,18 @@ pub async fn list_findings(
     })))
 }
 
+fn state_label(state: i32) -> &'static str {
+    match ProtoEngagementState::try_from(state) {
+        Ok(ProtoEngagementState::Draft) => "DRAFT",
+        Ok(ProtoEngagementState::Authorized) => "AUTHORIZED",
+        Ok(ProtoEngagementState::Active) => "RECON",
+        Ok(ProtoEngagementState::Paused) => "PAUSED",
+        Ok(ProtoEngagementState::Completed) => "COMPLETED",
+        Ok(ProtoEngagementState::Archived) => "ARCHIVED",
+        _ => "UNKNOWN",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use axum::body::Body;
@@ -239,17 +251,5 @@ mod tests {
         let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(body["engagement_id"], "eng-123");
         assert!(body["findings"].as_array().unwrap().is_empty());
-    }
-}
-
-fn state_label(state: i32) -> &'static str {
-    match ProtoEngagementState::try_from(state) {
-        Ok(ProtoEngagementState::Draft) => "DRAFT",
-        Ok(ProtoEngagementState::Authorized) => "AUTHORIZED",
-        Ok(ProtoEngagementState::Active) => "RECON",
-        Ok(ProtoEngagementState::Paused) => "PAUSED",
-        Ok(ProtoEngagementState::Completed) => "COMPLETED",
-        Ok(ProtoEngagementState::Archived) => "ARCHIVED",
-        _ => "UNKNOWN",
     }
 }

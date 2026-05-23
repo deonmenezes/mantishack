@@ -524,8 +524,16 @@ mod tests {
     #[test]
     fn scan_lists_jsonl_files_sorted_newest_first() {
         let dir = tempfile::tempdir().unwrap();
-        let older = write_session(dir.path(), "older", "{\"role\":\"user\",\"content\":\"hi\"}\n");
-        let newer = write_session(dir.path(), "newer", "{\"role\":\"user\",\"content\":\"hi\"}\n");
+        let older = write_session(
+            dir.path(),
+            "older",
+            "{\"role\":\"user\",\"content\":\"hi\"}\n",
+        );
+        let newer = write_session(
+            dir.path(),
+            "newer",
+            "{\"role\":\"user\",\"content\":\"hi\"}\n",
+        );
         // Force `older` to be older than `newer` regardless of filesystem
         // mtime resolution.
         let past = SystemTime::now() - Duration::from_secs(120);
@@ -566,8 +574,14 @@ mod tests {
     #[test]
     fn humanise_seconds_minutes_hours_recent() {
         let now = SystemTime::UNIX_EPOCH + Duration::from_secs(10_000_000);
-        assert_eq!(humanise_relative(now - Duration::from_secs(5), now), "5s ago");
-        assert_eq!(humanise_relative(now - Duration::from_secs(120), now), "2m ago");
+        assert_eq!(
+            humanise_relative(now - Duration::from_secs(5), now),
+            "5s ago"
+        );
+        assert_eq!(
+            humanise_relative(now - Duration::from_secs(120), now),
+            "2m ago"
+        );
         assert_eq!(
             humanise_relative(now - Duration::from_secs(3 * 60 * 60), now),
             "3h ago"
@@ -636,8 +650,16 @@ mod tests {
     #[test]
     fn picker_outcome_resume_on_enter() {
         let dir = tempfile::tempdir().unwrap();
-        write_session(dir.path(), "alpha", "{\"role\":\"user\",\"content\":\"x\"}\n");
-        write_session(dir.path(), "bravo", "{\"role\":\"user\",\"content\":\"y\"}\n");
+        write_session(
+            dir.path(),
+            "alpha",
+            "{\"role\":\"user\",\"content\":\"x\"}\n",
+        );
+        write_session(
+            dir.path(),
+            "bravo",
+            "{\"role\":\"user\",\"content\":\"y\"}\n",
+        );
         let entries = scan_sessions(dir.path()).unwrap();
         // The default selection is index 0 — whichever has the newer
         // mtime. We just assert the outcome carries one of them.

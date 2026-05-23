@@ -146,9 +146,9 @@ pub fn write_archive(
             "04 Auth-differential per endpoint",
             {
                 let mut s = String::new();
-                s.push_str(&format!(
+                s.push_str(
                     "Replayed each candidate URL under all available profiles (unauthenticated, attacker, victim). Per-endpoint hits below:\n\n",
-                ));
+                );
                 for ep in &report.per_endpoint {
                     if ep.findings.is_empty() {
                         continue;

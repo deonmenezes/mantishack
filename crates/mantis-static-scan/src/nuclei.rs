@@ -180,9 +180,10 @@ impl NucleiAdapter {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| ScanError::Spawn { tool: BIN, source: e })?;
+        let mut child = cmd.spawn().map_err(|e| ScanError::Spawn {
+            tool: BIN,
+            source: e,
+        })?;
 
         if let Some(mut stdin) = child.stdin.take() {
             use tokio::io::AsyncWriteExt;
@@ -190,14 +191,22 @@ impl NucleiAdapter {
             stdin
                 .write_all(joined.as_bytes())
                 .await
-                .map_err(|e| ScanError::Spawn { tool: BIN, source: e })?;
+                .map_err(|e| ScanError::Spawn {
+                    tool: BIN,
+                    source: e,
+                })?;
             // Closing stdin is essential — nuclei waits on EOF.
             drop(stdin);
         }
 
         let out = match tokio::time::timeout(self.timeout, child.wait_with_output()).await {
             Ok(Ok(out)) => out,
-            Ok(Err(e)) => return Err(ScanError::Spawn { tool: BIN, source: e }),
+            Ok(Err(e)) => {
+                return Err(ScanError::Spawn {
+                    tool: BIN,
+                    source: e,
+                })
+            }
             Err(_) => {
                 return Err(ScanError::Timeout {
                     tool: BIN,
@@ -269,10 +278,7 @@ pub(crate) fn parse_nuclei_output(raw: &str) -> Result<Vec<Finding>, ScanError> 
 /// nuclei ever ships a non-finding event on the JSONL stream, we
 /// don't want to choke).
 fn nuclei_value_to_finding(v: &serde_json::Value) -> Option<Finding> {
-    let template_id = v
-        .get("template-id")
-        .and_then(|x| x.as_str())
-        .unwrap_or("");
+    let template_id = v.get("template-id").and_then(|x| x.as_str()).unwrap_or("");
     if template_id.is_empty() {
         return None;
     }
@@ -341,7 +347,10 @@ fn nuclei_value_to_finding(v: &serde_json::Value) -> Option<Finding> {
         // Tags can be a JSON array OR a comma-joined string (older
         // template emissions). Handle both.
         let joined = if let Some(arr) = tags.as_array() {
-            arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(",")
+            arr.iter()
+                .filter_map(|v| v.as_str())
+                .collect::<Vec<_>>()
+                .join(",")
         } else if let Some(s) = tags.as_str() {
             s.to_string()
         } else {
@@ -388,8 +397,14 @@ mod tests {
         assert_eq!(f.severity, Severity::Critical);
         assert_eq!(f.title, "Apache Log4j2 RCE");
         assert!(f.description.contains("JNDI"));
-        assert_eq!(f.meta.get("template_id").map(String::as_str), Some("CVE-2021-44228"));
-        assert_eq!(f.meta.get("cve").map(String::as_str), Some("CVE-2021-44228"));
+        assert_eq!(
+            f.meta.get("template_id").map(String::as_str),
+            Some("CVE-2021-44228")
+        );
+        assert_eq!(
+            f.meta.get("cve").map(String::as_str),
+            Some("CVE-2021-44228")
+        );
         assert_eq!(f.meta.get("cwe").map(String::as_str), Some("CWE-502"));
         assert_eq!(f.meta.get("cvss_score").map(String::as_str), Some("10.0"));
         assert!(f.meta.get("tags").unwrap().contains("log4j"));
@@ -403,8 +418,8 @@ mod tests {
         assert_eq!(f.severity, Severity::Info);
         assert_eq!(f.title, "Nginx Detected");
         // No classification block → no cve/cwe meta entries.
-        assert!(f.meta.get("cve").is_none());
-        assert!(f.meta.get("cwe").is_none());
+        assert!(!f.meta.contains_key("cve"));
+        assert!(!f.meta.contains_key("cwe"));
     }
 
     #[test]
@@ -464,18 +479,21 @@ mod tests {
         assert_eq!(f.target, "https://h.example/");
 
         // No matched-at or host; only input.
-        let only_input = r#"{"template-id":"x","info":{"name":"x","severity":"info"},"input":"i.example.com"}"#;
+        let only_input =
+            r#"{"template-id":"x","info":{"name":"x","severity":"info"},"input":"i.example.com"}"#;
         let f = &parse_nuclei_output(only_input).unwrap()[0];
         assert_eq!(f.target, "i.example.com");
     }
 
     #[test]
     fn tags_handle_both_array_and_string_shapes() {
-        let arr_form = r#"{"template-id":"x","info":{"name":"x","severity":"info","tags":["a","b","c"]}}"#;
+        let arr_form =
+            r#"{"template-id":"x","info":{"name":"x","severity":"info","tags":["a","b","c"]}}"#;
         let f = &parse_nuclei_output(arr_form).unwrap()[0];
         assert_eq!(f.meta.get("tags").map(String::as_str), Some("a,b,c"));
 
-        let str_form = r#"{"template-id":"y","info":{"name":"y","severity":"info","tags":"d,e,f"}}"#;
+        let str_form =
+            r#"{"template-id":"y","info":{"name":"y","severity":"info","tags":"d,e,f"}}"#;
         let f = &parse_nuclei_output(str_form).unwrap()[0];
         assert_eq!(f.meta.get("tags").map(String::as_str), Some("d,e,f"));
     }

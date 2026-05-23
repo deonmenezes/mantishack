@@ -155,17 +155,17 @@ impl ReconBundle {
         if !self.live_surfaces.is_empty() || !self.subdomains.is_empty() {
             s.push_str("## Surface graph\n");
             for surf in self.live_surfaces.iter().take(20) {
-                let status = surf.status.map(|c| format!("{c}")).unwrap_or_else(|| "?".into());
+                let status = surf
+                    .status
+                    .map(|c| format!("{c}"))
+                    .unwrap_or_else(|| "?".into());
                 let title = surf.title.as_deref().unwrap_or("");
                 let tech = if surf.tech.is_empty() {
                     String::new()
                 } else {
                     format!(" [{}]", surf.tech.join(", "))
                 };
-                s.push_str(&format!(
-                    "- `{}` {status} {title}{tech}\n",
-                    surf.url
-                ));
+                s.push_str(&format!("- `{}` {status} {title}{tech}\n", surf.url));
             }
             if self.live_surfaces.len() > 20 {
                 s.push_str(&format!(
@@ -321,9 +321,15 @@ mod tests {
         let mut b = ReconBundle::new("example.com");
         b.elapsed_ms = 1234;
         b.findings.push(
-            Finding::new("nuclei", "vuln", "https://x", Severity::Critical, "Log4j RCE")
-                .with_meta("cve", "CVE-2021-44228")
-                .with_raw(json!({})),
+            Finding::new(
+                "nuclei",
+                "vuln",
+                "https://x",
+                Severity::Critical,
+                "Log4j RCE",
+            )
+            .with_meta("cve", "CVE-2021-44228")
+            .with_raw(json!({})),
         );
         b.live_surfaces.push(HttpSurface {
             url: "https://example.com".into(),

@@ -204,12 +204,18 @@ mod tests {
         .unwrap();
         let results = load_results(dir.path()).unwrap();
         assert_eq!(results.len(), 2);
-        let solved = results.iter().find(|r| r.benchmark == "XBEN-001-24").unwrap();
+        let solved = results
+            .iter()
+            .find(|r| r.benchmark == "XBEN-001-24")
+            .unwrap();
         // HashMap insert-overwrite isn't ordering-stable across file
         // discovery, so we just assert that EXACTLY one of the two
         // statuses landed. The dedupe contract is "one row per id";
         // which row wins is implementation-defined.
-        assert!(matches!(solved.status_enum(), Status::Solved | Status::NoFlag));
+        assert!(matches!(
+            solved.status_enum(),
+            Status::Solved | Status::NoFlag
+        ));
     }
 
     #[test]

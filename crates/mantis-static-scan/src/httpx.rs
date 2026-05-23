@@ -14,7 +14,7 @@ use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
-use crate::{Finding, ScanError, Severity, binary_available};
+use crate::{binary_available, Finding, ScanError, Severity};
 
 const BIN: &str = "httpx";
 const INSTALL_HINT: &str =
@@ -103,7 +103,12 @@ impl HttpxAdapter {
                     stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
                 });
             }
-            Ok(Err(e)) => return Err(ScanError::Spawn { tool: BIN, source: e }),
+            Ok(Err(e)) => {
+                return Err(ScanError::Spawn {
+                    tool: BIN,
+                    source: e,
+                })
+            }
             Err(_) => {
                 return Err(ScanError::Timeout {
                     tool: BIN,
@@ -184,15 +189,19 @@ pub(crate) fn parse_httpx_output(raw: &str) -> Result<Vec<Finding>, ScanError> {
         let title_trunc = truncate_to(&title, 80);
         let title_line = format!(
             "{} {} {}",
-            if status_code.is_empty() { "-" } else { status_code.as_str() },
+            if status_code.is_empty() {
+                "-"
+            } else {
+                status_code.as_str()
+            },
             webserver,
             title_trunc
         )
         .trim()
         .to_string();
 
-        let mut f = Finding::new("httpx", "http_probe", target, Severity::Info, title_line)
-            .with_raw(value);
+        let mut f =
+            Finding::new("httpx", "http_probe", target, Severity::Info, title_line).with_raw(value);
 
         if !status_code.is_empty() {
             f = f.with_meta("status_code", status_code);
@@ -231,7 +240,10 @@ mod tests {
         assert!(f.title.contains("Welcome"));
         assert_eq!(f.meta.get("status_code").map(String::as_str), Some("200"));
         assert_eq!(f.meta.get("webserver").map(String::as_str), Some("nginx"));
-        assert_eq!(f.meta.get("tech").map(String::as_str), Some("wordpress,php"));
+        assert_eq!(
+            f.meta.get("tech").map(String::as_str),
+            Some("wordpress,php")
+        );
         assert_eq!(f.meta.get("port").map(String::as_str), Some("443"));
     }
 
@@ -246,9 +258,9 @@ mod tests {
             Some("301")
         );
         // No webserver / tech / port → none of those keys should be set.
-        assert!(findings[0].meta.get("webserver").is_none());
-        assert!(findings[0].meta.get("tech").is_none());
-        assert!(findings[0].meta.get("port").is_none());
+        assert!(!findings[0].meta.contains_key("webserver"));
+        assert!(!findings[0].meta.contains_key("tech"));
+        assert!(!findings[0].meta.contains_key("port"));
     }
 
     #[test]

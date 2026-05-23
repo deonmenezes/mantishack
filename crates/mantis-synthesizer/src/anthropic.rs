@@ -995,7 +995,10 @@ mod tests {
         let body = build_body_for_test(&adapter, &messages, &[]);
         // With caching off, system is a plain string (no blocks).
         let system = &body["system"];
-        assert!(system.is_string(), "expected string when cache off: {system}");
+        assert!(
+            system.is_string(),
+            "expected string when cache off: {system}"
+        );
     }
 
     #[test]

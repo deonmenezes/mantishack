@@ -561,13 +561,8 @@ fn format_stream_event(event: &Value) -> Option<String> {
             // and decide).
             let subtype = event.get("subtype").and_then(Value::as_str).unwrap_or("");
             match subtype {
-                "init"
-                | "hook_started"
-                | "hook_response"
-                | "hook_cancelled"
-                | "hook_error"
-                | "compact_boundary"
-                | "" => None,
+                "init" | "hook_started" | "hook_response" | "hook_cancelled" | "hook_error"
+                | "compact_boundary" | "" => None,
                 _ => Some(format!("{DIM}· session {subtype}{RESET}")),
             }
         }

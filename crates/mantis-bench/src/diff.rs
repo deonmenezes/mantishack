@@ -23,7 +23,10 @@ pub struct DiffRow {
 
 impl DiffRow {
     pub fn label(&self) -> &'static str {
-        match (self.baseline_status.as_deref(), self.candidate_status.as_deref()) {
+        match (
+            self.baseline_status.as_deref(),
+            self.candidate_status.as_deref(),
+        ) {
             (None, Some(_)) => "added",
             (Some(_), None) => "removed",
             (Some(a), Some(b)) if a == b => "unchanged",
@@ -62,10 +65,7 @@ impl RunDiff {
         ));
 
         if !self.improved.is_empty() {
-            s.push_str(&format!(
-                "## Improvements ({})\n\n",
-                self.improved.len()
-            ));
+            s.push_str(&format!("## Improvements ({})\n\n", self.improved.len()));
             s.push_str("| benchmark | before | after |\n|---|---|---|\n");
             for r in &self.improved {
                 s.push_str(&format!(
@@ -79,10 +79,7 @@ impl RunDiff {
         }
 
         if !self.regressed.is_empty() {
-            s.push_str(&format!(
-                "## Regressions ({}) ⚠️\n\n",
-                self.regressed.len()
-            ));
+            s.push_str(&format!("## Regressions ({}) ⚠️\n\n", self.regressed.len()));
             s.push_str("| benchmark | before | after |\n|---|---|---|\n");
             for r in &self.regressed {
                 s.push_str(&format!(
@@ -103,8 +100,10 @@ impl RunDiff {
 pub fn diff_runs(baseline: &[BenchmarkResult], candidate: &[BenchmarkResult]) -> RunDiff {
     let base_by_id: HashMap<&str, &BenchmarkResult> =
         baseline.iter().map(|r| (r.benchmark.as_str(), r)).collect();
-    let cand_by_id: HashMap<&str, &BenchmarkResult> =
-        candidate.iter().map(|r| (r.benchmark.as_str(), r)).collect();
+    let cand_by_id: HashMap<&str, &BenchmarkResult> = candidate
+        .iter()
+        .map(|r| (r.benchmark.as_str(), r))
+        .collect();
 
     let mut all_ids: Vec<&str> = base_by_id
         .keys()
@@ -125,10 +124,7 @@ pub fn diff_runs(baseline: &[BenchmarkResult], candidate: &[BenchmarkResult]) ->
             benchmark: id.to_string(),
             baseline_status: b.map(|r| r.status.clone()),
             candidate_status: c.map(|r| r.status.clone()),
-            direction: classify_direction(
-                b.map(|r| r.status_enum()),
-                c.map(|r| r.status_enum()),
-            ),
+            direction: classify_direction(b.map(|r| r.status_enum()), c.map(|r| r.status_enum())),
         };
         if row.direction > 0 {
             improved.push(row);

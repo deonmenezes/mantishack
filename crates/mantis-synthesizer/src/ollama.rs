@@ -178,9 +178,7 @@ impl LlmAdapter for OllamaAdapter {
                     let parsed: GenerateResponse = serde_json::from_str(&text)
                         .map_err(|e| SynthError::Backend(format!("ollama parse: {e}")))?;
                     if parsed.response.is_empty() {
-                        return Err(SynthError::Backend(
-                            "ollama returned empty response".into(),
-                        ));
+                        return Err(SynthError::Backend("ollama returned empty response".into()));
                     }
                     return Ok(parsed.response);
                 }
@@ -212,9 +210,7 @@ impl LlmAdapter for OllamaAdapter {
             let body_bytes = match serde_json::to_vec(&body) {
                 Ok(b) => b,
                 Err(e) => {
-                    return vec![Err(SynthError::Backend(format!(
-                        "ollama serialize: {e}"
-                    )))];
+                    return vec![Err(SynthError::Backend(format!("ollama serialize: {e}")))];
                 }
             };
             let resp = match client
@@ -226,24 +222,18 @@ impl LlmAdapter for OllamaAdapter {
             {
                 Ok(r) => r,
                 Err(e) => {
-                    return vec![Err(SynthError::Backend(format!(
-                        "ollama request: {e}"
-                    )))];
+                    return vec![Err(SynthError::Backend(format!("ollama request: {e}")))];
                 }
             };
             let status = resp.status().as_u16();
             if !(200..300).contains(&status) {
                 let text = resp.text().await.unwrap_or_default();
-                return vec![Err(SynthError::Backend(format!(
-                    "ollama {status}: {text}"
-                )))];
+                return vec![Err(SynthError::Backend(format!("ollama {status}: {text}")))];
             }
             let body = match resp.bytes().await {
                 Ok(b) => b,
                 Err(e) => {
-                    return vec![Err(SynthError::Backend(format!(
-                        "ollama body: {e}"
-                    )))];
+                    return vec![Err(SynthError::Backend(format!("ollama body: {e}")))];
                 }
             };
             parse_ndjson_stream(&body)

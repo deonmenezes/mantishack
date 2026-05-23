@@ -682,9 +682,7 @@ mod tests {
 
     #[test]
     fn chat_event_serialises_with_tag() {
-        let ev = ChatEvent::Text {
-            delta: "hi".into(),
-        };
+        let ev = ChatEvent::Text { delta: "hi".into() };
         let j = serde_json::to_string(&ev).unwrap();
         assert!(j.contains("\"type\":\"text\""));
         assert!(j.contains("\"delta\":\"hi\""));

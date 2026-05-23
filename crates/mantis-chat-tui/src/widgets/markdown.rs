@@ -300,10 +300,8 @@ impl Renderer {
             if let Some(marker) = self.pending_marker.take() {
                 self.buffer.push(marker);
             } else if self.in_block_quote > 0 {
-                self.buffer.push(Span::styled(
-                    "│ ",
-                    Style::default().fg(Color::Cyan),
-                ));
+                self.buffer
+                    .push(Span::styled("│ ", Style::default().fg(Color::Cyan)));
             }
         }
         self.buffer.push(span);
@@ -355,7 +353,10 @@ impl Renderer {
                 if text.is_empty() {
                     continue;
                 }
-                spans.push(Span::styled(text.to_string(), syntect_style_to_ratatui(style)));
+                spans.push(Span::styled(
+                    text.to_string(),
+                    syntect_style_to_ratatui(style),
+                ));
             }
             self.lines.push(Line::from(spans));
         }
@@ -407,10 +408,7 @@ mod tests {
             .find(|s| s.content.contains("Title"))
             .expect("Title span present");
         assert_eq!(title_span.style.fg, Some(Color::Cyan));
-        assert!(title_span
-            .style
-            .add_modifier
-            .contains(Modifier::BOLD));
+        assert!(title_span.style.add_modifier.contains(Modifier::BOLD));
     }
 
     #[test]
@@ -421,7 +419,11 @@ mod tests {
             .map(line_text)
             .filter(|t| t.contains('•'))
             .collect();
-        assert_eq!(item_lines.len(), 2, "expected two bullet lines: {item_lines:?}");
+        assert_eq!(
+            item_lines.len(),
+            2,
+            "expected two bullet lines: {item_lines:?}"
+        );
         for text in &item_lines {
             assert!(
                 text.starts_with("  • "),
@@ -524,7 +526,11 @@ mod tests {
             })
             .map(|(i, _)| i)
             .collect();
-        assert_eq!(positions.len(), 2, "expected two paragraph lines: {lines:?}");
+        assert_eq!(
+            positions.len(),
+            2,
+            "expected two paragraph lines: {lines:?}"
+        );
         let between = &lines[positions[0] + 1..positions[1]];
         assert!(
             between.iter().any(|l| l.spans.is_empty()),

@@ -1733,7 +1733,7 @@ impl MantisMcpServer {
         let info = engagement_status(&self.daemon_endpoint, &args.engagement_id).await?;
         let jsonl = export_events(&self.daemon_endpoint, &args.engagement_id).await?;
         let event_count = jsonl.lines().count();
-        let state = info.state.clone();
+        let state = info.state;
         json_ok(
             &json!({"engagement_id": args.engagement_id, "summary": info, "event_count": event_count, "state": state}),
         )
@@ -2968,18 +2968,18 @@ impl MantisMcpServer {
         &self,
         Parameters(args): Parameters<ReconBurstArgs>,
     ) -> Result<CallToolResult, McpError> {
-        use mantis_recon_pipeline::{
-            run_pipeline, PipelineDepth, PipelineOptions,
-        };
+        use mantis_recon_pipeline::{run_pipeline, PipelineDepth, PipelineOptions};
         let depth = match args.depth.to_ascii_lowercase().as_str() {
             "deep" | "full" => PipelineDepth::Deep,
             _ => PipelineDepth::Quick,
         };
-        let mut opts = PipelineOptions::default();
-        opts.depth = depth;
-        opts.filesystem_root = args.filesystem_root.map(std::path::PathBuf::from);
-        opts.scope_hash = args.scope_hash;
-        opts.cache_ttl = std::time::Duration::from_secs(args.cache_ttl_secs);
+        let opts = PipelineOptions {
+            depth,
+            filesystem_root: args.filesystem_root.map(std::path::PathBuf::from),
+            scope_hash: args.scope_hash,
+            cache_ttl: std::time::Duration::from_secs(args.cache_ttl_secs),
+            ..Default::default()
+        };
 
         let bundle = run_pipeline(&args.target, opts)
             .await
@@ -3264,6 +3264,10 @@ pub fn render_markdown(
 /// `## Evidence packs`, and / or `## Grade verdict` section so the
 /// final artifact is the proof itself — not just a list of finding
 /// titles.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "renderer keeps report inputs explicit"
+)]
 pub fn render_markdown_with_evidence(
     info: &EngagementSummary,
     surfaces: &[Surface],

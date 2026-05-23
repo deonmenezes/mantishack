@@ -176,10 +176,7 @@ impl LlmAdapter for ClaudeCliAdapter {
 ///
 /// Empty leading/trailing lines are then trimmed.
 pub(crate) fn filter_claude_noise(raw: &str) -> String {
-    let kept: Vec<&str> = raw
-        .lines()
-        .filter(|line| !is_noise_line(line))
-        .collect();
+    let kept: Vec<&str> = raw.lines().filter(|line| !is_noise_line(line)).collect();
     // Re-join, then trim the boundary whitespace so callers don't
     // see leading/trailing blanks left behind by the filter.
     kept.join("\n").trim().to_string()

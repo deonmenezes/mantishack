@@ -17,9 +17,7 @@ use std::sync::Arc;
 use futures::StreamExt;
 use tracing::warn;
 
-use mantis_synthesizer::{
-    ChatEvent, ChatMessage, ChatRole, LlmAdapter, SynthError, ToolCall,
-};
+use mantis_synthesizer::{ChatEvent, ChatMessage, ChatRole, LlmAdapter, SynthError, ToolCall};
 
 use crate::history::HistoryFile;
 use crate::tools::{ChatToolRegistry, NoTools};
@@ -380,8 +378,7 @@ mod tests {
     #[test]
     fn augment_system_prompt_appends_to_existing_system() {
         let adapter = Arc::new(ScriptedAdapter::new(vec![vec![text("x"), done()]]));
-        let mut conv =
-            Conversation::new(adapter, "scripted").with_system("you are mantis");
+        let mut conv = Conversation::new(adapter, "scripted").with_system("you are mantis");
         conv.augment_system_prompt("\n\nadditional context");
         assert_eq!(conv.messages().len(), 1);
         assert_eq!(conv.messages()[0].role, ChatRole::System);

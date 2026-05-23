@@ -25,7 +25,7 @@ pub fn cache_key(target: &str, scope_hash: Option<&str>, depth_label: &str) -> S
     // Truncated 16-byte hex — collision-resistant enough for a
     // local cache where the input set is tiny.
     let h = hash.to_hex();
-    format!("{}", &h.as_str()[..32])
+    h.as_str()[..32].to_string()
 }
 
 /// Read a cached bundle, returning `Ok(Some(bundle))` if a valid
@@ -61,7 +61,11 @@ pub fn read_cached(
 /// Write a bundle to the cache. Best-effort — failures are logged
 /// but never propagated, since a missed write just means the next
 /// invocation reruns the pipeline.
-pub fn write_cached(cache_dir: &Path, key: &str, bundle: &ReconBundle) -> Result<(), PipelineError> {
+pub fn write_cached(
+    cache_dir: &Path,
+    key: &str,
+    bundle: &ReconBundle,
+) -> Result<(), PipelineError> {
     std::fs::create_dir_all(cache_dir)?;
     let path = cache_dir.join(format!("{key}.json"));
     let tmp = cache_dir.join(format!(".{key}.json.tmp"));

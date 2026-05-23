@@ -22,19 +22,14 @@ pub enum Severity {
 /// recon-grade `Informational` tier — the same noise filter
 /// hacker-bob applies through `reportable: true` plus the `info`
 /// disposition.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum SeverityFloor {
     Informational,
+    #[default]
     Low,
     Medium,
     High,
     Critical,
-}
-
-impl Default for SeverityFloor {
-    fn default() -> Self {
-        SeverityFloor::Low
-    }
 }
 
 impl SeverityFloor {

@@ -158,7 +158,10 @@ pub(crate) fn pick() -> Option<(Arc<dyn LlmAdapter>, PickedProvider)> {
         return Some((openai_compat(key, XAI_BASE), PickedProvider::XAi));
     }
     if let Some(key) = nonempty_env("OPENROUTER_API_KEY") {
-        return Some((openai_compat(key, OPENROUTER_BASE), PickedProvider::OpenRouter));
+        return Some((
+            openai_compat(key, OPENROUTER_BASE),
+            PickedProvider::OpenRouter,
+        ));
     }
     if let Some(key) = nonempty_env("DASHSCOPE_API_KEY") {
         return Some((openai_compat(key, QWEN_BASE), PickedProvider::Qwen));
@@ -205,10 +208,15 @@ fn force(id: &str) -> Option<(Arc<dyn LlmAdapter>, PickedProvider)> {
             .map(|k| (openai_compat(k, GROQ_BASE), PickedProvider::Groq)),
         "mistral" => nonempty_env("MISTRAL_API_KEY")
             .map(|k| (openai_compat(k, MISTRAL_BASE), PickedProvider::Mistral)),
-        "xai" | "grok" => nonempty_env("XAI_API_KEY")
-            .map(|k| (openai_compat(k, XAI_BASE), PickedProvider::XAi)),
-        "openrouter" => nonempty_env("OPENROUTER_API_KEY")
-            .map(|k| (openai_compat(k, OPENROUTER_BASE), PickedProvider::OpenRouter)),
+        "xai" | "grok" => {
+            nonempty_env("XAI_API_KEY").map(|k| (openai_compat(k, XAI_BASE), PickedProvider::XAi))
+        }
+        "openrouter" => nonempty_env("OPENROUTER_API_KEY").map(|k| {
+            (
+                openai_compat(k, OPENROUTER_BASE),
+                PickedProvider::OpenRouter,
+            )
+        }),
         "qwen" | "dashscope" => nonempty_env("DASHSCOPE_API_KEY")
             .map(|k| (openai_compat(k, QWEN_BASE), PickedProvider::Qwen)),
         "zhipu" | "glm" => nonempty_env("ZHIPU_API_KEY")
@@ -217,9 +225,7 @@ fn force(id: &str) -> Option<(Arc<dyn LlmAdapter>, PickedProvider)> {
             nonempty_env("AWS_BEDROCK_PROXY_URL"),
             nonempty_env("AWS_BEDROCK_API_KEY"),
         ) {
-            (Some(proxy), Some(key)) => {
-                Some((openai_compat(key, &proxy), PickedProvider::Bedrock))
-            }
+            (Some(proxy), Some(key)) => Some((openai_compat(key, &proxy), PickedProvider::Bedrock)),
             _ => {
                 eprintln!(
                     "[mantis] bedrock requires AWS_BEDROCK_PROXY_URL + AWS_BEDROCK_API_KEY \
@@ -298,6 +304,10 @@ const MAX_LLM_PATHS: usize = 50;
 
 /// Ask the LLM for high-signal API endpoint paths to add to the
 /// wordlist, based on the recon notes from Phase 1.
+#[expect(
+    dead_code,
+    reason = "reserved for LLM-augmented pipeline path discovery"
+)]
 pub(crate) async fn suggest_paths(
     adapter: &dyn LlmAdapter,
     target_url: &str,

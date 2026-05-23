@@ -64,7 +64,11 @@ pub struct Anomaly {
 }
 
 impl Anomaly {
-    pub fn new(kind: AnomalyKind, surface: impl Into<String>, rationale: impl Into<String>) -> Self {
+    pub fn new(
+        kind: AnomalyKind,
+        surface: impl Into<String>,
+        rationale: impl Into<String>,
+    ) -> Self {
         Self {
             kind,
             surface: surface.into(),
@@ -114,10 +118,7 @@ const ADMIN_PATH_FRAGMENTS: &[&str] = &[
 fn detect_admin_endpoints(surfaces: &[HttpSurface], out: &mut Vec<Anomaly>) {
     for s in surfaces {
         let url_lower = s.url.to_ascii_lowercase();
-        if let Some(frag) = ADMIN_PATH_FRAGMENTS
-            .iter()
-            .find(|p| url_lower.contains(*p))
-        {
+        if let Some(frag) = ADMIN_PATH_FRAGMENTS.iter().find(|p| url_lower.contains(*p)) {
             out.push(Anomaly::new(
                 AnomalyKind::AdminEndpoint,
                 &s.url,
@@ -267,7 +268,10 @@ fn detect_env_leak(findings: &[Finding], out: &mut Vec<Anomaly>) {
             out.push(Anomaly::new(
                 AnomalyKind::EnvLeak,
                 &f.target,
-                format!("Build/env signal in `{}` — possible prod/test mixup.", f.title),
+                format!(
+                    "Build/env signal in `{}` — possible prod/test mixup.",
+                    f.title
+                ),
             ));
         }
     }
@@ -313,7 +317,11 @@ fn detect_api_version_exposure(surfaces: &[HttpSurface], out: &mut Vec<Anomaly>)
                     format!(
                         "API version `v{n}` exposed in URL. Probe older versions \
                          (`/v{}/`...) — auth/scope often drifts across versions.",
-                        if n == "1" { "0".to_string() } else { (n.parse::<u8>().unwrap_or(2) - 1).to_string() }
+                        if n == "1" {
+                            "0".to_string()
+                        } else {
+                            (n.parse::<u8>().unwrap_or(2) - 1).to_string()
+                        }
                     ),
                 ));
             }
@@ -331,7 +339,10 @@ fn detect_secret_signals(findings: &[Finding], out: &mut Vec<Anomaly>) {
                     "Verified secret leaked at `{}` ({}). Live credential — \
                      rotate AND chain into auth-cross-test.",
                     f.target,
-                    f.meta.get("detector").cloned().unwrap_or_else(|| "?".into())
+                    f.meta
+                        .get("detector")
+                        .cloned()
+                        .unwrap_or_else(|| "?".into())
                 ),
             ));
         }
@@ -393,9 +404,12 @@ mod tests {
     #[test]
     fn admin_endpoint_rule_fires_on_obvious_paths() {
         let mut b = ReconBundle::new("x");
-        b.live_surfaces.push(surf("https://example.com/admin/login"));
-        b.live_surfaces.push(surf("https://api.example.com/v1/wp-admin"));
-        b.live_surfaces.push(surf("https://example.com/static/img.png"));
+        b.live_surfaces
+            .push(surf("https://example.com/admin/login"));
+        b.live_surfaces
+            .push(surf("https://api.example.com/v1/wp-admin"));
+        b.live_surfaces
+            .push(surf("https://example.com/static/img.png"));
         let anomalies = detect(&b);
         let admins: Vec<_> = anomalies
             .iter()
@@ -407,8 +421,10 @@ mod tests {
     #[test]
     fn idor_rule_fires_on_numeric_id_path() {
         let mut b = ReconBundle::new("x");
-        b.live_surfaces.push(surf("https://api.example.com/users/42/profile"));
-        b.live_surfaces.push(surf("https://api.example.com/orders/12345"));
+        b.live_surfaces
+            .push(surf("https://api.example.com/users/42/profile"));
+        b.live_surfaces
+            .push(surf("https://api.example.com/orders/12345"));
         let anomalies = detect(&b);
         assert!(anomalies
             .iter()
@@ -424,8 +440,10 @@ mod tests {
     #[test]
     fn idor_rule_does_not_fire_on_static_paths() {
         let mut b = ReconBundle::new("x");
-        b.live_surfaces.push(surf("https://example.com/static/main.css"));
-        b.live_surfaces.push(surf("https://example.com/assets/img.png"));
+        b.live_surfaces
+            .push(surf("https://example.com/static/main.css"));
+        b.live_surfaces
+            .push(surf("https://example.com/assets/img.png"));
         let anomalies = detect(&b);
         assert!(!anomalies
             .iter()
@@ -436,7 +454,8 @@ mod tests {
     fn config_exposure_rule_fires_on_dotenv() {
         let mut b = ReconBundle::new("x");
         b.live_surfaces.push(surf("https://example.com/.env"));
-        b.live_surfaces.push(surf("https://example.com/.git/config"));
+        b.live_surfaces
+            .push(surf("https://example.com/.git/config"));
         let anomalies = detect(&b);
         let configs: Vec<_> = anomalies
             .iter()
@@ -449,7 +468,8 @@ mod tests {
     fn debug_endpoint_rule_fires() {
         let mut b = ReconBundle::new("x");
         b.live_surfaces.push(surf("https://example.com/_status"));
-        b.live_surfaces.push(surf("https://example.com/actuator/health"));
+        b.live_surfaces
+            .push(surf("https://example.com/actuator/health"));
         let anomalies = detect(&b);
         let debugs: Vec<_> = anomalies
             .iter()
@@ -475,7 +495,8 @@ mod tests {
     #[test]
     fn api_version_rule_fires_and_suggests_lower_version() {
         let mut b = ReconBundle::new("x");
-        b.live_surfaces.push(surf("https://api.example.com/v2/users"));
+        b.live_surfaces
+            .push(surf("https://api.example.com/v2/users"));
         let anomalies = detect(&b);
         let ver: Vec<_> = anomalies
             .iter()
@@ -488,7 +509,8 @@ mod tests {
     #[test]
     fn git_exposure_rule_fires_when_status_200() {
         let mut b = ReconBundle::new("x");
-        b.live_surfaces.push(surf("https://example.com/.git/config"));
+        b.live_surfaces
+            .push(surf("https://example.com/.git/config"));
         let anomalies = detect(&b);
         assert!(anomalies
             .iter()
@@ -500,9 +522,14 @@ mod tests {
         // ExposedConfig + PublicGitData both fire on /.git/config but
         // they're different kinds, so both should appear.
         let mut b = ReconBundle::new("x");
-        b.live_surfaces.push(surf("https://example.com/.git/config"));
+        b.live_surfaces
+            .push(surf("https://example.com/.git/config"));
         let anomalies = detect(&b);
-        assert!(anomalies.iter().any(|a| a.kind == AnomalyKind::ExposedConfig));
-        assert!(anomalies.iter().any(|a| a.kind == AnomalyKind::PublicGitData));
+        assert!(anomalies
+            .iter()
+            .any(|a| a.kind == AnomalyKind::ExposedConfig));
+        assert!(anomalies
+            .iter()
+            .any(|a| a.kind == AnomalyKind::PublicGitData));
     }
 }

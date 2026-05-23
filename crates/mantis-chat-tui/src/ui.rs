@@ -55,7 +55,10 @@ pub fn render(frame: &mut Frame<'_>, vm: &ViewModel<'_>) {
 
 fn render_status_bar(frame: &mut Frame<'_>, area: Rect, vm: &ViewModel<'_>) {
     let mut spans = vec![
-        Span::styled(" mantis ", Style::default().fg(Color::Black).bg(Color::Cyan)),
+        Span::styled(
+            " mantis ",
+            Style::default().fg(Color::Black).bg(Color::Cyan),
+        ),
         Span::raw(" "),
         Span::styled(vm.provider, Style::default().fg(Color::Cyan)),
         Span::raw("/"),
@@ -91,14 +94,21 @@ fn render_message_log(frame: &mut Frame<'_>, area: Rect, vm: &ViewModel<'_>) {
         match entry {
             LogEntry::User(text) => {
                 lines.push(Line::from(vec![
-                    Span::styled("you ❯ ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        "you ❯ ",
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ),
                     Span::raw(text.clone()),
                 ]));
             }
             LogEntry::Assistant(text) => {
                 lines.push(Line::from(Span::styled(
                     "mantis ❯ ",
-                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
                 )));
                 for md_line in crate::widgets::markdown::render(text) {
                     let mut spans: Vec<Span<'static>> = Vec::with_capacity(md_line.spans.len() + 1);
@@ -135,9 +145,9 @@ fn render_message_log(frame: &mut Frame<'_>, area: Rect, vm: &ViewModel<'_>) {
         }
     }
 
-    let block = Block::default().borders(Borders::TOP).border_style(
-        Style::default().add_modifier(Modifier::DIM),
-    );
+    let block = Block::default()
+        .borders(Borders::TOP)
+        .border_style(Style::default().add_modifier(Modifier::DIM));
 
     // Auto-scroll: show the tail by computing how many lines fit and
     // skipping the prefix. Wraps complicate exact line accounting; we
@@ -327,7 +337,10 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        assert!(dump.contains("hello"), "rendered buffer missing user text: {dump}");
+        assert!(
+            dump.contains("hello"),
+            "rendered buffer missing user text: {dump}"
+        );
         assert!(dump.contains("hi there"));
         assert!(dump.contains("anthropic"));
     }
