@@ -37,5 +37,5 @@ pub mod result;
 pub mod scoreboard;
 
 pub use diff::{diff_runs, RunDiff};
-pub use result::{load_results, BenchmarkResult, Status};
+pub use result::{load_results, suggested_rerun_timeout_sec, BenchmarkResult, Status};
 pub use scoreboard::{Scoreboard, TagStats};

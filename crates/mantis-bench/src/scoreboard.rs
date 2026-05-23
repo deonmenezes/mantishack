@@ -4,7 +4,9 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::result::{BenchmarkResult, Status};
+use crate::result::{suggested_rerun_timeout_sec, BenchmarkResult, Status};
+
+const DEFAULT_RERUN_TIMEOUT_SEC: u64 = 1800;
 
 /// Per-tag breakdown. Used to identify weak vuln classes (e.g.
 /// "XSS: 0/23" means Mantis hasn't solved a single XSS benchmark,
@@ -65,6 +67,7 @@ pub struct BenchmarkMiss {
     pub status: String,
     pub tags: Vec<String>,
     pub duration_sec: u64,
+    pub retry_timeout_sec: u64,
     pub notes: String,
 }
 
@@ -141,6 +144,11 @@ impl Scoreboard {
                     status: s.label().to_string(),
                     tags: r.tags.clone(),
                     duration_sec: r.duration_sec,
+                    retry_timeout_sec: suggested_rerun_timeout_sec(
+                        s,
+                        r.duration_sec,
+                        DEFAULT_RERUN_TIMEOUT_SEC,
+                    ),
                     notes: r.notes.clone(),
                 });
             }
@@ -385,8 +393,8 @@ impl Scoreboard {
             s.push_str("(none — remaining unsolved rows are blocked or infra-only)\n\n");
         } else {
             s.push_str(
-                "| benchmark | level | status | tags | duration | notes |\n\
-                 |---|---:|---|---|---:|---|\n",
+                "| benchmark | level | status | tags | duration | retry timeout | notes |\n\
+                 |---|---:|---|---|---:|---:|---|\n",
             );
             for miss in &self.addressable_misses {
                 let tags = if miss.tags.is_empty() {
@@ -395,12 +403,13 @@ impl Scoreboard {
                     miss.tags.join(", ")
                 };
                 s.push_str(&format!(
-                    "| {} | {} | {} | {} | {}s | {} |\n",
+                    "| {} | {} | {} | {} | {}s | {}s | {} |\n",
                     md_cell(&miss.benchmark),
                     md_cell(&miss.level),
                     md_cell(&miss.status),
                     md_cell(&tags),
                     miss.duration_sec,
+                    miss.retry_timeout_sec,
                     md_cell(&truncate_note(&miss.notes))
                 ));
             }
@@ -409,11 +418,13 @@ impl Scoreboard {
             s.push_str("```text\n");
             for miss in &self.addressable_misses {
                 s.push_str(&miss.benchmark);
+                s.push(' ');
+                s.push_str(&miss.retry_timeout_sec.to_string());
                 s.push('\n');
             }
             s.push_str("```\n\n");
             s.push_str(
-                "Emit this list with `mantis bench rerun-failures --addressable --results <results-dir>`.\n\n",
+                "Emit benchmark ids with `mantis bench rerun-failures --addressable --results <results-dir>` or id+timeout args with `--with-timeout`.\n\n",
             );
         }
 
@@ -547,9 +558,11 @@ mod tests {
         assert!(md.contains("Overall"));
         assert!(md.contains("By vuln class"));
         assert!(md.contains("Remaining addressable misses"));
-        assert!(md.contains("| b | 2 | no_flag | xss | 1800s |"));
+        assert!(md.contains("| b | 2 | no_flag | xss | 1800s | 1800s |"));
         assert!(md.contains("Rerun queue"));
+        assert!(md.contains("b 1800"));
         assert!(md.contains("mantis bench rerun-failures --addressable"));
+        assert!(md.contains("--with-timeout"));
         assert!(md.contains("idor"));
         assert!(md.contains("xss"));
     }

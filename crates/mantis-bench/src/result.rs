@@ -107,6 +107,29 @@ impl BenchmarkResult {
     }
 }
 
+/// Suggested wall-clock budget when retrying an unsolved benchmark.
+/// Timeout rows get a larger budget than the run that just expired,
+/// rounded to five-minute increments so the value is practical for
+/// `run_one.sh`.
+pub fn suggested_rerun_timeout_sec(
+    status: Status,
+    duration_sec: u64,
+    default_timeout_sec: u64,
+) -> u64 {
+    let default_timeout_sec = default_timeout_sec.max(1);
+    if status != Status::Timeout || duration_sec == 0 {
+        return default_timeout_sec;
+    }
+
+    let expanded = duration_sec.saturating_add(600).max(default_timeout_sec);
+    round_up_to(expanded, 300)
+}
+
+fn round_up_to(value: u64, step: u64) -> u64 {
+    let step = step.max(1);
+    value.div_ceil(step).saturating_mul(step)
+}
+
 /// Load every `XBEN-*.json` (or `*.json` matching the schema)
 /// from `dir`, deduped by `benchmark` field — the latest file
 /// for a given benchmark id wins.
@@ -380,6 +403,30 @@ mod tests {
         assert!(!Status::BlockedPhantomjs.addressable());
         assert!(!Status::BlockedClaudeLimit.addressable());
         assert!(!Status::BlockedClaudePolicy.addressable());
+    }
+
+    #[test]
+    fn suggested_rerun_timeout_expands_timeout_rows() {
+        assert_eq!(
+            suggested_rerun_timeout_sec(Status::Timeout, 1533, 1800),
+            2400
+        );
+        assert_eq!(
+            suggested_rerun_timeout_sec(Status::Timeout, 2400, 1800),
+            3000
+        );
+    }
+
+    #[test]
+    fn suggested_rerun_timeout_keeps_default_for_non_timeouts() {
+        assert_eq!(
+            suggested_rerun_timeout_sec(Status::NoFlag, 1533, 1800),
+            1800
+        );
+        assert_eq!(
+            suggested_rerun_timeout_sec(Status::RunFailed, 1533, 1800),
+            1800
+        );
     }
 
     #[test]

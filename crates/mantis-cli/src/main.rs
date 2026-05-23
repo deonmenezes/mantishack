@@ -730,14 +730,14 @@ enum BenchAction {
     /// By default this emits `no_flag` rows only. Use
     /// `--addressable` to emit every unsolved addressable miss
     /// (`no_flag` plus `timeout`). Output is one benchmark id per
-    /// line on stdout — pipe to `run_one.sh` or `xargs` to re-
-    /// attempt them with the latest Mantis build.
+    /// line by default; use `--with-timeout` to emit
+    /// `<benchmark> <seconds>` pairs for `xargs -n 2`.
     ///
     /// Example:
     ///   mantis bench rerun-failures \
     ///     --results /Users/deonmenezes/mantishack/reports/xbow-benchmarks/results \
-    ///     --tags xss,command_injection \
-    ///     | xargs -I {} /Users/deonmenezes/mantishack/reports/xbow-benchmarks/run_one.sh {} 1800
+    ///     --addressable --with-timeout \
+    ///     | xargs -n 2 /Users/deonmenezes/mantishack/reports/xbow-benchmarks/run_one.sh
     RerunFailures {
         #[arg(long)]
         results: Utf8PathBuf,
@@ -765,6 +765,13 @@ enum BenchAction {
         /// `no_target_port`. Useful after fixing harness setup.
         #[arg(long)]
         include_run_failures: bool,
+        /// Emit `<benchmark> <timeout-sec>` pairs instead of only
+        /// benchmark ids. Timeout rows get an expanded budget.
+        #[arg(long)]
+        with_timeout: bool,
+        /// Base retry timeout for `--with-timeout` output.
+        #[arg(long, default_value_t = 1800)]
+        timeout_sec: u64,
     },
 }
 
@@ -6168,6 +6175,8 @@ struct RerunFilterOptions {
     addressable: bool,
     include_blocked: bool,
     include_run_failures: bool,
+    with_timeout: bool,
+    timeout_sec: u64,
 }
 
 fn rerun_status_matches(status: mantis_bench::result::Status, options: RerunFilterOptions) -> bool {
@@ -6255,6 +6264,8 @@ fn handle_bench(action: BenchAction) -> Result<()> {
             addressable,
             include_blocked,
             include_run_failures,
+            with_timeout,
+            timeout_sec,
         } => {
             let rows = load_results(results.as_std_path())
                 .with_context(|| format!("read results dir {results}"))?;
@@ -6263,6 +6274,8 @@ fn handle_bench(action: BenchAction) -> Result<()> {
                 addressable,
                 include_blocked,
                 include_run_failures,
+                with_timeout,
+                timeout_sec,
             };
             let tag_filter: std::collections::BTreeSet<String> =
                 tags.iter().map(|t| t.to_ascii_lowercase()).collect();
@@ -6279,11 +6292,20 @@ fn handle_bench(action: BenchAction) -> Result<()> {
                         continue;
                     }
                 }
-                println!("{}", r.benchmark);
+                if options.with_timeout {
+                    let timeout_sec = mantis_bench::suggested_rerun_timeout_sec(
+                        s,
+                        r.duration_sec,
+                        options.timeout_sec,
+                    );
+                    println!("{} {}", r.benchmark, timeout_sec);
+                } else {
+                    println!("{}", r.benchmark);
+                }
                 emitted += 1;
             }
             eprintln!(
-                "{DIM}rerun list: {emitted} benchmark(s) (status={}{}) — pipe to run_one.sh{RESET}",
+                "{DIM}rerun list: {emitted} benchmark(s) (status={}{}; output={}) — pipe to run_one.sh{RESET}",
                 rerun_status_filter_label(options),
                 if tag_filter.is_empty() {
                     String::new()
@@ -6292,6 +6314,11 @@ fn handle_bench(action: BenchAction) -> Result<()> {
                         ", tags={}",
                         tag_filter.iter().cloned().collect::<Vec<_>>().join(",")
                     )
+                },
+                if options.with_timeout {
+                    "benchmark timeout-sec"
+                } else {
+                    "benchmark"
                 }
             );
             Ok(())
@@ -6736,6 +6763,25 @@ mod tests {
         assert_eq!(
             rerun_status_filter_label(options),
             "no_flag,run_failed,no_target_port"
+        );
+    }
+
+    #[test]
+    fn rerun_timeout_pairs_expand_timeout_rows() {
+        use mantis_bench::result::Status;
+
+        let options = RerunFilterOptions {
+            with_timeout: true,
+            timeout_sec: 1800,
+            ..RerunFilterOptions::default()
+        };
+        assert_eq!(
+            mantis_bench::suggested_rerun_timeout_sec(Status::Timeout, 1533, options.timeout_sec),
+            2400
+        );
+        assert_eq!(
+            mantis_bench::suggested_rerun_timeout_sec(Status::NoFlag, 1533, options.timeout_sec),
+            1800
         );
     }
 }
