@@ -7,6 +7,7 @@
 
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::OnceLock;
 
 use camino::Utf8PathBuf;
 use mantis_core::{EngagementId, Signer};
@@ -326,6 +327,24 @@ fn run_verifier(proof_path: &std::path::Path, public_hex: &str) -> std::process:
 }
 
 fn find_verifier_binary() -> PathBuf {
+    static VERIFY_BINARY: OnceLock<PathBuf> = OnceLock::new();
+    VERIFY_BINARY
+        .get_or_init(|| {
+            let path = verifier_binary_path();
+            if !path.is_file() {
+                let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+                let status = Command::new(cargo)
+                    .args(["build", "-p", "mantis-verify"])
+                    .status()
+                    .expect("build mantis-verify binary");
+                assert!(status.success(), "failed to build mantis-verify binary");
+            }
+            path
+        })
+        .clone()
+}
+
+fn verifier_binary_path() -> PathBuf {
     // The test binary lives at target/<profile>/deps/<test-name>-HASH. The
     // mantis-verify binary lives at target/<profile>/mantis-verify.
     let mut path = std::env::current_exe().expect("current_exe");

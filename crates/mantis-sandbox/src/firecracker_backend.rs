@@ -24,6 +24,7 @@ use std::path::{Path, PathBuf};
 use crate::{ExecutionInput, ExecutionOutput, SandboxBudget, SandboxError, SandboxRuntime};
 use async_trait::async_trait;
 
+#[cfg(unix)]
 pub mod api;
 
 /// Default firecracker binary search path. Operators override via
@@ -87,6 +88,7 @@ impl FirecrackerBackend {
         std::fs::metadata("/dev/kvm").is_ok()
     }
 
+    #[cfg(unix)]
     async fn stage_inputs(
         &self,
         module_bytes: &[u8],
@@ -112,6 +114,7 @@ impl FirecrackerBackend {
     }
 }
 
+#[cfg(unix)]
 async fn wait_for_socket(path: &Path, timeout: std::time::Duration) -> Result<(), SandboxError> {
     let deadline = std::time::Instant::now() + timeout;
     while std::time::Instant::now() < deadline {
@@ -138,60 +141,72 @@ impl SandboxRuntime for FirecrackerBackend {
         input: &ExecutionInput,
         budget: &SandboxBudget,
     ) -> Result<ExecutionOutput, SandboxError> {
-        if !Self::host_supports_microvm() {
-            return Err(SandboxError::Backend(
+        #[cfg(not(unix))]
+        {
+            let _ = (module_bytes, input, budget);
+            Err(SandboxError::Backend(
                 "host not Linux/KVM: firecracker microVM backend unavailable; fall back to wasmtime"
                     .into(),
-            ));
+            ))
         }
-        let kernel = self.kernel.as_ref().ok_or_else(|| {
-            SandboxError::Backend(
-                "firecracker backend requires a configured guest kernel (set via with_kernel)"
-                    .into(),
+
+        #[cfg(unix)]
+        {
+            if !Self::host_supports_microvm() {
+                return Err(SandboxError::Backend(
+                    "host not Linux/KVM: firecracker microVM backend unavailable; fall back to wasmtime"
+                        .into(),
+                ));
+            }
+            let kernel = self.kernel.as_ref().ok_or_else(|| {
+                SandboxError::Backend(
+                    "firecracker backend requires a configured guest kernel (set via with_kernel)"
+                        .into(),
+                )
+            })?;
+            // 1. Stage module bytes + input as a deterministic side
+            //    file the guest agent reads on boot.
+            let workdir = self.stage_inputs(module_bytes, input).await?;
+            // 2. Build a per-call API socket path.
+            let socket = workdir.join("api.sock");
+            // 3. Spawn firecracker with the socket.
+            let mut child = tokio::process::Command::new(&self.binary)
+                .args(["--api-sock", socket.to_string_lossy().as_ref()])
+                .kill_on_drop(true)
+                .spawn()
+                .map_err(|e| SandboxError::Backend(format!("firecracker spawn: {e}")))?;
+            // 4. Wait briefly for the socket to appear, then drive the API.
+            wait_for_socket(&socket, std::time::Duration::from_secs(5)).await?;
+            api::FirecrackerApi::new(socket.clone())
+                .configure(&api::VmConfig {
+                    kernel_image_path: kernel.kernel_path.to_string_lossy().into_owned(),
+                    rootfs_path: kernel.rootfs_path.to_string_lossy().into_owned(),
+                    vcpu_count: 1,
+                    mem_size_mib: (budget.max_memory_bytes / (1024 * 1024)) as u32,
+                    boot_args: "console=ttyS0 reboot=k panic=1 pci=off".into(),
+                })
+                .await?;
+            api::FirecrackerApi::new(socket).start_instance().await?;
+            // 5. Bound the boot+exec wall-clock with the budget.
+            let wait = tokio::time::timeout(
+                std::time::Duration::from_secs(budget.max_wall_clock_seconds as u64),
+                child.wait(),
             )
-        })?;
-        // 1. Stage module bytes + input as a deterministic side
-        //    file the guest agent reads on boot.
-        let workdir = self.stage_inputs(module_bytes, input).await?;
-        // 2. Build a per-call API socket path.
-        let socket = workdir.join("api.sock");
-        // 3. Spawn firecracker with the socket.
-        let mut child = tokio::process::Command::new(&self.binary)
-            .args(["--api-sock", socket.to_string_lossy().as_ref()])
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|e| SandboxError::Backend(format!("firecracker spawn: {e}")))?;
-        // 4. Wait briefly for the socket to appear, then drive the API.
-        wait_for_socket(&socket, std::time::Duration::from_secs(5)).await?;
-        api::FirecrackerApi::new(socket.clone())
-            .configure(&api::VmConfig {
-                kernel_image_path: kernel.kernel_path.to_string_lossy().into_owned(),
-                rootfs_path: kernel.rootfs_path.to_string_lossy().into_owned(),
-                vcpu_count: 1,
-                mem_size_mib: (budget.max_memory_bytes / (1024 * 1024)) as u32,
-                boot_args: "console=ttyS0 reboot=k panic=1 pci=off".into(),
-            })
-            .await?;
-        api::FirecrackerApi::new(socket).start_instance().await?;
-        // 5. Bound the boot+exec wall-clock with the budget.
-        let wait = tokio::time::timeout(
-            std::time::Duration::from_secs(budget.max_wall_clock_seconds as u64),
-            child.wait(),
-        )
-        .await;
-        let _ = child.start_kill();
-        match wait {
-            Ok(Ok(status)) if status.success() => Ok(ExecutionOutput {
-                bytes: vec![],
-                exit_code: 0,
-            }),
-            Ok(Ok(status)) => Err(SandboxError::Backend(format!(
-                "firecracker exited with {status}"
-            ))),
-            Ok(Err(e)) => Err(SandboxError::Backend(format!("firecracker wait: {e}"))),
-            Err(_) => Err(SandboxError::Timeout(std::time::Duration::from_secs(
-                budget.max_wall_clock_seconds as u64,
-            ))),
+            .await;
+            let _ = child.start_kill();
+            match wait {
+                Ok(Ok(status)) if status.success() => Ok(ExecutionOutput {
+                    bytes: vec![],
+                    exit_code: 0,
+                }),
+                Ok(Ok(status)) => Err(SandboxError::Backend(format!(
+                    "firecracker exited with {status}"
+                ))),
+                Ok(Err(e)) => Err(SandboxError::Backend(format!("firecracker wait: {e}"))),
+                Err(_) => Err(SandboxError::Timeout(std::time::Duration::from_secs(
+                    budget.max_wall_clock_seconds as u64,
+                ))),
+            }
         }
     }
 }
