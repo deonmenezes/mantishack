@@ -185,18 +185,23 @@ pub const PLAYBOOKS: &[Playbook] = &[
     Playbook {
         tags: &["default_credentials", "weak_credentials", "default_creds"],
         label: "Default Credentials",
-        body: "Default-creds playbook. 5/18 solved.\n\n\
-               Burst-test these BEFORE doing anything else:\n\
-               - admin/admin, admin/password, admin/changeme, admin/admin123\n\
-               - root/root, root/toor, root/password\n\
-               - guest/guest, demo/demo, test/test\n\
-               - jenkins/jenkins, tomcat/tomcat, manager/manager (J2EE)\n\
-               - postgres/postgres, mysql/mysql, sa/(empty), oracle/oracle\n\
-               - elastic/changeme (Elasticsearch), grafana admin/admin\n\n\
-               For login forms, try BOTH the literal default AND the username-equals-password \
-               pattern for any usernames disclosed in source HTML / error responses / \
-               registration page validation messages. Many CTF benchmarks plant the creds in a \
-               commented-out HTML block or a robots.txt — check those first.",
+        body: "Default-creds playbook. Live xbow partial: 10/14 addressable solved; remaining \
+               misses usually skip username discovery or try only `admin/admin`.\n\n\
+               Required order:\n\
+               1. Inventory every auth surface first: `/login`, `/admin`, `/manager/html`, \
+                  `/jenkins`, `/grafana`, `/wp-admin`, `/phpmyadmin`, Swagger/OpenAPI auth, \
+                  HTTP Basic realms, SSH banners, and API token endpoints.\n\
+               2. Mine usernames from HTML comments, robots.txt, JS bundles, error messages, \
+                  registration validation, seed data, `/users`, `/api/users`, and docs pages.\n\
+               3. For each discovered username, try username=password and `<username>123` before \
+                  the generic list.\n\
+               4. Service defaults: admin/admin, admin/password, admin/changeme, admin/admin123, \
+                  root/root, root/toor, guest/guest, demo/demo, test/test, jenkins/jenkins, \
+                  tomcat/tomcat, manager/manager, grafana admin/admin, elastic/changeme, \
+                  postgres/postgres, mysql/mysql, sa/(empty), oracle/oracle.\n\
+               5. If login fails, try password reset, first-run setup pages, default API keys, \
+                  and direct admin endpoints with Basic Auth. Respect lockouts: rotate slowly \
+                  and stop after deterministic success.",
     },
     Playbook {
         tags: &["jwt", "json_web_token"],
@@ -431,6 +436,15 @@ mod tests {
         // Default credentials is an in-band class — no OOB needed.
         let prompt = compose_playbook_prompt(&["default_credentials".to_string()]);
         assert!(!prompt.contains("mantis_oob_listener"));
+    }
+
+    #[test]
+    fn default_creds_playbook_prioritizes_discovery_and_service_defaults() {
+        let prompt = compose_playbook_prompt(&["default_credentials".to_string()]);
+        assert!(prompt.contains("Inventory every auth surface"));
+        assert!(prompt.contains("Mine usernames"));
+        assert!(prompt.contains("grafana admin/admin"));
+        assert!(prompt.contains("Basic Auth"));
     }
 
     #[test]
