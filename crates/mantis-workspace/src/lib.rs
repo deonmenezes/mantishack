@@ -64,7 +64,7 @@ mod tests {
             "MANTIS_HOME" => Some("/tmp/mantis-probe".to_owned()),
             _ => None,
         });
-        assert_eq!(root.as_str(), "/tmp/mantis-probe");
+        assert_eq!(root, Utf8PathBuf::from("/tmp/mantis-probe"));
     }
 
     #[test]
@@ -73,12 +73,12 @@ mod tests {
             "HOME" => Some("/Users/test".to_owned()),
             _ => None,
         });
-        assert_eq!(root.as_str(), "/Users/test/.mantis");
+        assert_eq!(root, Utf8PathBuf::from("/Users/test").join(".mantis"));
     }
 
     #[test]
     fn falls_back_to_current_dir_when_home_absent() {
         let root = workspace_root_from_env(|_| None);
-        assert_eq!(root.as_str(), "./.mantis");
+        assert_eq!(root, Utf8PathBuf::from(".").join(".mantis"));
     }
 }
