@@ -301,6 +301,17 @@ enum Command {
         /// `default`.
         #[arg(long, default_value = "default")]
         egress: String,
+        /// Comma-separated vuln-class hints for non-interactive
+        /// benchmark runs. These arm matching focused playbooks at
+        /// prompt construction time; they are prioritization hints,
+        /// not proof. Can also be supplied with MANTIS_HINT_TAGS.
+        #[arg(
+            long = "hint-tags",
+            env = "MANTIS_HINT_TAGS",
+            value_delimiter = ',',
+            num_args = 1..
+        )]
+        hint_tags: Vec<String>,
         /// Daemon gRPC endpoint.
         #[arg(long, env = "MANTIS_DAEMON", default_value = DEFAULT_DAEMON_ENDPOINT)]
         daemon: String,
@@ -1082,6 +1093,7 @@ fn main() -> Result<()> {
             deep,
             no_auth,
             egress,
+            hint_tags,
             daemon,
             claude_bin,
             turbo,
@@ -1103,6 +1115,7 @@ fn main() -> Result<()> {
             deep,
             no_auth,
             egress,
+            hint_tags,
             daemon,
             claude_bin,
             turbo,
@@ -1774,6 +1787,47 @@ impl HackLegacyFlags {
     }
 }
 
+fn normalize_hack_hint_tags(raw: Vec<String>) -> Vec<String> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut out = Vec::new();
+    for value in raw {
+        for tag in value.split(|c: char| c == ',' || c == ';' || c.is_whitespace()) {
+            let tag = tag.trim();
+            if tag.is_empty() {
+                continue;
+            }
+            let tag = tag.to_ascii_lowercase();
+            if seen.insert(tag.clone()) {
+                out.push(tag);
+            }
+        }
+    }
+    out
+}
+
+fn hack_hint_playbook_block(tags: &[String]) -> (String, Vec<&'static str>) {
+    if tags.is_empty() {
+        return (String::new(), Vec::new());
+    }
+
+    let hits = mantis_chat::matching_playbooks(tags);
+    if hits.is_empty() {
+        return (String::new(), Vec::new());
+    }
+
+    let names: Vec<&'static str> = hits.iter().map(|pb| pb.label).collect();
+    let mut block = String::new();
+    block.push_str("\n\n=== HINTED VULN-CLASS PLAYBOOKS ===\n\n");
+    block.push_str(
+        "The operator supplied benchmark/corpus tags for this non-interactive run. \
+         Treat these tags as prioritization hints, not proof: RECON still must verify \
+         the live surface before exploitation, but the surface-router and hunters should \
+         prioritize routes and payload families matching these classes.\n",
+    );
+    block.push_str(&mantis_chat::compose_playbook_prompt(tags));
+    (block, names)
+}
+
 #[derive(Debug, Clone, Copy)]
 enum HackPreset {
     /// All-in: Opus 4.7 + deep recon + turbo + unlimited auto-resume.
@@ -1866,6 +1920,7 @@ async fn handle_preset(
         deep,
         /* no_auth */ false,
         /* egress */ "default".to_string(),
+        /* hint_tags */ Vec::new(),
         daemon,
         claude_bin,
         turbo,
@@ -1888,6 +1943,7 @@ async fn handle_hack(
     deep: bool,
     no_auth: bool,
     egress: String,
+    hint_tags: Vec<String>,
     daemon: String,
     claude_bin: Option<Utf8PathBuf>,
     turbo: bool,
@@ -1963,6 +2019,22 @@ async fn handle_hack(
     let target_url = normalize_target_url(&target);
     eprintln!("[mantishack] target: {target_url}");
     eprintln!("[mantishack] daemon: {daemon}");
+    let hint_tags = normalize_hack_hint_tags(hint_tags);
+    let (hint_playbook_block, hinted_playbooks) = hack_hint_playbook_block(&hint_tags);
+    if !hint_tags.is_empty() {
+        if hinted_playbooks.is_empty() {
+            eprintln!(
+                "[mantishack] hint tags: {} (no matching focused playbook)",
+                hint_tags.join(", ")
+            );
+        } else {
+            eprintln!(
+                "[mantishack] hint tags: {} (armed playbooks: {})",
+                hint_tags.join(", "),
+                hinted_playbooks.join(", ")
+            );
+        }
+    }
 
     // Run the three sync pre-flight checks concurrently. Each is
     // network or subprocess-bound, so doing them in parallel cuts
@@ -2083,7 +2155,7 @@ async fn handle_hack(
            and spawning the named role subagents (recon-agent, \
            surface-router-agent, hunter-agent, chain-builder, \
            brutalist-verifier, balanced-verifier, final-verifier, \
-           evidence-agent, grader, report-writer).{proof_loop_block}{guidance_block}\n\n\
+           evidence-agent, grader, report-writer).{proof_loop_block}{guidance_block}{hint_playbook_block}\n\n\
          === ORCHESTRATOR ROLE PROMPT ===\n\n\
          {orchestrator_body}",
     );
@@ -6703,6 +6775,35 @@ mod tests {
             }
             other => panic!("expected File, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn hack_hint_tags_split_normalize_and_dedupe() {
+        let tags = normalize_hack_hint_tags(vec![
+            "SSTI,default_credentials".to_string(),
+            "ssti; xss".to_string(),
+            "  ".to_string(),
+        ]);
+        assert_eq!(tags, vec!["ssti", "default_credentials", "xss"]);
+    }
+
+    #[test]
+    fn hack_hint_playbook_block_arms_matching_playbooks() {
+        let tags = normalize_hack_hint_tags(vec!["ssti,default_credentials".to_string()]);
+        let (block, names) = hack_hint_playbook_block(&tags);
+        assert_eq!(names, vec!["SSTI", "Default Credentials"]);
+        assert!(block.contains("HINTED VULN-CLASS PLAYBOOKS"));
+        assert!(block.contains("prioritization hints"));
+        assert!(block.contains("### SSTI"));
+        assert!(block.contains("### Default Credentials"));
+    }
+
+    #[test]
+    fn hack_hint_playbook_block_ignores_unknown_tags() {
+        let tags = normalize_hack_hint_tags(vec!["not_a_real_class".to_string()]);
+        let (block, names) = hack_hint_playbook_block(&tags);
+        assert!(block.is_empty());
+        assert!(names.is_empty());
     }
 
     #[test]

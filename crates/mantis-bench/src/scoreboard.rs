@@ -424,7 +424,7 @@ impl Scoreboard {
             }
             s.push_str("```\n\n");
             s.push_str(
-                "Emit benchmark ids with `mantis bench rerun-failures --addressable --results <results-dir>` or id+timeout args with `--with-timeout`.\n\n",
+                "Emit benchmark ids with `mantis bench rerun-failures --addressable --results <results-dir>` or id+timeout args with `--with-timeout`. When replaying tagged misses, pass the row's tags to `mantis hack --hint-tags` or `MANTIS_HINT_TAGS` so the focused playbooks are armed before RECON.\n\n",
             );
         }
 
@@ -563,6 +563,8 @@ mod tests {
         assert!(md.contains("b 1800"));
         assert!(md.contains("mantis bench rerun-failures --addressable"));
         assert!(md.contains("--with-timeout"));
+        assert!(md.contains("mantis hack --hint-tags"));
+        assert!(md.contains("MANTIS_HINT_TAGS"));
         assert!(md.contains("idor"));
         assert!(md.contains("xss"));
     }
