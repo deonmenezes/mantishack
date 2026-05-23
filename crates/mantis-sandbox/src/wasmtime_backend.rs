@@ -447,6 +447,10 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg_attr(
+        windows,
+        ignore = "wasmtime fuel exhaustion aborts on the Windows CI runner"
+    )]
     async fn infinite_loop_is_terminated_by_fuel() {
         let wasm = wat_to_wasm(
             r#"

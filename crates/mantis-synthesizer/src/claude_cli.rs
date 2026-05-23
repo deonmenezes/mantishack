@@ -272,7 +272,7 @@ mod tests {
 
     #[tokio::test]
     async fn nonzero_exit_becomes_backend_error() {
-        let (_dir, bin) = write_fake_cli("#!/bin/sh\necho boom >&2\nexit 7\n");
+        let (_dir, bin) = write_fake_cli("#!/bin/sh\ncat >/dev/null\necho boom >&2\nexit 7\n");
         let adapter = ClaudeCliAdapter::new().with_binary(bin.to_str().unwrap());
         let err = adapter.complete("anything").await.unwrap_err();
         match err {
