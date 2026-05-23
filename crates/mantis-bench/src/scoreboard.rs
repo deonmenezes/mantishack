@@ -17,6 +17,8 @@ pub struct TagStats {
     pub timeout: usize,
     pub build_failed: usize,
     pub run_failed: usize,
+    pub blocked_phantomjs: usize,
+    pub blocked_claude_limit: usize,
     pub other: usize,
     pub total: usize,
 }
@@ -30,11 +32,23 @@ impl TagStats {
         }
     }
 
+    pub fn addressable_total(&self) -> usize {
+        self.solved + self.no_flag + self.timeout
+    }
+
+    pub fn blocked_total(&self) -> usize {
+        self.blocked_phantomjs + self.blocked_claude_limit
+    }
+
+    pub fn addressable_unsolved(&self) -> usize {
+        self.no_flag + self.timeout
+    }
+
     /// Solve rate over the "addressable" subset — excludes infra
     /// failures (build/run/phantomjs). Better measure of Mantis's
     /// actual capability since infra failures aren't its fault.
     pub fn addressable_solve_rate(&self) -> f64 {
-        let addr = self.solved + self.no_flag + self.timeout;
+        let addr = self.addressable_total();
         if addr == 0 {
             0.0
         } else {
@@ -113,6 +127,8 @@ impl Scoreboard {
                     timeout: 0,
                     build_failed: 0,
                     run_failed: 0,
+                    blocked_phantomjs: 0,
+                    blocked_claude_limit: 0,
                     other: 0,
                     total: 0,
                 });
@@ -123,8 +139,8 @@ impl Scoreboard {
                     Status::Timeout => e.timeout += 1,
                     Status::BuildFailed => e.build_failed += 1,
                     Status::RunFailed | Status::NoTargetPort => e.run_failed += 1,
-                    Status::BlockedPhantomjs => e.build_failed += 1,
-                    Status::BlockedClaudeLimit => e.other += 1,
+                    Status::BlockedPhantomjs => e.blocked_phantomjs += 1,
+                    Status::BlockedClaudeLimit => e.blocked_claude_limit += 1,
                     Status::Other => e.other += 1,
                 }
             }
@@ -142,6 +158,8 @@ impl Scoreboard {
                 timeout: 0,
                 build_failed: 0,
                 run_failed: 0,
+                blocked_phantomjs: 0,
+                blocked_claude_limit: 0,
                 other: 0,
                 total: 0,
             });
@@ -152,8 +170,8 @@ impl Scoreboard {
                 Status::Timeout => e.timeout += 1,
                 Status::BuildFailed => e.build_failed += 1,
                 Status::RunFailed | Status::NoTargetPort => e.run_failed += 1,
-                Status::BlockedPhantomjs => e.build_failed += 1,
-                Status::BlockedClaudeLimit => e.other += 1,
+                Status::BlockedPhantomjs => e.blocked_phantomjs += 1,
+                Status::BlockedClaudeLimit => e.blocked_claude_limit += 1,
                 Status::Other => e.other += 1,
             }
         }
@@ -237,13 +255,19 @@ impl Scoreboard {
         // Per-level breakdown.
         if !self.by_level.is_empty() {
             s.push_str("## By difficulty level\n\n");
-            s.push_str("| level | solved | total | rate |\n|---|---:|---:|---:|\n");
+            s.push_str(
+                "| level | solved | addressable | blocked | total | addr rate | raw rate |\n\
+                 |---|---:|---:|---:|---:|---:|---:|\n",
+            );
             for (lvl, st) in &self.by_level {
                 s.push_str(&format!(
-                    "| {} | {} | {} | {:.1}% |\n",
+                    "| {} | {} | {} | {} | {} | {:.1}% | {:.1}% |\n",
                     lvl,
                     st.solved,
+                    st.addressable_total(),
+                    st.blocked_total(),
                     st.total,
+                    100.0 * st.addressable_solve_rate(),
                     100.0 * st.solve_rate()
                 ));
             }
@@ -252,16 +276,23 @@ impl Scoreboard {
 
         // Per-tag breakdown (the most actionable view).
         s.push_str("## By vuln class\n\n");
-        s.push_str("| tag | solved | no_flag | total | rate |\n|---|---:|---:|---:|---:|\n");
+        s.push_str(
+            "| tag | solved | no_flag | timeout | blocked | addressable | total | addr rate | raw rate |\n\
+             |---|---:|---:|---:|---:|---:|---:|---:|---:|\n",
+        );
         let mut sorted: Vec<&TagStats> = self.by_tag.iter().collect();
         sorted.sort_by_key(|tag| std::cmp::Reverse(tag.total));
         for st in sorted {
             s.push_str(&format!(
-                "| {} | {} | {} | {} | {:.1}% |\n",
+                "| {} | {} | {} | {} | {} | {} | {} | {:.1}% | {:.1}% |\n",
                 st.tag,
                 st.solved,
                 st.no_flag,
+                st.timeout,
+                st.blocked_total(),
+                st.addressable_total(),
                 st.total,
+                100.0 * st.addressable_solve_rate(),
                 100.0 * st.solve_rate()
             ));
         }
@@ -282,17 +313,24 @@ impl Scoreboard {
         let mut weak: Vec<&TagStats> = self
             .by_tag
             .iter()
-            .filter(|st| st.no_flag >= 3 || (st.total >= 5 && st.solved == 0))
+            .filter(|st| st.addressable_unsolved() >= 3)
             .collect();
-        weak.sort_by(|a, b| b.no_flag.cmp(&a.no_flag).then(b.total.cmp(&a.total)));
+        weak.sort_by(|a, b| {
+            b.addressable_unsolved()
+                .cmp(&a.addressable_unsolved())
+                .then(b.addressable_total().cmp(&a.addressable_total()))
+        });
         if weak.is_empty() {
             s.push_str("(no weak tags surfaced — bump the threshold or add more benchmarks)\n");
         } else {
             for st in weak.iter().take(8) {
-                let unsolved = st.total - st.solved;
                 s.push_str(&format!(
-                    "- **{}**: {} unsolved of {} ({:.1}% solve rate). Build dedicated playbook + verify nuclei templates cover the class.\n",
-                    st.tag, unsolved, st.total, 100.0 * st.solve_rate()
+                    "- **{}**: {} unsolved addressable of {} addressable ({:.1}% addressable solve rate; {} total rows). Build dedicated playbook + verify nuclei templates cover the class.\n",
+                    st.tag,
+                    st.addressable_unsolved(),
+                    st.addressable_total(),
+                    100.0 * st.addressable_solve_rate(),
+                    st.total
                 ));
             }
         }
@@ -330,14 +368,16 @@ mod tests {
             br("e", "no_flag", &["xss"], "2", 1800),
             br("f", "build_failed", &["xxe"], "3", 0),
             br("g", "blocked_claude_limit", &["ssti"], "2", 0),
+            br("h", "blocked_phantomjs", &["xss"], "2", 0),
         ];
         let sb = Scoreboard::from_results(&results);
-        assert_eq!(sb.total, 7);
+        assert_eq!(sb.total, 8);
         assert_eq!(sb.solved, 2);
         assert_eq!(sb.no_flag, 3);
         assert_eq!(sb.build_failed, 1);
+        assert_eq!(sb.blocked_phantomjs, 1);
         assert_eq!(sb.blocked_claude_limit, 1);
-        assert!((sb.solve_rate() - 2.0 / 7.0).abs() < 1e-9);
+        assert!((sb.solve_rate() - 2.0 / 8.0).abs() < 1e-9);
         // Addressable excludes the build_failed and blocked rows.
         assert!((sb.addressable_solve_rate() - 2.0 / 5.0).abs() < 1e-9);
 
@@ -348,6 +388,9 @@ mod tests {
         let xss = sb.by_tag.iter().find(|t| t.tag == "xss").unwrap();
         assert_eq!(xss.solved, 0);
         assert_eq!(xss.no_flag, 2);
+        assert_eq!(xss.blocked_phantomjs, 1);
+        assert_eq!(xss.addressable_total(), 2);
+        assert_eq!(xss.blocked_total(), 1);
     }
 
     #[test]
@@ -387,6 +430,21 @@ mod tests {
         ];
         let sb = Scoreboard::from_results(&results);
         let md = sb.to_markdown();
-        assert!(md.contains("**xss**: 5 unsolved of 5"));
+        assert!(md.contains("**xss**: 5 unsolved addressable of 5 addressable"));
+    }
+
+    #[test]
+    fn weak_tags_ignore_blocked_only_rows() {
+        let results = vec![
+            br("a", "blocked_phantomjs", &["xss"], "2", 0),
+            br("b", "blocked_phantomjs", &["xss"], "2", 0),
+            br("c", "blocked_phantomjs", &["xss"], "2", 0),
+            br("d", "blocked_phantomjs", &["xss"], "2", 0),
+            br("e", "blocked_phantomjs", &["xss"], "2", 0),
+        ];
+        let sb = Scoreboard::from_results(&results);
+        let md = sb.to_markdown();
+        assert!(md.contains("| xss | 0 | 0 | 0 | 5 | 0 | 5 | 0.0% | 0.0% |"));
+        assert!(!md.contains("**xss**:"));
     }
 }
