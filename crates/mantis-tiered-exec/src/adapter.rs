@@ -88,7 +88,7 @@ impl LlmCodegen for MockLlm {
 }
 
 /// Subprocess-backed sandbox. Reads the script's shebang to choose
-/// an interpreter; falls back to `bash -c`.
+/// an interpreter; falls back to `bash -s`.
 pub struct SubprocessSandbox;
 
 impl SandboxRunner for SubprocessSandbox {
@@ -113,18 +113,18 @@ async fn run_subprocess(
     use tokio::process::Command;
 
     // Pick interpreter from shebang.
-    let (interp, args): (&str, Vec<&str>) = if script.starts_with("#!/usr/bin/env python")
-        || script.starts_with("#!/usr/bin/python")
-    {
-        ("python3", vec![])
-    } else if script.starts_with("#!/usr/bin/env node") || script.starts_with("#!/usr/bin/node") {
-        ("node", vec![])
-    } else if script.starts_with("#!/bin/sh") || script.starts_with("#!/bin/bash") {
-        ("bash", vec![])
-    } else {
-        // Default: bash -s reads script from stdin.
-        ("bash", vec!["-s"])
-    };
+    let (interp, args): (std::path::PathBuf, Vec<&str>) =
+        if script.starts_with("#!/usr/bin/env python") || script.starts_with("#!/usr/bin/python") {
+            ("python3".into(), vec![])
+        } else if script.starts_with("#!/usr/bin/env node") || script.starts_with("#!/usr/bin/node")
+        {
+            ("node".into(), vec![])
+        } else if script.starts_with("#!/bin/sh") || script.starts_with("#!/bin/bash") {
+            (bash_interpreter(), vec![])
+        } else {
+            // Default: bash -s reads script from stdin.
+            (bash_interpreter(), vec!["-s"])
+        };
 
     let start = std::time::Instant::now();
     let mut cmd = Command::new(interp);
@@ -153,6 +153,24 @@ async fn run_subprocess(
         stderr: String::from_utf8_lossy(&output.stderr).to_string(),
         duration_ms: start.elapsed().as_millis() as u64,
     })
+}
+
+fn bash_interpreter() -> std::path::PathBuf {
+    #[cfg(windows)]
+    {
+        for path in [
+            r"C:\Program Files\Git\bin\bash.exe",
+            r"C:\Program Files\Git\usr\bin\bash.exe",
+            r"C:\Program Files (x86)\Git\bin\bash.exe",
+        ] {
+            let candidate = std::path::PathBuf::from(path);
+            if candidate.is_file() {
+                return candidate;
+            }
+        }
+    }
+
+    "bash".into()
 }
 
 #[cfg(test)]
