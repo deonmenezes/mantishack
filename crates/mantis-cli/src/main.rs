@@ -726,8 +726,10 @@ enum BenchAction {
         #[arg(long)]
         out: Option<Utf8PathBuf>,
     },
-    /// List the benchmarks currently in a `no_flag` state,
-    /// optionally filtered by tag. Output is one benchmark id per
+    /// List benchmarks worth re-running, optionally filtered by tag.
+    /// By default this emits `no_flag` rows only. Use
+    /// `--addressable` to emit every unsolved addressable miss
+    /// (`no_flag` plus `timeout`). Output is one benchmark id per
     /// line on stdout — pipe to `run_one.sh` or `xargs` to re-
     /// attempt them with the latest Mantis build.
     ///
@@ -749,10 +751,20 @@ enum BenchAction {
         /// real difficulty, not a Mantis bug).
         #[arg(long)]
         include_timeouts: bool,
-        /// Include retryable operational blockers such as
-        /// `blocked_claude_limit`. Useful after a provider quota reset.
+        /// Emit all unsolved addressable misses (`no_flag` and
+        /// `timeout`). This matches the scoreboard's remaining
+        /// addressable-miss table.
+        #[arg(long)]
+        addressable: bool,
+        /// Include provider blockers such as `blocked_claude_limit`
+        /// and `blocked_claude_policy`. Useful after changing quota,
+        /// model, or provider policy handling.
         #[arg(long)]
         include_blocked: bool,
+        /// Include runner/container failures such as `run_failed` and
+        /// `no_target_port`. Useful after fixing harness setup.
+        #[arg(long)]
+        include_run_failures: bool,
     },
 }
 
@@ -6150,6 +6162,44 @@ async fn handle_tui(
 // dispatched from `main` directly without `run_async`.
 // ---------------------------------------------------------------------------
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct RerunFilterOptions {
+    include_timeouts: bool,
+    addressable: bool,
+    include_blocked: bool,
+    include_run_failures: bool,
+}
+
+fn rerun_status_matches(status: mantis_bench::result::Status, options: RerunFilterOptions) -> bool {
+    use mantis_bench::result::Status;
+
+    matches!(status, Status::NoFlag)
+        || ((options.include_timeouts || options.addressable) && matches!(status, Status::Timeout))
+        || (options.include_blocked
+            && matches!(
+                status,
+                Status::BlockedClaudeLimit | Status::BlockedClaudePolicy
+            ))
+        || (options.include_run_failures
+            && matches!(status, Status::RunFailed | Status::NoTargetPort))
+}
+
+fn rerun_status_filter_label(options: RerunFilterOptions) -> String {
+    let mut labels = vec!["no_flag"];
+    if options.include_timeouts || options.addressable {
+        labels.push("timeout");
+    }
+    if options.include_blocked {
+        labels.push("blocked_claude_limit");
+        labels.push("blocked_claude_policy");
+    }
+    if options.include_run_failures {
+        labels.push("run_failed");
+        labels.push("no_target_port");
+    }
+    labels.join(",")
+}
+
 fn handle_bench(action: BenchAction) -> Result<()> {
     use mantis_bench::{diff_runs, load_results, Scoreboard};
 
@@ -6202,24 +6252,28 @@ fn handle_bench(action: BenchAction) -> Result<()> {
             results,
             tags,
             include_timeouts,
+            addressable,
             include_blocked,
+            include_run_failures,
         } => {
-            use mantis_bench::result::Status;
             let rows = load_results(results.as_std_path())
                 .with_context(|| format!("read results dir {results}"))?;
-            let tag_filter: std::collections::HashSet<String> =
+            let options = RerunFilterOptions {
+                include_timeouts,
+                addressable,
+                include_blocked,
+                include_run_failures,
+            };
+            let tag_filter: std::collections::BTreeSet<String> =
                 tags.iter().map(|t| t.to_ascii_lowercase()).collect();
             let mut emitted = 0usize;
             for r in &rows {
                 let s = r.status_enum();
-                let matches_status = matches!(s, Status::NoFlag)
-                    || (include_timeouts && matches!(s, Status::Timeout))
-                    || (include_blocked && matches!(s, Status::BlockedClaudeLimit));
-                if !matches_status {
+                if !rerun_status_matches(s, options) {
                     continue;
                 }
                 if !tag_filter.is_empty() {
-                    let row_tags: std::collections::HashSet<String> =
+                    let row_tags: std::collections::BTreeSet<String> =
                         r.tags.iter().map(|t| t.to_ascii_lowercase()).collect();
                     if row_tags.is_disjoint(&tag_filter) {
                         continue;
@@ -6229,13 +6283,8 @@ fn handle_bench(action: BenchAction) -> Result<()> {
                 emitted += 1;
             }
             eprintln!(
-                "{DIM}rerun list: {emitted} benchmark(s) (status=no_flag{}{}{}) — pipe to run_one.sh{RESET}",
-                if include_timeouts { ",timeout" } else { "" },
-                if include_blocked {
-                    ",blocked_claude_limit"
-                } else {
-                    ""
-                },
+                "{DIM}rerun list: {emitted} benchmark(s) (status={}{}) — pipe to run_one.sh{RESET}",
+                rerun_status_filter_label(options),
                 if tag_filter.is_empty() {
                     String::new()
                 } else {
@@ -6627,5 +6676,66 @@ mod tests {
             }
             other => panic!("expected File, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn rerun_filter_defaults_to_no_flag_only() {
+        use mantis_bench::result::Status;
+
+        let options = RerunFilterOptions::default();
+        assert!(rerun_status_matches(Status::NoFlag, options));
+        assert!(!rerun_status_matches(Status::Timeout, options));
+        assert!(!rerun_status_matches(Status::Solved, options));
+        assert!(!rerun_status_matches(Status::BlockedClaudeLimit, options));
+    }
+
+    #[test]
+    fn rerun_filter_addressable_includes_timeouts() {
+        use mantis_bench::result::Status;
+
+        let options = RerunFilterOptions {
+            addressable: true,
+            ..RerunFilterOptions::default()
+        };
+        assert!(rerun_status_matches(Status::NoFlag, options));
+        assert!(rerun_status_matches(Status::Timeout, options));
+        assert!(!rerun_status_matches(Status::Solved, options));
+        assert!(!rerun_status_matches(Status::BuildFailed, options));
+        assert_eq!(rerun_status_filter_label(options), "no_flag,timeout");
+    }
+
+    #[test]
+    fn rerun_filter_blocked_is_provider_only() {
+        use mantis_bench::result::Status;
+
+        let options = RerunFilterOptions {
+            include_blocked: true,
+            ..RerunFilterOptions::default()
+        };
+        assert!(rerun_status_matches(Status::BlockedClaudeLimit, options));
+        assert!(rerun_status_matches(Status::BlockedClaudePolicy, options));
+        assert!(!rerun_status_matches(Status::BlockedPhantomjs, options));
+        assert!(!rerun_status_matches(Status::RunFailed, options));
+        assert_eq!(
+            rerun_status_filter_label(options),
+            "no_flag,blocked_claude_limit,blocked_claude_policy"
+        );
+    }
+
+    #[test]
+    fn rerun_filter_run_failures_are_explicit() {
+        use mantis_bench::result::Status;
+
+        let options = RerunFilterOptions {
+            include_run_failures: true,
+            ..RerunFilterOptions::default()
+        };
+        assert!(rerun_status_matches(Status::RunFailed, options));
+        assert!(rerun_status_matches(Status::NoTargetPort, options));
+        assert!(!rerun_status_matches(Status::BuildFailed, options));
+        assert_eq!(
+            rerun_status_filter_label(options),
+            "no_flag,run_failed,no_target_port"
+        );
     }
 }
