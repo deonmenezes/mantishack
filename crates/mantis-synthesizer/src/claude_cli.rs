@@ -294,7 +294,7 @@ mod tests {
 
     #[tokio::test]
     async fn empty_stdout_becomes_backend_error() {
-        let (_dir, bin) = write_fake_cli("#!/bin/sh\nexit 0\n");
+        let (_dir, bin) = write_fake_cli("#!/bin/sh\ncat >/dev/null\nexit 0\n");
         let adapter = ClaudeCliAdapter::new().with_binary(bin.to_str().unwrap());
         let err = adapter.complete("anything").await.unwrap_err();
         match err {

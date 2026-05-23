@@ -710,6 +710,7 @@ fn summarize_tool_input(name: &str, input: Option<&Value>) -> String {
 /// signal falls through to rustyline's default behavior (blank the
 /// current input line). Without this, Ctrl+C while a provider is
 /// streaming would kill the whole REPL.
+#[cfg(not(windows))]
 fn install_sigint_handler() {
     use signal_hook::consts::SIGINT;
     use signal_hook::iterator::Signals;
@@ -742,6 +743,9 @@ fn install_sigint_handler() {
         }
     });
 }
+
+#[cfg(windows)]
+fn install_sigint_handler() {}
 
 /// Pre-spawn health check: make sure the daemon is reachable and
 /// the `mantis` MCP server is registered with the `claude` CLI.
