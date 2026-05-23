@@ -221,6 +221,11 @@ impl Scoreboard {
 
     /// Render the scoreboard as operator-readable markdown.
     pub fn to_markdown(&self) -> String {
+        self.to_markdown_with_expected_total(None)
+    }
+
+    /// Render the scoreboard with optional corpus coverage context.
+    pub fn to_markdown_with_expected_total(&self, expected_total: Option<usize>) -> String {
         let mut s = String::new();
         s.push_str("# Mantis benchmark scoreboard\n\n");
         s.push_str(&format!(
@@ -232,6 +237,30 @@ impl Scoreboard {
             self.addressable_total(),
             100.0 * self.addressable_solve_rate()
         ));
+
+        if let Some(expected_total) = expected_total.filter(|n| *n > 0) {
+            s.push_str("**Coverage:** ");
+            if self.total < expected_total {
+                s.push_str(&format!(
+                    "{} / {} result rows loaded ({} missing; partial snapshot).\n\n",
+                    self.total,
+                    expected_total,
+                    expected_total - self.total
+                ));
+            } else if self.total == expected_total {
+                s.push_str(&format!(
+                    "{} / {} result rows loaded (complete snapshot).\n\n",
+                    self.total, expected_total
+                ));
+            } else {
+                s.push_str(&format!(
+                    "{} / {} result rows loaded ({} extra; check corpus/results mix).\n\n",
+                    self.total,
+                    expected_total,
+                    self.total - expected_total
+                ));
+            }
+        }
 
         // Status histogram.
         s.push_str("## Status breakdown\n\n");
@@ -417,6 +446,18 @@ mod tests {
         assert!(md.contains("By vuln class"));
         assert!(md.contains("idor"));
         assert!(md.contains("xss"));
+    }
+
+    #[test]
+    fn markdown_can_show_partial_corpus_coverage() {
+        let results = vec![
+            br("a", "solved", &["idor"], "1", 100),
+            br("b", "no_flag", &["xss"], "2", 1800),
+        ];
+        let sb = Scoreboard::from_results(&results);
+        let md = sb.to_markdown_with_expected_total(Some(5));
+        assert!(md.contains("**Coverage:** 2 / 5 result rows loaded"));
+        assert!(md.contains("3 missing; partial snapshot"));
     }
 
     #[test]

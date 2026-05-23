@@ -708,6 +708,10 @@ enum BenchAction {
         /// (e.g. `reports/xbow-benchmarks/results/`).
         #[arg(long)]
         results: Utf8PathBuf,
+        /// Expected corpus size. When supplied, the markdown calls
+        /// out partial or over-complete result snapshots.
+        #[arg(long)]
+        expected_total: Option<usize>,
         /// Write the markdown render to this file instead of
         /// stdout. Useful for committing scoreboards.
         #[arg(long)]
@@ -6150,11 +6154,15 @@ fn handle_bench(action: BenchAction) -> Result<()> {
     use mantis_bench::{diff_runs, load_results, Scoreboard};
 
     match action {
-        BenchAction::Score { results, out } => {
+        BenchAction::Score {
+            results,
+            expected_total,
+            out,
+        } => {
             let rows = load_results(results.as_std_path())
                 .with_context(|| format!("read results dir {results}"))?;
             let sb = Scoreboard::from_results(&rows);
-            let markdown = sb.to_markdown();
+            let markdown = sb.to_markdown_with_expected_total(expected_total);
             if let Some(path) = out {
                 std::fs::write(path.as_std_path(), &markdown)
                     .with_context(|| format!("write scoreboard to {path}"))?;
