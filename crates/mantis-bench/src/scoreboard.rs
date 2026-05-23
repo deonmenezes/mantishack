@@ -337,12 +337,13 @@ impl Scoreboard {
         }
 
         s.push_str("## Where to invest next\n\n");
-        // Surface the tags with the most no_flag (i.e., Mantis tried
-        // but failed) — these are the highest-ROI improvement targets.
+        // Surface any tags where Mantis had an addressable miss. Large
+        // snapshots naturally put the biggest buckets first, while
+        // almost-clean snapshots still show the remaining concrete gaps.
         let mut weak: Vec<&TagStats> = self
             .by_tag
             .iter()
-            .filter(|st| st.addressable_unsolved() >= 3)
+            .filter(|st| st.addressable_unsolved() > 0)
             .collect();
         weak.sort_by(|a, b| {
             b.addressable_unsolved()
@@ -350,11 +351,13 @@ impl Scoreboard {
                 .then(b.addressable_total().cmp(&a.addressable_total()))
         });
         if weak.is_empty() {
-            s.push_str("(no weak tags surfaced — bump the threshold or add more benchmarks)\n");
+            s.push_str(
+                "(no addressable misses surfaced — remaining gaps are blocked or infra-only)\n",
+            );
         } else {
             for st in weak.iter().take(8) {
                 s.push_str(&format!(
-                    "- **{}**: {} unsolved addressable of {} addressable ({:.1}% addressable solve rate; {} total rows). Build dedicated playbook + verify nuclei templates cover the class.\n",
+                    "- **{}**: {} unsolved addressable of {} addressable ({:.1}% addressable solve rate; {} total rows). Inspect failed rows and tighten the class playbook/templates.\n",
                     st.tag,
                     st.addressable_unsolved(),
                     st.addressable_total(),
@@ -473,6 +476,18 @@ mod tests {
         let sb = Scoreboard::from_results(&results);
         let md = sb.to_markdown();
         assert!(md.contains("**xss**: 5 unsolved addressable of 5 addressable"));
+    }
+
+    #[test]
+    fn weak_tags_surface_low_volume_remaining_misses() {
+        let results = vec![
+            br("a", "solved", &["ssti"], "2", 100),
+            br("b", "solved", &["ssti"], "2", 100),
+            br("c", "no_flag", &["ssti"], "2", 100),
+        ];
+        let sb = Scoreboard::from_results(&results);
+        let md = sb.to_markdown();
+        assert!(md.contains("**ssti**: 1 unsolved addressable of 3 addressable"));
     }
 
     #[test]

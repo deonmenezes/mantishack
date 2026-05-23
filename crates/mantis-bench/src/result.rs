@@ -132,6 +132,7 @@ pub fn load_results(dir: &Path) -> std::io::Result<Vec<BenchmarkResult>> {
         let parsed: Result<BenchmarkResult, _> = serde_json::from_slice(&raw);
         let Ok(mut r) = parsed else { continue };
         recover_captured_flag_from_mantis_log(&mut r, &path);
+        recover_claude_limit_from_mantis_log(&mut r, &path);
         by_id.insert(r.benchmark.clone(), r);
     }
     let mut out: Vec<BenchmarkResult> = by_id.into_values().collect();
@@ -173,6 +174,33 @@ fn recover_captured_flag_from_mantis_log(result: &mut BenchmarkResult, result_pa
     }
 }
 
+fn recover_claude_limit_from_mantis_log(result: &mut BenchmarkResult, result_path: &Path) {
+    if result.status_enum() == Status::Solved || result.flag_found {
+        return;
+    }
+    let Some(log_path) = mantis_log_path(result, result_path) else {
+        return;
+    };
+    let Ok(raw) = std::fs::read_to_string(&log_path) else {
+        return;
+    };
+    if !contains_claude_session_limit(&raw) {
+        return;
+    }
+
+    result.status = Status::BlockedClaudeLimit.label().to_string();
+    let note = format!(
+        "reclassified as blocked_claude_limit from {}",
+        log_path.display()
+    );
+    if result.notes.is_empty() {
+        result.notes = note;
+    } else {
+        result.notes.push_str("; ");
+        result.notes.push_str(&note);
+    }
+}
+
 fn mantis_log_path(result: &BenchmarkResult, result_path: &Path) -> Option<PathBuf> {
     if result.log.is_empty() {
         return None;
@@ -186,6 +214,17 @@ fn mantis_log_path(result: &BenchmarkResult, result_path: &Path) -> Option<PathB
     let filename = harness_log.file_name()?.to_str()?;
     let mantis_filename = filename.strip_suffix(".log")?.to_string() + ".mantis.log";
     Some(harness_log.with_file_name(mantis_filename))
+}
+
+fn contains_claude_session_limit(raw: &str) -> bool {
+    [
+        "You've hit your session limit",
+        "You have hit your session limit",
+        "Claude usage limit",
+        "usage limit resets",
+    ]
+    .iter()
+    .any(|needle| raw.contains(needle))
 }
 
 fn extract_flag_tokens(raw: &str) -> Vec<String> {
@@ -412,5 +451,67 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].status_enum(), Status::NoFlag);
         assert!(!results[0].flag_found);
+    }
+
+    #[test]
+    fn load_results_reclassifies_session_limit_loops() {
+        let dir = tempfile::tempdir().unwrap();
+        let logs = dir.path().join("logs");
+        std::fs::create_dir(&logs).unwrap();
+        std::fs::write(
+            dir.path().join("XBEN-097-24.json"),
+            r#"{
+                "benchmark":"XBEN-097-24",
+                "status":"no_flag",
+                "flag_found": false,
+                "notes":"mantis finished (exit=127) without capturing flag",
+                "log":"logs/XBEN-097-24.log"
+            }"#,
+        )
+        .unwrap();
+        std::fs::write(
+            logs.join("XBEN-097-24.mantis.log"),
+            "session init\nYou've hit your session limit · resets 5:50pm\n",
+        )
+        .unwrap();
+
+        let results = load_results(dir.path()).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].status_enum(), Status::BlockedClaudeLimit);
+        assert!(!results[0].flag_found);
+        assert!(results[0]
+            .notes
+            .contains("reclassified as blocked_claude_limit"));
+    }
+
+    #[test]
+    fn load_results_keeps_recovered_flag_over_session_limit_tail() {
+        let dir = tempfile::tempdir().unwrap();
+        let logs = dir.path().join("logs");
+        std::fs::create_dir(&logs).unwrap();
+        std::fs::write(
+            dir.path().join("XBEN-023-24.json"),
+            r#"{
+                "benchmark":"XBEN-023-24",
+                "status":"no_flag",
+                "flag_found": false,
+                "expected_flag":"FLAG{deterministic_wrong}",
+                "log":"logs/XBEN-023-24.log"
+            }"#,
+        )
+        .unwrap();
+        std::fs::write(
+            logs.join("XBEN-023-24.mantis.log"),
+            "found FLAG{actual_target_flag}\nYou've hit your session limit · resets 5:50pm\n",
+        )
+        .unwrap();
+
+        let results = load_results(dir.path()).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].status_enum(), Status::Solved);
+        assert!(results[0].flag_found);
+        assert!(!results[0]
+            .notes
+            .contains("reclassified as blocked_claude_limit"));
     }
 }
