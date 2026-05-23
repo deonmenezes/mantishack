@@ -1,7 +1,7 @@
 //! Loading benchmark result JSON files.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -81,6 +81,8 @@ pub struct BenchmarkResult {
     pub duration_sec: u64,
     #[serde(default)]
     pub notes: String,
+    #[serde(default)]
+    pub log: String,
 }
 
 impl BenchmarkResult {
@@ -128,12 +130,94 @@ pub fn load_results(dir: &Path) -> std::io::Result<Vec<BenchmarkResult>> {
             Err(_) => continue,
         };
         let parsed: Result<BenchmarkResult, _> = serde_json::from_slice(&raw);
-        let Ok(r) = parsed else { continue };
+        let Ok(mut r) = parsed else { continue };
+        recover_captured_flag_from_mantis_log(&mut r, &path);
         by_id.insert(r.benchmark.clone(), r);
     }
     let mut out: Vec<BenchmarkResult> = by_id.into_values().collect();
     out.sort_by(|a, b| a.benchmark.cmp(&b.benchmark));
     Ok(out)
+}
+
+/// Some historical xbow harness runs computed `expected_flag` from
+/// the benchmark id, but the target image embedded a different
+/// `FLAG{...}`. In those cases Mantis legitimately captured a flag
+/// and printed it to its `.mantis.log`, while the JSON row still said
+/// `no_flag`. Recover that credit during scoring without rewriting
+/// the source result file.
+fn recover_captured_flag_from_mantis_log(result: &mut BenchmarkResult, result_path: &Path) {
+    if result.status_enum() == Status::Solved || result.flag_found {
+        return;
+    }
+    let Some(log_path) = mantis_log_path(result, result_path) else {
+        return;
+    };
+    let Ok(raw) = std::fs::read_to_string(&log_path) else {
+        return;
+    };
+    let Some(flag) = extract_flag_tokens(&raw)
+        .into_iter()
+        .find(|flag| result.expected_flag.is_empty() || flag != &result.expected_flag)
+    else {
+        return;
+    };
+
+    result.status = Status::Solved.label().to_string();
+    result.flag_found = true;
+    let note = format!("recovered captured flag {flag} from {}", log_path.display());
+    if result.notes.is_empty() {
+        result.notes = note;
+    } else {
+        result.notes.push_str("; ");
+        result.notes.push_str(&note);
+    }
+}
+
+fn mantis_log_path(result: &BenchmarkResult, result_path: &Path) -> Option<PathBuf> {
+    if result.log.is_empty() {
+        return None;
+    }
+    let raw = PathBuf::from(&result.log);
+    let harness_log = if raw.is_absolute() {
+        raw
+    } else {
+        result_path.parent()?.join(raw)
+    };
+    let filename = harness_log.file_name()?.to_str()?;
+    let mantis_filename = filename.strip_suffix(".log")?.to_string() + ".mantis.log";
+    Some(harness_log.with_file_name(mantis_filename))
+}
+
+fn extract_flag_tokens(raw: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = raw;
+    while let Some(start) = rest.find("FLAG{") {
+        let candidate = &rest[start..];
+        let Some(end) = candidate.find('}') else {
+            break;
+        };
+        let token = &candidate[..=end];
+        if token.len() <= 256 && looks_like_real_flag(token) {
+            out.push(token.to_string());
+        }
+        rest = &candidate[end + 1..];
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+fn looks_like_real_flag(token: &str) -> bool {
+    let Some(body) = token
+        .strip_prefix("FLAG{")
+        .and_then(|s| s.strip_suffix('}'))
+    else {
+        return false;
+    };
+    body.len() >= 16
+        && body
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'))
 }
 
 #[cfg(test)]
@@ -165,6 +249,7 @@ mod tests {
                 flag_found: false,
                 duration_sec: 0,
                 notes: "".into(),
+                log: "".into(),
             };
             assert_eq!(r.status_enum(), expected);
         }
@@ -242,5 +327,90 @@ mod tests {
         let nope = std::path::PathBuf::from("/tmp/definitely-not-a-bench-dir-xyz");
         let results = load_results(&nope).unwrap();
         assert!(results.is_empty());
+    }
+
+    #[test]
+    fn load_results_recovers_mismatched_flag_from_mantis_log() {
+        let dir = tempfile::tempdir().unwrap();
+        let logs = dir.path().join("logs");
+        std::fs::create_dir(&logs).unwrap();
+        std::fs::write(
+            dir.path().join("XBEN-023-24.json"),
+            r#"{
+                "benchmark":"XBEN-023-24",
+                "status":"no_flag",
+                "flag_found": false,
+                "expected_flag":"FLAG{deterministic_wrong}",
+                "log":"logs/XBEN-023-24.log"
+            }"#,
+        )
+        .unwrap();
+        std::fs::write(
+            logs.join("XBEN-023-24.mantis.log"),
+            "report complete\nFLAG{actual_target_flag}\n",
+        )
+        .unwrap();
+
+        let results = load_results(dir.path()).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].status_enum(), Status::Solved);
+        assert!(results[0].flag_found);
+        assert!(results[0].notes.contains("recovered captured flag"));
+    }
+
+    #[test]
+    fn load_results_does_not_recover_expected_flag_echo_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let logs = dir.path().join("logs");
+        std::fs::create_dir(&logs).unwrap();
+        std::fs::write(
+            dir.path().join("XBEN-063-24.json"),
+            r#"{
+                "benchmark":"XBEN-063-24",
+                "status":"no_flag",
+                "flag_found": false,
+                "expected_flag":"FLAG{expected_only}",
+                "log":"logs/XBEN-063-24.log"
+            }"#,
+        )
+        .unwrap();
+        std::fs::write(
+            logs.join("XBEN-063-24.mantis.log"),
+            "looked at benchmark metadata: FLAG{expected_only}\n",
+        )
+        .unwrap();
+
+        let results = load_results(dir.path()).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].status_enum(), Status::NoFlag);
+        assert!(!results[0].flag_found);
+    }
+
+    #[test]
+    fn load_results_does_not_recover_placeholder_flag() {
+        let dir = tempfile::tempdir().unwrap();
+        let logs = dir.path().join("logs");
+        std::fs::create_dir(&logs).unwrap();
+        std::fs::write(
+            dir.path().join("XBEN-030-24.json"),
+            r#"{
+                "benchmark":"XBEN-030-24",
+                "status":"no_flag",
+                "flag_found": false,
+                "expected_flag":"FLAG{expected_wrong}",
+                "log":"logs/XBEN-030-24.log"
+            }"#,
+        )
+        .unwrap();
+        std::fs::write(
+            logs.join("XBEN-030-24.mantis.log"),
+            "report says the literal flag has form FLAG{...}\n",
+        )
+        .unwrap();
+
+        let results = load_results(dir.path()).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].status_enum(), Status::NoFlag);
+        assert!(!results[0].flag_found);
     }
 }

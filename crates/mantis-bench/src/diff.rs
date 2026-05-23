@@ -195,6 +195,7 @@ mod tests {
             flag_found: status == "solved",
             duration_sec: 100,
             notes: "".into(),
+            log: "".into(),
         }
     }
 
