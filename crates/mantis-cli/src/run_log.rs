@@ -192,7 +192,11 @@ fn render_user(event: &serde_json::Value, t_secs: f64) -> Option<String> {
                 if trimmed.len() <= 240 {
                     trimmed.to_string()
                 } else {
-                    format!("{}…", &trimmed[..240])
+                    let mut cut = 240;
+                    while cut > 0 && !trimmed.is_char_boundary(cut) {
+                        cut -= 1;
+                    }
+                    format!("{}…", &trimmed[..cut])
                 }
             })
             .unwrap_or_default();
