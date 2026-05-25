@@ -8,6 +8,38 @@ the user's option. See the workspace `Cargo.toml` `license` field
 
 ---
 
+Compliance history
+==================
+
+Mantis incorporates substantial verbatim ports of Apache-2.0-licensed
+prompt and agent files from Hacker Bob (https://github.com/vmihalis/hacker-bob).
+For an interval prior to 2026-05-25, this repository declared the
+`Apache-2.0 OR MIT` license in README and `Cargo.toml` but did not
+carry the actual LICENSE files on disk, did not reproduce the upstream
+Hacker Bob NOTICE verbatim per Apache-2.0 §4(d), and did not carry
+per-file change notices on the ported files per §4(b). This was a
+license-compliance failure, not a contested-attribution dispute — the
+attribution was already documented in NOTICE and CONTRAST.md, but the
+formal §4 mechanics were incomplete.
+
+Remediated on 2026-05-25 in the following commits on `main`:
+
+  53d9b4f  Merge #18 — add LICENSE-APACHE + LICENSE-MIT (§4(a)),
+           propagate upstream NOTICE verbatim (§4(d)), and correct the
+           prior wording in this NOTICE that mis-stated "no source
+           ported" — agent and role prompts are verbatim ports with
+           tool-name renames.
+  c59fdba  Merge #19 — add §4(b) "prominent notice of changes"
+           headers to 35 ported files in `plugin/claude-code/agents/`
+           and `prompts/roles/`.
+
+No source code was withheld during the gap window; the violation was
+the missing license texts and missing per-file change notices, not
+concealment of derivation. Grateful acknowledgement to Hacker Bob and
+its maintainer for the upstream work that made Mantis possible.
+
+---
+
 Third-party attributions
 ========================
 
