@@ -206,6 +206,10 @@ Mantis runs **only against assets you are explicitly authorized to test**.
 Every engagement requires a signed scope manifest. The plugin slash
 commands re-verify the user has authorization before running any scan.
 
+## Contact
+
+Maintainer / security / general inquiries: <company@virelity.com> (Virelity).
+
 ## License
 
 Dual-licensed under Apache-2.0 OR MIT.

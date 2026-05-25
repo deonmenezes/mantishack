@@ -130,3 +130,7 @@ docs/                   Architecture and workflow documentation.
 - The user supplies an exploit primitive scope that requests destructive actions (data deletion at scale, account takeover of arbitrary users, etc.) beyond the legitimate test boundary.
 
 The egress proxy enforces the scope manifest cryptographically. The legal gate is yours.
+
+## Contact
+
+Maintainer / security / general inquiries: <company@virelity.com> (Virelity).

@@ -3,7 +3,8 @@
   "name": "mantishack",
   "description": "Mantis offensive-security daemon — Claude Code plugin with /mantishack one-shot pentest and engagement-lifecycle slash commands.",
   "owner": {
-    "name": "Deon Menezes"
+    "name": "Deon Menezes",
+    "email": "company@virelity.com"
   },
   "plugins": [
     {

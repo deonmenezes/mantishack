@@ -9,8 +9,9 @@ otherwise.
 ## Reporting a vulnerability
 
 Please report vulnerabilities in Mantis privately through GitHub private
-vulnerability reporting from this repository's Security tab. Do not open a
-public issue or discussion for a suspected vulnerability.
+vulnerability reporting from this repository's Security tab, or by email to
+<company@virelity.com>. Do not open a public issue or discussion for a
+suspected vulnerability.
 
 Include as much of the following as you can:
 

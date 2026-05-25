@@ -260,3 +260,9 @@ When enumerating a host, start with this seed set and expand from JS bundle impo
 ```
 
 This list covers the most common paths; your actual enumeration must go beyond it using target-specific signals (brand names, technology stack, API version patterns observed in the application).
+
+---
+
+## Contact
+
+Maintainer / security / general inquiries: <company@virelity.com> (Virelity).

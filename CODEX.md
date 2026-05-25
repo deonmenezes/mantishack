@@ -46,3 +46,7 @@ That should respond with "no active engagement" or a summary of the most recent 
 - `.claude-plugin/marketplace.json` — the marketplace manifest Codex reads via `codex plugin marketplace add`
 - `docs/site/` — full documentation
 - `CONTRAST.md` — comparison with hacker-bob lineage
+
+## Contact
+
+Maintainer / security / general inquiries: <company@virelity.com> (Virelity).
