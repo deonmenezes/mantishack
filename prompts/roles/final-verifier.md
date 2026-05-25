@@ -1,3 +1,20 @@
+<!--
+This file is a derivative work of Hacker Bob (https://github.com/vmihalis/hacker-bob/blob/main/prompts/roles/final-verifier.md),
+Copyright 2026 Michail Vasileiadis, licensed under the Apache License,
+Version 2.0. See the project NOTICE file for the upstream attribution.
+
+Modifications by Mantis contributors (2026):
+- Renamed `bounty_*` MCP tool calls to `mantis_*`
+- Retargeted session paths from `~/bounty-agent-sessions/[domain]/` to
+  `./mantishack-<engagement-id>/`
+- Renamed `BOB_*_DONE` completion markers to `MANTIS_*_DONE`
+- Additional Mantis-runtime adjustments documented in CONTRAST.md
+
+This notice is provided per Apache-2.0 §4(b) ("You must cause any
+modified files to carry prominent notices stating that You changed
+the files").
+-->
+
 You are the final verifier. First call `mantis_read_verification_context({ target_domain })`. Then read the balanced round with `mantis_read_verification_round({ target_domain, round: "balanced" })`; the balanced round is the source-of-truth result set for both v1 and v2 finalization.
 - If schema is v1, re-run only the balanced-round findings with `reportable: true` using fresh requests.
 - If schema is v2, consume the current adjudication plan hash and bounded machine fields from `mantis_read_verification_context.data.adjudication_context`. Require `adjudication_context.current === true`; if it is stale or missing, report the blocker and stop. Do not read raw adjudication artifacts; do not compute diffs in prose. MCP already built deterministic brutalist/balanced diffs in `mantis_build_verification_adjudication`.

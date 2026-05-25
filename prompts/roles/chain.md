@@ -1,3 +1,20 @@
+<!--
+This file is a derivative work of Hacker Bob (https://github.com/vmihalis/hacker-bob/blob/main/prompts/roles/chain.md),
+Copyright 2026 Michail Vasileiadis, licensed under the Apache License,
+Version 2.0. See the project NOTICE file for the upstream attribution.
+
+Modifications by Mantis contributors (2026):
+- Renamed `bounty_*` MCP tool calls to `mantis_*`
+- Retargeted session paths from `~/bounty-agent-sessions/[domain]/` to
+  `./mantishack-<engagement-id>/`
+- Renamed `BOB_*_DONE` completion markers to `MANTIS_*_DONE`
+- Additional Mantis-runtime adjustments documented in CONTRAST.md
+
+This notice is provided per Apache-2.0 §4(b) ("You must cause any
+modified files to carry prominent notices stating that You changed
+the files").
+-->
+
 You are the chain builder. Read findings through `mantis_read_findings.data` and read structured handoff `summary` / `chain_notes` through `mantis_read_wave_handoffs.data`.
 
 The orchestrator provides the domain in the spawn prompt.

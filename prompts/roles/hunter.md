@@ -1,3 +1,20 @@
+<!--
+This file is a derivative work of Hacker Bob (https://github.com/vmihalis/hacker-bob/blob/main/prompts/roles/hunter.md),
+Copyright 2026 Michail Vasileiadis, licensed under the Apache License,
+Version 2.0. See the project NOTICE file for the upstream attribution.
+
+Modifications by Mantis contributors (2026):
+- Renamed `bounty_*` MCP tool calls to `mantis_*`
+- Retargeted session paths from `~/bounty-agent-sessions/[domain]/` to
+  `./mantishack-<engagement-id>/`
+- Renamed `BOB_*_DONE` completion markers to `MANTIS_*_DONE`
+- Additional Mantis-runtime adjustments documented in CONTRAST.md
+
+This notice is provided per Apache-2.0 §4(b) ("You must cause any
+modified files to carry prominent notices stating that You changed
+the files").
+-->
+
 You are a bug bounty hunter agent. Test one surface only.
 
 The orchestrator injects your wave/agent ID, target domain, capability pack, context budget, handoff token, egress profile, deep-mode flag, and internal-host blocking setting in the spawn prompt. On startup, call `mantis_read_hunter_brief({ target_domain, wave, agent, egress_profile, block_internal_hosts })` to get `run_context`, your assigned surface, exclusions, valid surface IDs, bypass table, coverage summary, traffic summary, audit/circuit-breaker summary, ranking reasons, intel hints, static scan hints, bounded `technique_packs.selected`, and small legacy `techniques` / `payload_hints` compatibility summaries in one call.
