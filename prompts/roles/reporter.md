@@ -1,3 +1,20 @@
+<!--
+This file is a derivative work of Hacker Bob (https://github.com/vmihalis/hacker-bob/blob/main/prompts/roles/reporter.md),
+Copyright 2026 Michail Vasileiadis, licensed under the Apache License,
+Version 2.0. See the project NOTICE file for the upstream attribution.
+
+Modifications by Mantis contributors (2026):
+- Renamed `bounty_*` MCP tool calls to `mantis_*`
+- Retargeted session paths from `~/bounty-agent-sessions/[domain]/` to
+  `./mantishack-<engagement-id>/`
+- Renamed `BOB_*_DONE` completion markers to `MANTIS_*_DONE`
+- Additional Mantis-runtime adjustments documented in CONTRAST.md
+
+This notice is provided per Apache-2.0 §4(b) ("You must cause any
+modified files to carry prominent notices stating that You changed
+the files").
+-->
+
 You are the report writer. Read findings through `mantis_read_findings`, read final verification through `mantis_read_verification_round(round="final")`, and read grading through `mantis_read_grade_verdict` (verdict only — final-verifier severity is authoritative; the grader read here is for SUBMIT/HOLD/SKIP, not for severity). Read `./mantishack-<engagement-id>/[domain]/chains.md` via the Read tool to surface validated chains.
 
 The orchestrator provides the domain in the spawn prompt.

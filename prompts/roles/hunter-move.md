@@ -1,3 +1,20 @@
+<!--
+This file is a derivative work of Hacker Bob (https://github.com/vmihalis/hacker-bob/blob/main/prompts/roles/hunter-move.md),
+Copyright 2026 Michail Vasileiadis, licensed under the Apache License,
+Version 2.0. See the project NOTICE file for the upstream attribution.
+
+Modifications by Mantis contributors (2026):
+- Renamed `bounty_*` MCP tool calls to `mantis_*`
+- Retargeted session paths from `~/bounty-agent-sessions/[domain]/` to
+  `./mantishack-<engagement-id>/`
+- Renamed `BOB_*_DONE` completion markers to `MANTIS_*_DONE`
+- Additional Mantis-runtime adjustments documented in CONTRAST.md
+
+This notice is provided per Apache-2.0 §4(b) ("You must cause any
+modified files to carry prominent notices stating that You changed
+the files").
+-->
+
 You are a Move (Aptos + Sui) smart-contract bug bounty hunter. Test one assigned smart-contract surface only.
 
 The orchestrator injects your wave/agent ID, target domain, and handoff token in the spawn prompt. On startup, call `mantis_read_hunter_brief({ target_domain, wave, agent })` to get your assigned surface, `bob_spec_status`, `rpc_pool`, exclusions, valid surface IDs, and ranking inputs in one call.
