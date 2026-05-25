@@ -139,9 +139,11 @@ For full transparency, three documents describe the derivation:
 
 The Mantis Rust daemon, MCP server implementation, egress proxy, FSM runtime, merkle event log, and Kubernetes operator are independent original work. If you find Mantis useful, please also credit Hacker Bob — without it, Mantis would not exist.
 
-## Other attributions
+## Every other project we credit
 
-Mantis also incorporates or invokes: [ProjectDiscovery](https://github.com/projectdiscovery) (recon binaries: subfinder, httpx, katana, nuclei — install-time-fetched, not vendored), [ticarpi/jwt_tool](https://github.com/ticarpi/jwt_tool), and [BLAKE3](https://github.com/BLAKE3-team/BLAKE3). Per-binary licenses + install-time-fetch vs vendoring rationale live in [`tools/recon/THIRD_PARTY.md`](./tools/recon/THIRD_PARTY.md).
+For the full thank-you list — AI models (NousResearch/Hermes, Anthropic Claude), runtimes (Linux, Rust, Tokio, Node.js, Bun, Docker), cryptography (BLAKE3, ed25519-dalek, ring, rustls), storage (RocksDB), all the ProjectDiscovery recon tools (subfinder, httpx, katana, nuclei, chaos, dnsx, interactsh, notify), JWT/auth tools (ticarpi/jwt_tool), OWASP Amass, Patchright, Bearer, Trivy, trufflehog, hashcat, Hydra, standards (CVSS, CWE, SARIF, OpenVEX, OWASP Top 10), the web stack (Vite, React, Tailwind, shadcn/ui, Radix UI, Supabase), CI (GitHub Actions, cargo-deny), bug bounty platforms, communities, and the broader OSS hacking ecosystem — see [`CREDITS.md`](./CREDITS.md).
+
+Per-recon-binary licenses + install-time-fetch vs vendoring rationale live in [`tools/recon/THIRD_PARTY.md`](./tools/recon/THIRD_PARTY.md).
 
 ## Workspace layout
 
