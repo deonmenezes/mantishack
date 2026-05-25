@@ -8,35 +8,72 @@ the user's option. See the workspace `Cargo.toml` `license` field
 
 ---
 
-Compliance history
-==================
+Apology and compliance history
+==============================
+
+Apology to Michail Vasileiadis and the Hacker Bob contributors
+--------------------------------------------------------------
 
 Mantis incorporates substantial verbatim ports of Apache-2.0-licensed
-prompt and agent files from Hacker Bob (https://github.com/vmihalis/hacker-bob).
-For an interval prior to 2026-05-25, this repository declared the
-`Apache-2.0 OR MIT` license in README and `Cargo.toml` but did not
-carry the actual LICENSE files on disk, did not reproduce the upstream
-Hacker Bob NOTICE verbatim per Apache-2.0 §4(d), and did not carry
-per-file change notices on the ported files per §4(b). This was a
-license-compliance failure, not a contested-attribution dispute — the
-attribution was already documented in NOTICE and CONTRAST.md, but the
-formal §4 mechanics were incomplete.
+prompt and agent files from Hacker Bob
+(https://github.com/vmihalis/hacker-bob, Copyright 2026 Michail
+Vasileiadis). For an interval prior to 2026-05-25, this repository
+distributed those ported files without satisfying several of the
+formal requirements of Apache License 2.0 §4. Specifically, the
+project:
 
-Remediated on 2026-05-25 in the following commits on `main`:
+  - declared `Apache-2.0 OR MIT` in `README.md` and `Cargo.toml` but
+    did NOT include the actual `LICENSE-APACHE` / `LICENSE-MIT` text
+    files on disk, in violation of §4(a);
+  - referenced Hacker Bob in its own NOTICE and `CONTRAST.md` but did
+    NOT reproduce the upstream Hacker Bob NOTICE text verbatim, in
+    violation of §4(d);
+  - did NOT carry per-file "prominent notices stating that You changed
+    the files" on the ported files under
+    `plugin/claude-code/agents/` and `prompts/roles/`, in violation
+    of §4(b).
 
-  53d9b4f  Merge #18 — add LICENSE-APACHE + LICENSE-MIT (§4(a)),
-           propagate upstream NOTICE verbatim (§4(d)), and correct the
-           prior wording in this NOTICE that mis-stated "no source
-           ported" — agent and role prompts are verbatim ports with
-           tool-name renames.
+We apologize to Michail Vasileiadis and the Hacker Bob project for
+distributing derivative work with these §4 mechanics incomplete. The
+attribution was real — the upstream credit, the per-file ports
+inventory in `CONTRAST.md`, and the architectural acknowledgement in
+this NOTICE all predated the cure — but real attribution is not a
+substitute for the §4 formalities, and we should have included the
+license texts, propagated the upstream NOTICE, and added per-file
+change headers from the first publication. We did not, and that was a
+license violation. The cure does not erase the gap; it documents it.
+
+Cure
+----
+
+Fully remediated on 2026-05-25 on `main`:
+
+  53d9b4f  Merge #18 — add LICENSE-APACHE + LICENSE-MIT on disk (§4(a)),
+           reproduce the upstream Hacker Bob NOTICE verbatim under a
+           clearly-labeled "Upstream NOTICE" section (§4(d)), and
+           correct prior NOTICE wording that downplayed the verbatim
+           port — agent and role prompts ARE verbatim ports with
+           tool-name renames, as already documented in CONTRAST.md.
   c59fdba  Merge #19 — add §4(b) "prominent notice of changes"
            headers to 35 ported files in `plugin/claude-code/agents/`
-           and `prompts/roles/`.
+           and `prompts/roles/`, naming the upstream URL, copyright
+           holder, license, and the concrete renames applied
+           (`bounty_*` → `mantis_*`, session paths, completion markers).
+  a83489e  Merge #20 — record this Compliance history in NOTICE so the
+           gap and cure are documented in the repository itself, not
+           only in PR descriptions.
 
-No source code was withheld during the gap window; the violation was
-the missing license texts and missing per-file change notices, not
-concealment of derivation. Grateful acknowledgement to Hacker Bob and
-its maintainer for the upstream work that made Mantis possible.
+A public paper trail has also been filed as an issue on the upstream
+repository (https://github.com/vmihalis/hacker-bob) so the maintainer
+has direct notice.
+
+No source code, no attribution, and no derivation lineage was
+concealed during the gap window — `CONTRAST.md` openly documented the
+verbatim port from the start, and Hacker Bob has been named in this
+NOTICE since the first commit. The violation was strictly the missing
+§4 mechanics. The cure brings the project into full §4 compliance.
+Grateful acknowledgement to Michail Vasileiadis and the Hacker Bob
+contributors for the upstream work that made Mantis possible.
 
 ---
 
