@@ -1,0 +1,177 @@
+Mantis
+Copyright 2026 Deon Menezes and contributors
+
+This product is licensed under the Apache License, Version 2.0
+(http://www.apache.org/licenses/LICENSE-2.0) or the MIT License, at
+the user's option. See the workspace `Cargo.toml` `license` field
+(`Apache-2.0 OR MIT`).
+
+---
+
+Apology and compliance history
+==============================
+
+Apology to Michail Vasileiadis and the Hacker Bob contributors
+--------------------------------------------------------------
+
+Mantis incorporates substantial verbatim ports of Apache-2.0-licensed
+prompt and agent files from Hacker Bob
+(https://github.com/vmihalis/hacker-bob, Copyright 2026 Michail
+Vasileiadis). For an interval prior to 2026-05-25, this repository
+distributed those ported files without satisfying several of the
+formal requirements of Apache License 2.0 §4. Specifically, the
+project:
+
+  - declared `Apache-2.0 OR MIT` in `README.md` and `Cargo.toml` but
+    did NOT include the actual `LICENSE-APACHE` / `LICENSE-MIT` text
+    files on disk, in violation of §4(a);
+  - referenced Hacker Bob in its own NOTICE and `CONTRAST.md` but did
+    NOT reproduce the upstream Hacker Bob NOTICE text verbatim, in
+    violation of §4(d);
+  - did NOT carry per-file "prominent notices stating that You changed
+    the files" on the ported files under
+    `plugin/claude-code/agents/` and `prompts/roles/`, in violation
+    of §4(b).
+
+We apologize to Michail Vasileiadis and the Hacker Bob project for
+distributing derivative work with these §4 mechanics incomplete. The
+attribution was real — the upstream credit, the per-file ports
+inventory in `CONTRAST.md`, and the architectural acknowledgement in
+this NOTICE all predated the cure — but real attribution is not a
+substitute for the §4 formalities, and we should have included the
+license texts, propagated the upstream NOTICE, and added per-file
+change headers from the first publication. We did not, and that was a
+license violation. The cure does not erase the gap; it documents it.
+
+Cure
+----
+
+Fully remediated on 2026-05-25 on `main`:
+
+  53d9b4f  Merge #18 — add LICENSE-APACHE + LICENSE-MIT on disk (§4(a)),
+           reproduce the upstream Hacker Bob NOTICE verbatim under a
+           clearly-labeled "Upstream NOTICE" section (§4(d)), and
+           correct prior NOTICE wording that downplayed the verbatim
+           port — agent and role prompts ARE verbatim ports with
+           tool-name renames, as already documented in CONTRAST.md.
+  c59fdba  Merge #19 — add §4(b) "prominent notice of changes"
+           headers to 35 ported files in `plugin/claude-code/agents/`
+           and `prompts/roles/`, naming the upstream URL, copyright
+           holder, license, and the concrete renames applied
+           (`bounty_*` → `mantis_*`, session paths, completion markers).
+  a83489e  Merge #20 — record this Compliance history in NOTICE so the
+           gap and cure are documented in the repository itself, not
+           only in PR descriptions.
+
+A public paper trail has also been filed as an issue on the upstream
+repository (https://github.com/vmihalis/hacker-bob) so the maintainer
+has direct notice.
+
+No source code, no attribution, and no derivation lineage was
+concealed during the gap window — `CONTRAST.md` openly documented the
+verbatim port from the start, and Hacker Bob has been named in this
+NOTICE since the first commit. The violation was strictly the missing
+§4 mechanics. The cure brings the project into full §4 compliance.
+Grateful acknowledgement to Michail Vasileiadis and the Hacker Bob
+contributors for the upstream work that made Mantis possible.
+
+---
+
+Third-party attributions
+========================
+
+The following projects influenced Mantis's design or were studied
+during its development. All Mantis code is original and written from
+scratch in Rust; these projects are credited as inspiration, not as
+imported code.
+
+Hacker Bob
+----------
+  Upstream:    https://github.com/vmihalis/hacker-bob
+  License:     Apache License, Version 2.0
+  Copyright:   2026 Michail Vasileiadis and contributors
+
+  The MCP-tool-orchestrated workflow that Mantis adopted in
+  `crates/mantis-mcp` (replacing the rigid `mantis pentest` poll
+  loop with an LLM-driven engagement loop) was directly inspired by
+  Hacker Bob's local-MCP runtime model — particularly its decision
+  to expose engagement primitives as MCP tools and let the host LLM
+  own the state machine.
+
+  The wave/handoff pattern for parallel hunter agents in
+  `crates/mantis-mcp/src/wave.rs` and the corresponding
+  `mantis-hunter` sub-agent, `/mantis:wave` slash command, and
+  FAN_OUT phase in `mantis-orchestrator.md` are also inspired by
+  Hacker Bob's `bounty_start_next_wave` / `bounty_write_wave_handoff`
+  / `bounty_merge_wave_handoffs` mechanism for fan-out hunter waves
+  with merged handoff reconciliation.
+
+  Specific Hacker Bob files studied for the hack-phase deeper
+  inspiration (no source ported, only architectural ideas):
+    - `prompts/roles/hunter.md` — the "never record as standalone"
+      hunter-discipline list (missing headers, banner disclosure,
+      SPF/DKIM/DMARC, GraphQL introspection, CORS wildcard, open
+      redirect, etc.). This drives the `mantis-hunter.md`
+      "Hunter discipline" section and the chain-attempt requirement
+      for those defect classes.
+    - `prompts/roles/chain.md` — the chain-attempt model with terminal
+      outcomes (confirmed/denied/blocked/inconclusive/not_applicable)
+      and the severity ladder (LOW+LOW=LOW; max input+1 without
+      rationale; max input+2 with `elevation:` rationale; no
+      jump-the-rung). Both the outcome enum and the ladder are
+      ported verbatim into `crates/mantis-mcp/src/wave.rs`.
+    - `prompts/roles/evidence.md` — the evidence-pack model
+      (representative_samples, replay_summary, report_snippet).
+      Not yet ported in this slice but informs the planned
+      `mantis_record_evidence_pack` tool.
+    - `prompts/playbooks/C2_doc_vs_behavior.md` and
+      `C4_multi_account_differential.md` — the capability-playbook
+      shape (one-paragraph differential workflow). The Mantis
+      playbooks under `plugin/claude-code/playbooks/cap-*.md` follow
+      the same convention but are written from scratch.
+    - `mcp/lib/capability-playbooks.js` — the directory layout
+      convention (playbooks live as flat markdown files keyed by
+      capability id). Mantis mirrors this in
+      `plugin/claude-code/playbooks/`.
+    - `mcp/lib/chain-attempts.js` — the JSONL + atomic-append model
+      for chain attempts. Mantis re-implements this in Rust with
+      `record_chain_attempt` writing to
+      `waves/<n>/chain-attempts.jsonl`.
+
+  All Rust code in `crates/` and Mantis-original playbook markdown is
+  written from scratch. Mantis's MCP server is an independent Rust
+  implementation built on the `rmcp` crate; no Node.js source from
+  Hacker Bob was copied.
+
+  However, Mantis's Claude Code / Codex plugin surface
+  (`plugin/claude-code/agents/`, `plugin/claude-code/commands/`,
+  `prompts/roles/`) contains files ported verbatim from Hacker Bob
+  with `bounty_*` MCP tool calls renamed to `mantis_*` and session
+  paths retargeted. The workflow logic, severity heuristics,
+  capability-pack table, and completion markers (renamed from
+  `BOB_*_DONE` to `MANTIS_*_DONE`) are preserved verbatim. See
+  `CONTRAST.md` for the per-file inventory and
+  https://github.com/vmihalis/hacker-bob/tree/main/.claude/agents
+  for the upstream originals.
+
+  These ported files are derivative works of Hacker Bob under
+  Apache License 2.0. The Hacker Bob NOTICE text is reproduced
+  verbatim below as required by Apache-2.0 §4(d).
+
+  Grateful acknowledgement is given to the Hacker Bob project.
+
+  --- Upstream NOTICE (reproduced verbatim from
+      https://github.com/vmihalis/hacker-bob/blob/main/NOTICE
+      per Apache License 2.0 §4(d)) ---
+
+  Hacker Bob
+  Copyright 2026 Michail Vasileiadis
+
+  This product includes software developed by Michail Vasileiadis
+  and contributors to the Hacker Bob project.
+
+  Hacker Bob is licensed under the Apache License, Version 2.0.
+  See LICENSE for details. See DISCLAIMER.md for usage terms specific
+  to security testing.
+
+  --- end upstream NOTICE ---

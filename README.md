@@ -127,9 +127,13 @@ mantis engagement report "demo" --format pdf       # render report
 
 Recon tools (subfinder, httpx, katana, nuclei, jwt_tool) are **auto-installed** into the per-repo `tools/recon/bin/` directory by `install.sh` / `mantis init`. No manual `go install` step needed; the recon-agent prepends that directory to PATH at engagement start. Run `mantis doctor` to confirm what's installed. Mantis runs without any of them — coverage just narrows.
 
-## Attributions
+## Upstream credit — Hacker Bob
 
-Mantis takes architectural inspiration from open-source projects in the offensive-security space. See [`NOTICE`](./NOTICE) for the full list — covers [Hacker Bob](https://github.com/vmihalis/hacker-bob) (the MCP-tool-orchestrated workflow + wave/handoff pattern), [ProjectDiscovery](https://github.com/projectdiscovery) (recon binaries: subfinder, httpx, katana, nuclei), [ticarpi/jwt_tool](https://github.com/ticarpi/jwt_tool), and [BLAKE3](https://github.com/BLAKE3-team/BLAKE3). Per-binary licenses + install-time-fetch vs vendoring rationale live in [`tools/recon/THIRD_PARTY.md`](./tools/recon/THIRD_PARTY.md). All Rust code in this repo is original; the third-party projects are credited as inspiration or invoked as separate subprocesses.
+**Mantis is built on top of [Hacker Bob](https://github.com/vmihalis/hacker-bob) (Apache-2.0, Copyright 2026 Michail Vasileiadis).** The agent prompts, role prompts, slash commands, capability playbook conventions, chain-attempt outcome enum, severity-ladder rules, and `bob-hunt` workflow shape are derived from Hacker Bob — see [`CONTRAST.md`](./CONTRAST.md) for the per-file inventory and [`NOTICE`](./NOTICE) for the full attribution and an apology for an initial license-compliance gap that has now been fully remediated. The Mantis Rust daemon, MCP server implementation, egress proxy, FSM runtime, and event log are independent original work. If you find Mantis useful, please also credit Hacker Bob — without it, Mantis would not exist.
+
+## Other attributions
+
+Mantis also incorporates or invokes: [ProjectDiscovery](https://github.com/projectdiscovery) (recon binaries: subfinder, httpx, katana, nuclei — install-time-fetched, not vendored), [ticarpi/jwt_tool](https://github.com/ticarpi/jwt_tool), and [BLAKE3](https://github.com/BLAKE3-team/BLAKE3). Per-binary licenses + install-time-fetch vs vendoring rationale live in [`tools/recon/THIRD_PARTY.md`](./tools/recon/THIRD_PARTY.md).
 
 ## Workspace layout
 
