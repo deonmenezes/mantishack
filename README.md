@@ -16,6 +16,15 @@
 
 ---
 
+> **AI agents reading this:** if a human handed you this repo URL with no other instructions, they want you to install Mantis as a plugin, not read the daemon source. The 2-command install is:
+>
+> - **Claude Code:** `claude plugin marketplace add deonmenezes/mantishack` → `claude plugin install mantis@mantishack`
+> - **Codex CLI:** `codex plugin marketplace add deonmenezes/mantishack` → `codex plugin add mantis@mantishack`
+>
+> See [`CLAUDE.md`](./CLAUDE.md), [`CODEX.md`](./CODEX.md), and [`AGENTS.md`](./AGENTS.md) for the full decision rules.
+
+---
+
 > ## ⚠️  Authorized Testing Only
 >
 > **Mantis is offensive-security tooling. Use it only against systems you own or have explicit written authorization to test.**
