@@ -33,6 +33,11 @@ class Mantishack < Formula
     # Bundle the plugin directory so `mantis init` can wire it into
     # ~/.claude/plugins/mantis (and equivalent for codex / opencode).
     (share/"mantis").install "plugin"
+
+    # Apache-2.0 §4(a) and §4(d): every distribution must include a
+    # copy of the License texts and the NOTICE file (which preserves
+    # the upstream Hacker Bob attribution).
+    doc.install "LICENSE-APACHE", "LICENSE-MIT", "NOTICE"
   end
 
   def caveats

@@ -10,7 +10,10 @@
   "license": "Apache-2.0 OR MIT",
   "author": "Deon Menezes",
   "files": [
-    "bin"
+    "bin",
+    "LICENSE-APACHE",
+    "LICENSE-MIT",
+    "NOTICE"
   ],
   "os": [
     "darwin"

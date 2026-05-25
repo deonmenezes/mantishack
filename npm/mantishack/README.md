@@ -55,6 +55,12 @@ mantis --help
 
 Source, issue tracker, and docs: **https://github.com/deonmenezes/mantishack**
 
+## Upstream credit — Hacker Bob
+
+Mantis is built on top of [**Hacker Bob**](https://github.com/vmihalis/hacker-bob) (Apache-2.0, Copyright 2026 Michail Vasileiadis). The agent prompts, slash commands, capability playbook conventions, chain-attempt outcome enum, and `bob-hunt` workflow shape are derived from Hacker Bob — see the bundled `NOTICE` file for the full attribution. The Mantis Rust daemon and runtime are independent original work.
+
 ## License
 
-Apache-2.0 OR MIT
+Dual-licensed under [Apache-2.0](./LICENSE-APACHE) OR [MIT](./LICENSE-MIT), at your option.
+
+Per Apache-2.0 §4(d), the `NOTICE` file bundled with this package preserves the upstream Hacker Bob attribution and must be retained when redistributing this package or a derivative work.

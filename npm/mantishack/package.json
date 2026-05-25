@@ -27,7 +27,10 @@
   "files": [
     "bin",
     "plugin",
-    "README.md"
+    "README.md",
+    "LICENSE-APACHE",
+    "LICENSE-MIT",
+    "NOTICE"
   ],
   "engines": {
     "node": ">=14"

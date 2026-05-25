@@ -42,6 +42,13 @@ VOLUME ["/workspace"]
 COPY --from=builder /build/target/release/mantis-daemon /usr/local/bin/mantis-daemon
 COPY --from=builder /build/target/release/mantis /usr/local/bin/mantis
 
+# Apache-2.0 §4(a) / §4(d): every distribution of the binaries must
+# include a copy of the License texts and the NOTICE file (which
+# preserves the upstream Hacker Bob attribution).
+COPY --from=builder /build/LICENSE-APACHE /usr/share/doc/mantishack/LICENSE-APACHE
+COPY --from=builder /build/LICENSE-MIT    /usr/share/doc/mantishack/LICENSE-MIT
+COPY --from=builder /build/NOTICE         /usr/share/doc/mantishack/NOTICE
+
 EXPOSE 8080
 
 # Healthcheck hits the Web UI /healthz endpoint when enabled.

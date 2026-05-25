@@ -126,6 +126,13 @@ jobs:
             done
           fi
           ls -la "$pkg_dir/bin"
+      - name: Sync LICENSE/NOTICE into platform package (Apache-2.0 §4(a)/§4(d))
+        run: |
+          pkg_dir="npm/platforms/${{ matrix.npm_key }}"
+          for f in LICENSE-APACHE LICENSE-MIT NOTICE; do
+            cp "$f" "$pkg_dir/$f"
+          done
+          ls -la "$pkg_dir"/{LICENSE-APACHE,LICENSE-MIT,NOTICE}
       - name: Upload platform package as artifact
         uses: actions/upload-artifact@v4
         with:
@@ -189,6 +196,14 @@ jobs:
           rm -rf npm/mantishack/plugin
           mkdir -p npm/mantishack/plugin
           cp -R plugin/claude-code npm/mantishack/plugin/claude-code
+      - name: Sync LICENSE/NOTICE into mantishack + mantis-cli (Apache-2.0 §4(a)/§4(d))
+        run: |
+          for pkg in npm/mantishack npm/mantis-cli; do
+            for f in LICENSE-APACHE LICENSE-MIT NOTICE; do
+              cp "$f" "$pkg/$f"
+            done
+            ls -la "$pkg"/{LICENSE-APACHE,LICENSE-MIT,NOTICE}
+          done
       - name: Wait for platform packages to be queryable
         run: |
           VER="${{ needs.verify-version.outputs.version }}"

@@ -23,7 +23,10 @@
   },
   "files": [
     "bin",
-    "README.md"
+    "README.md",
+    "LICENSE-APACHE",
+    "LICENSE-MIT",
+    "NOTICE"
   ],
   "engines": {
     "node": ">=14"

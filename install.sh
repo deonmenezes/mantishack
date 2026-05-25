@@ -84,6 +84,19 @@ install -m 0755 "$BUILD_DIR/target/release/mantis" "$BIN_DIR/mantis"
 log "installed: $BIN_DIR/mantis-daemon"
 log "installed: $BIN_DIR/mantis"
 
+# 3-license. Apache-2.0 §4(a)/§4(d): ship LICENSE texts + NOTICE next
+# to the binaries so users keep them locally after the build dir is
+# pruned. NOTICE preserves the upstream Hacker Bob (Apache-2.0)
+# attribution required by §4(d).
+LICENSE_DIR="$PREFIX/share/mantishack"
+mkdir -p "$LICENSE_DIR"
+for f in LICENSE-APACHE LICENSE-MIT NOTICE; do
+    if [ -f "$BUILD_DIR/$f" ]; then
+        install -m 0644 "$BUILD_DIR/$f" "$LICENSE_DIR/$f"
+    fi
+done
+log "installed: $LICENSE_DIR/{LICENSE-APACHE,LICENSE-MIT,NOTICE}"
+
 # 3a. Recon tools (subfinder, httpx, katana, nuclei, jwt_tool) ----------------
 # Auto-fetched into the per-repo `tools/recon/bin/` so the recon-agent has
 # them at engagement start without operator setup. Best-effort: if the host
