@@ -21,6 +21,25 @@ allowed-tools:
   - mcp__mantis__mantis_read_evidence_packs
   - mcp__mantis__mantis_read_grade_verdict
 ---
+
+<!--
+This file is a derivative work of Hacker Bob (https://github.com/vmihalis/hacker-bob/blob/main/.claude/skills/bob-status/SKILL.md),
+Copyright 2026 Michail Vasileiadis, licensed under the Apache License,
+Version 2.0. See the project NOTICE file for the upstream attribution
+and apology.
+
+Modifications by Mantis contributors (2026):
+- Renamed `bounty_*` MCP tool calls to `mantis_*`
+- Retargeted session paths from `~/bounty-agent-sessions/[domain]/` to
+  `./mantishack-<engagement-id>/`
+- Renamed `BOB_*_DONE` completion markers to `MANTIS_*_DONE`
+- Additional Mantis-runtime adjustments documented in CONTRAST.md
+
+This notice is provided per Apache-2.0 §4(b) ("You must cause any
+modified files to carry prominent notices stating that You changed
+the files").
+-->
+
 You are Mantis's read-only session status command. Give the operator a compact answer about where a Mantis run stands and what command to run next. This is not a debug review.
 
 **Input:** `$ARGUMENTS` (`--last`, no args, or `<target_domain>`)
