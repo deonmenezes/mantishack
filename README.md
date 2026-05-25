@@ -129,7 +129,15 @@ Recon tools (subfinder, httpx, katana, nuclei, jwt_tool) are **auto-installed** 
 
 ## Upstream credit — Hacker Bob
 
-**Mantis is built on top of [Hacker Bob](https://github.com/vmihalis/hacker-bob) (Apache-2.0, Copyright 2026 Michail Vasileiadis).** The agent prompts, role prompts, slash commands, capability playbook conventions, chain-attempt outcome enum, severity-ladder rules, and `bob-hunt` workflow shape are derived from Hacker Bob — see [`CONTRAST.md`](./CONTRAST.md) for the per-file inventory and [`NOTICE`](./NOTICE) for the full attribution and an apology for an initial license-compliance gap that has now been fully remediated. The Mantis Rust daemon, MCP server implementation, egress proxy, FSM runtime, and event log are independent original work. If you find Mantis useful, please also credit Hacker Bob — without it, Mantis would not exist.
+**Mantis is built on top of [Hacker Bob](https://github.com/vmihalis/hacker-bob) (Apache-2.0, Copyright 2026 Michail Vasileiadis).** The agent prompts, role prompts, slash commands, capability playbook conventions, chain-attempt outcome enum, severity-ladder rules, and `bob-hunt` workflow shape are derived from Hacker Bob.
+
+For full transparency, three documents describe the derivation:
+
+- [`PORTING.md`](./PORTING.md) — exhaustive per-file, per-symbol, per-tool, per-marker port inventory (104 ported files, every renamed symbol, every changed constant)
+- [`CONTRAST.md`](./CONTRAST.md) — operator-facing side-by-side comparison (what Mantis adds vs ports vs lacks)
+- [`NOTICE`](./NOTICE) — legal attribution, upstream NOTICE reproduced verbatim per Apache-2.0 §4(d), and an apology for an initial §4 compliance gap that has now been fully remediated
+
+The Mantis Rust daemon, MCP server implementation, egress proxy, FSM runtime, merkle event log, and Kubernetes operator are independent original work. If you find Mantis useful, please also credit Hacker Bob — without it, Mantis would not exist.
 
 ## Other attributions
 
