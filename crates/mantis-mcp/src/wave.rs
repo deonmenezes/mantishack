@@ -1,5 +1,25 @@
 //! Wave-based parallel hunter coordination.
 //!
+//! # Apache-2.0 §4(b) notice — derivative work
+//!
+//! Portions of this file are derived from Hacker Bob
+//! (<https://github.com/vmihalis/hacker-bob>), Copyright 2026 Michail
+//! Vasileiadis, licensed under the Apache License, Version 2.0. The
+//! `ChainAttemptOutcome` enum and the severity-ladder rules
+//! (`LOW + LOW = LOW`, max(input)+1 without rationale, max(input)+2
+//! with explicit `elevation:` rationale, no jump-the-rung) are ported
+//! verbatim from Hacker Bob's `prompts/roles/chain.md` and
+//! `mcp/lib/chain-attempts.js`. The surrounding Rust implementation
+//! (filesystem layout, atomic writes, the wave orchestration tools)
+//! is independent and was written from scratch.
+//!
+//! See the project NOTICE for the upstream attribution and the
+//! compliance-history apology. This notice is provided per
+//! Apache-2.0 §4(b) ("You must cause any modified files to carry
+//! prominent notices stating that You changed the files").
+//!
+//! # Wave protocol
+//!
 //! A *wave* is a batch of N concurrent hunter assignments against an
 //! engagement. The orchestrator decides how many hunters to spawn and
 //! what surfaces each one owns; each hunter writes its own handoff
@@ -21,11 +41,6 @@
 //! Each hunter writes to its own file, so there is no shared-write
 //! contention even when hunters run in parallel. Writes are atomic
 //! (temp-file + rename(2) on the same filesystem).
-//!
-//! The pattern is inspired by Hacker Bob's wave/handoff mechanism
-//! (Apache-2.0, Copyright 2026 Michail Vasileiadis and contributors)
-//! — see `/NOTICE` for full attribution. The implementation here is
-//! independent Rust; no Hacker Bob source was copied.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
