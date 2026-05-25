@@ -199,4 +199,6 @@ commands re-verify the user has authorization before running any scan.
 
 ## License
 
-Dual-licensed under Apache-2.0 OR MIT.
+Dual-licensed under [Apache-2.0](./LICENSE-APACHE) OR [MIT](./LICENSE-MIT), at your option.
+
+Third-party attributions — including the Hacker Bob (Apache-2.0) inspiration documented in [`NOTICE`](./NOTICE) — are preserved per Apache-2.0 §4(d). When redistributing this project or a derivative work, you must propagate the `NOTICE` file's attribution section.
