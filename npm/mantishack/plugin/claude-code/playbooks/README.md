@@ -1,3 +1,16 @@
+<!--
+This file is a derivative work of Hacker Bob (https://github.com/vmihalis/hacker-bob/tree/main/prompts/playbooks),
+Copyright 2026 Michail Vasileiadis, licensed under the Apache License,
+Version 2.0. See the project NOTICE for the upstream attribution and
+the compliance-history apology.
+
+Modifications by Mantis contributors (2026): renamed `bounty_*` MCP
+tool calls to `mantis_*`, retargeted session paths, renamed completion
+markers, plus Mantis-runtime adjustments documented in CONTRAST.md.
+
+This notice is provided per Apache-2.0 §4(b).
+-->
+
 # Mantis Capability Playbooks
 
 Each `.md` here is a **capability pack** — a structured procedure a
