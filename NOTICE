@@ -43,6 +43,12 @@ license texts, propagated the upstream NOTICE, and added per-file
 change headers from the first publication. We did not, and that was a
 license violation. The cure does not erase the gap; it documents it.
 
+For the exhaustive per-file, per-symbol, per-tool, per-marker port
+inventory — including every Mantis path mapped to its upstream Hacker
+Bob source URL — see `PORTING.md`. It is mechanically extractable
+from the Apache-2.0 §4(b) headers and is the single source of truth
+for what was and wasn't ported.
+
 Cure
 ----
 
