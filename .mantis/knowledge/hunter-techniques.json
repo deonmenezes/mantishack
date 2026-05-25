@@ -93,12 +93,21 @@
     {
       "id": "jwt-oauth",
       "title": "JWT, OAuth, and OIDC token trust boundaries",
+      "auto_fire": true,
+      "priority": "high",
       "match": {
         "tech": ["jwt", "oauth", "oidc", "sso", "openid", "saml"],
         "endpoints": ["/oauth", "/oidc", "/authorize", "/token", "/callback", "/.well-known", "/jwks"],
         "params": ["redirect_uri", "client_id", "state", "code", "scope", "kid", "jku", "x5u", "alg"],
         "hints": ["jwt_oauth", "auth", "login", "password reset", "token", "jwks"]
       },
+      "trigger_conditions": [
+        "Any response contains `Authorization: Bearer <token>` where `<token>` parses as a JWT (three base64url segments; header decodes to a JSON object with `alg` and `typ`).",
+        "Any `Set-Cookie` value parses as a JWT (same shape test as above).",
+        "A request to `/.well-known/openid-configuration` or `/.well-known/jwks.json` returned 200.",
+        "A login, token, or refresh endpoint responded with JSON containing any of `access_token`, `id_token`, `refresh_token`.",
+        "A signup or OAuth flow surfaced an `authorization_endpoint`, `token_endpoint`, or `jwks_uri`."
+      ],
       "techniques": [
         "For JWT, test claim trust only when the app accepts tampered tokens: alg none, RS256-to-HS256 confusion, kid path tricks, attacker JWKS, role/sub/email edits.",
         "For OAuth/OIDC, chain open redirects into redirect_uri validation, state/nonce weakness, missing PKCE, token leakage in Referer, and scope escalation.",
@@ -110,6 +119,150 @@
         "redirect_uri=https://attacker.example/callback or encoded/scheme-relative variants",
         "JWT header tests: alg=none, HS256 with public key, kid=../../../../dev/null",
         "Scope expansion: scope=openid profile email admin offline_access"
+      ],
+      "auto_probes": [
+        {
+          "id": "jwt-discover",
+          "name": "Discover JWT metadata, JWKS, and live tokens",
+          "fire_when": "Any trigger_condition matched.",
+          "actions": [
+            "GET {base}/.well-known/openid-configuration. Record: issuer, jwks_uri, authorization_endpoint, token_endpoint, response_types_supported, id_token_signing_alg_values_supported, scopes_supported.",
+            "GET {jwks_uri}. Record each key: kty, kid, alg, n/e (RSA) or crv/x/y (EC). Build {kid -> key} map.",
+            "Decode every observed JWT without verification (use mantis_decode_jwt). Record header (alg, kid, jku, x5u, x5c, jwk) and payload (iss, sub, aud, exp, iat, plus any of: role, roles, admin, is_admin, scope, scopes, groups, permissions, tenant_id, org_id).",
+            "Persist all of the above to engagement state under `engagement://auth/jwt/discovery/` so later probes don't re-fetch."
+          ],
+          "success_indicator": "At least one of {JWKS captured, live JWT captured, OIDC config captured} succeeded.",
+          "stop_if": "JWKS unreachable AND no JWT observed anywhere in the engagement — mark technique not-applicable and exit the auto_probes chain."
+        },
+        {
+          "id": "jwt-alg-none",
+          "name": "alg=none acceptance",
+          "fire_when": "jwt-discover captured a live JWT.",
+          "actions": [
+            "Build a forged token from the live JWT: set header to {\"alg\":\"none\",\"typ\":\"JWT\"}, keep payload identical, set signature segment to empty.",
+            "Establish a baseline: replay the original live JWT against a protected endpoint that returned 200 for it. Save the response body hash.",
+            "Replay the forged (alg=none) token against the same protected endpoint.",
+            "Cross-check: replay forged token against an endpoint that returned 401/403 for an unauthenticated request."
+          ],
+          "success_indicator": "Forged token returns 200 on a protected route AND the response body decodes to user-bound data whose `sub`/`email`/`user_id` matches the forged payload.",
+          "false_positive_filters": [
+            "Reject if the forged response is byte-identical (or hash-equal) to the unauthenticated baseline — the server is ignoring the token, not accepting it.",
+            "Reject if 200 is only returned on cache/health/static endpoints."
+          ],
+          "severity_on_success": "critical"
+        },
+        {
+          "id": "jwt-rs256-hs256",
+          "name": "RS256→HS256 key-confusion",
+          "fire_when": "jwt-discover captured a JWKS containing at least one RS256/RS384/RS512 public key AND a live JWT signed with that key (matched by `kid` or by header `alg`).",
+          "actions": [
+            "Export the matching public key from JWKS. Build two PEM byte representations: PKCS#1 (`-----BEGIN RSA PUBLIC KEY-----`) and SPKI (`-----BEGIN PUBLIC KEY-----`).",
+            "For each PEM variant, re-sign the live JWT payload with HMAC-SHA256 using the PEM bytes (including header/footer + newlines) as the secret. Set header.alg=HS256, keep header.kid intact.",
+            "Also try the PEM with trailing newline stripped, and with DER-encoded bytes as the secret.",
+            "Replay each variant against the same protected endpoint used as baseline in jwt-discover."
+          ],
+          "success_indicator": "Server accepts any HS256-signed variant AND returns user-bound data.",
+          "severity_on_success": "critical"
+        },
+        {
+          "id": "jwt-kid-tricks",
+          "name": "kid traversal, SQLi, and command-injection sinks",
+          "fire_when": "jwt-discover captured a JWT whose header contains `kid`.",
+          "actions": [
+            "Forge a token with kid=`../../../../dev/null` signed with HMAC-SHA256 using an empty key (the file `/dev/null` reads as empty).",
+            "Forge a token with kid=`/dev/null` (no traversal) same signature scheme.",
+            "Forge a token with kid=`' UNION SELECT 'AAAA' --` signed with HMAC-SHA256(`AAAA`). If the server resolves kid via SQL, the union returns `AAAA` as the key.",
+            "Forge a token with kid containing a newline + command-injection payload (only if backend hints suggest shell resolution).",
+            "Replay each forged token against the baseline protected endpoint."
+          ],
+          "success_indicator": "Any forged kid variant returns 200 on a protected route with user-bound data.",
+          "severity_on_success": "high"
+        },
+        {
+          "id": "jwt-jku-x5u",
+          "name": "Attacker-controlled JWKS via jku / x5u / jwk",
+          "fire_when": "jwt-discover captured a JWT with any of {jku, x5u, x5c, jwk} in its header, OR egress allowlist permits an attacker callback host.",
+          "actions": [
+            "Generate an RSA keypair locally. Build a JWKS document containing the public half with kid matching the live token's kid.",
+            "Publish the JWKS via mantis-egress at an https URL on the allowlisted attacker domain.",
+            "Re-sign the live JWT payload with the local private key. Set header.jku (or x5u / jwk) to the published URL. Keep header.alg as RS256.",
+            "Replay against the baseline protected endpoint. In parallel, watch the mantis-egress access log for the JWKS fetch."
+          ],
+          "success_indicator": "mantis-egress log shows the server fetched the attacker JWKS AND the replayed request returned 200 with user-bound data.",
+          "severity_on_success": "critical",
+          "skip_if": "Egress allowlist does not permit a publicly reachable attacker host — emit a `skipped_for_safety` note and continue."
+        },
+        {
+          "id": "jwt-claim-tampering",
+          "name": "Privileged claim tampering",
+          "fire_when": "jwt-discover captured a JWT whose payload contains any of: `role`, `roles`, `admin`, `is_admin`, `scope`, `scopes`, `groups`, `permissions`, `tenant_id`, `org_id`, `tier`, `plan`.",
+          "actions": [
+            "For each privileged claim, build a forged payload with elevated values: role=`admin`, is_admin=`true`, scope=`admin offline_access`, groups=`[\"admins\",\"owners\"]`, tenant_id swapped to a sibling tenant captured from a second account.",
+            "Produce two forged variants per claim edit: (a) re-signed with alg=none, (b) re-encoded without re-signing (some servers do not re-verify the signature).",
+            "Discover admin-only endpoints from the crawl: routes that returned 403 for the engagement user, or routes containing `/admin`, `/internal`, `/owner`, `/audit`.",
+            "Replay each forged variant against each candidate admin route."
+          ],
+          "success_indicator": "An admin route returns 200 with an admin-shaped response body (e.g., contains a list of users, billing data, or audit log entries the engagement user did not previously see).",
+          "false_positive_filters": [
+            "Reject if the admin route returns 200 for the engagement user with the original token as well — the route is not actually privileged."
+          ],
+          "severity_on_success": "critical"
+        },
+        {
+          "id": "oauth-redirect-uri",
+          "name": "redirect_uri validation",
+          "fire_when": "jwt-discover captured an `authorization_endpoint` OR any auth flow URL contained a `redirect_uri` parameter.",
+          "actions": [
+            "Enumerate the registered redirect_uri (from prior flows) — call its origin `victim.com/callback`.",
+            "Probe the authorize endpoint with these variants of redirect_uri: `https://attacker.example/callback`, `https://victim.com.attacker.example/callback`, `https://victim.com@attacker.example`, `https://victim.com/../../../attacker.example`, scheme-relative `//attacker.example`, percent-encoded `https%3A%2F%2Fattacker.example%2Fcallback`, and the registered URI with appended path `https://victim.com/callback/../../attacker`.",
+            "For each variant, follow the response and record whether the final Location contains `code=` or `access_token=` AND whose host that Location targets."
+          ],
+          "success_indicator": "Authorization server issues a `code` or `access_token` to a Location whose host is not the registered redirect_uri host.",
+          "severity_on_success": "high"
+        },
+        {
+          "id": "oauth-state-pkce",
+          "name": "state / nonce / PKCE weakness",
+          "fire_when": "jwt-discover captured an `authorization_endpoint`.",
+          "actions": [
+            "Initiate three authorize flows: (a) with no `state` param, (b) with a reused `state` from a prior flow, (c) with a predictable `state` (e.g., `state=1`).",
+            "Initiate an authorize flow against the public-client config with no `code_challenge` / `code_challenge_method` (PKCE) params.",
+            "Drive each flow to completion at the token endpoint. Record whether each issued a token."
+          ],
+          "success_indicator": "Token endpoint issues an access_token for a flow that omitted state OR omitted PKCE on a public client.",
+          "severity_on_success": "medium"
+        },
+        {
+          "id": "oauth-scope-escalation",
+          "name": "Scope escalation via refresh",
+          "fire_when": "A `refresh_token` was captured AND the `token_endpoint` is reachable.",
+          "actions": [
+            "Read `scopes_supported` from /.well-known/openid-configuration. Identify scopes the engagement user did not originally request (e.g., `admin`, `offline_access`, vendor-specific elevated scopes).",
+            "POST to token_endpoint with grant_type=refresh_token, refresh_token=<captured>, scope=`<original_scopes> admin offline_access`.",
+            "Decode the resulting access_token. Compare its scope claim to the requested scope.",
+            "Use the new access_token against an endpoint that previously returned 403 for the original scope."
+          ],
+          "success_indicator": "Refresh issues an access_token whose decoded scope claim contains a scope never granted by the user AND that scope unlocks a previously-403 endpoint.",
+          "severity_on_success": "high"
+        }
+      ],
+      "evidence_capture": {
+        "required_per_finding": [
+          "Original (untampered) JWT, in `header.payload.signature` form.",
+          "Forged JWT exactly as sent on the wire.",
+          "Decoded JSON of original and forged header+payload, with a unified diff between the two payloads.",
+          "Full HTTP request and response for the baseline (untampered) call.",
+          "Full HTTP request and response for the forged call that triggered success_indicator.",
+          "For jku/x5u: the mantis-egress access-log entry showing the server-side JWKS fetch.",
+          "A second, independent replay of the forged request from a clean session to demonstrate reproducibility."
+        ],
+        "store_under": "engagement://claims/{claim_id}/auth-jwt-oauth/"
+      },
+      "stop_conditions": [
+        "Every probe in auto_probes ran and none hit its success_indicator — emit `not-vulnerable` summary listing what was tested, and stop. Do not iterate.",
+        "Any probe with severity_on_success `critical` confirmed — emit the claim, attach evidence, hand off to mantis-claim and mantis-verify, and stop iterating this surface to avoid noisy duplicate findings.",
+        "Egress, scope-guard, or auth-differential gates refused a probe — record `skipped` with reason, continue to the next probe.",
+        "Engagement request budget exhausted — flush partial findings and exit cleanly."
       ]
     },
     {
