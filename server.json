@@ -1,0 +1,37 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.deonmenezes/mantishack",
+  "description": "Autonomous bug bounty hunter for authorized engagements — 7-phase FSM with verification cascade.",
+  "title": "Mantis",
+  "websiteUrl": "https://mantishack.com",
+  "repository": {
+    "url": "https://github.com/deonmenezes/mantishack",
+    "source": "github"
+  },
+  "version": "0.0.9",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "mantishack",
+      "version": "0.0.9",
+      "transport": {
+        "type": "stdio"
+      },
+      "runtimeHint": "npx",
+      "runtimeArguments": [
+        {
+          "type": "named",
+          "name": "-p",
+          "value": "mantishack",
+          "isRequired": true
+        },
+        {
+          "type": "positional",
+          "value": "mantis-mcp",
+          "isRequired": true
+        }
+      ]
+    }
+  ]
+}
