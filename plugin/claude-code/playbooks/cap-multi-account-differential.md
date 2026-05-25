@@ -1,3 +1,12 @@
+<!--
+This file is a derivative work of, or substantially inspired by,
+content from Hacker Bob (https://github.com/vmihalis/hacker-bob/blob/main/prompts/playbooks/C4_multi_account_differential.md),
+Copyright 2026 Michail Vasileiadis, licensed under the Apache License,
+Version 2.0. See the project NOTICE for the upstream attribution and
+the compliance-history apology. This notice is provided per
+Apache-2.0 §4(b).
+-->
+
 # cap-multi-account-differential
 
 **Capability:** Confirm an endpoint returns the same response when
