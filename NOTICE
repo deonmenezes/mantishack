@@ -69,12 +69,40 @@ Hacker Bob
       `record_chain_attempt` writing to
       `waves/<n>/chain-attempts.jsonl`.
 
-  All Rust code and Mantis playbook markdown is original.
+  All Rust code in `crates/` and Mantis-original playbook markdown is
+  written from scratch. Mantis's MCP server is an independent Rust
+  implementation built on the `rmcp` crate; no Node.js source from
+  Hacker Bob was copied.
 
-  Mantis's MCP server is an independent Rust implementation built on
-  the `rmcp` crate; no Hacker Bob source code was copied or ported.
-  Hacker Bob is implemented in Node.js and lives in its own
-  repository under its own copyright.
+  However, Mantis's Claude Code / Codex plugin surface
+  (`plugin/claude-code/agents/`, `plugin/claude-code/commands/`,
+  `prompts/roles/`) contains files ported verbatim from Hacker Bob
+  with `bounty_*` MCP tool calls renamed to `mantis_*` and session
+  paths retargeted. The workflow logic, severity heuristics,
+  capability-pack table, and completion markers (renamed from
+  `BOB_*_DONE` to `MANTIS_*_DONE`) are preserved verbatim. See
+  `CONTRAST.md` for the per-file inventory and
+  https://github.com/vmihalis/hacker-bob/tree/main/.claude/agents
+  for the upstream originals.
 
-  Grateful acknowledgement is given to the Hacker Bob project under
-  the Apache 2.0 attribution mechanism.
+  These ported files are derivative works of Hacker Bob under
+  Apache License 2.0. The Hacker Bob NOTICE text is reproduced
+  verbatim below as required by Apache-2.0 §4(d).
+
+  Grateful acknowledgement is given to the Hacker Bob project.
+
+  --- Upstream NOTICE (reproduced verbatim from
+      https://github.com/vmihalis/hacker-bob/blob/main/NOTICE
+      per Apache License 2.0 §4(d)) ---
+
+  Hacker Bob
+  Copyright 2026 Michail Vasileiadis
+
+  This product includes software developed by Michail Vasileiadis
+  and contributors to the Hacker Bob project.
+
+  Hacker Bob is licensed under the Apache License, Version 2.0.
+  See LICENSE for details. See DISCLAIMER.md for usage terms specific
+  to security testing.
+
+  --- end upstream NOTICE ---
