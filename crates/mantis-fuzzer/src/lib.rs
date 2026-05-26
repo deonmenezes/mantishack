@@ -33,14 +33,60 @@ pub enum Mutation {
 }
 
 impl Mutation {
+    /// Apply this mutation and return a new String. Kept for the
+    /// borrowed-input call shape (used by tests + external callers).
     pub fn apply(&self, input: &str) -> String {
         match self {
-            Mutation::Prefix(p) => format!("{p}{input}"),
-            Mutation::Suffix(s) => format!("{input}{s}"),
+            Mutation::Prefix(p) => {
+                let mut out = String::with_capacity(p.len() + input.len());
+                out.push_str(p);
+                out.push_str(input);
+                out
+            }
+            Mutation::Suffix(s) => {
+                let mut out = String::with_capacity(input.len() + s.len());
+                out.push_str(input);
+                out.push_str(s);
+                out
+            }
             Mutation::Replace { from, to } => input.replace(from, to),
-            Mutation::Wrap { before, after } => format!("{before}{input}{after}"),
+            Mutation::Wrap { before, after } => {
+                let mut out = String::with_capacity(before.len() + input.len() + after.len());
+                out.push_str(before);
+                out.push_str(input);
+                out.push_str(after);
+                out
+            }
             Mutation::Base64 => base64_encode(input.as_bytes()),
             Mutation::UrlEncode => url_encode(input),
+        }
+    }
+
+    /// Apply this mutation in-place when possible. For Prefix, Suffix,
+    /// and Wrap this avoids a fresh allocation per step in the fuzzer
+    /// hot loop: insert_str + push_str reuse the existing String
+    /// buffer. For mutations that fundamentally produce a new shape
+    /// (Replace, Base64, UrlEncode) the function still allocates a
+    /// new String and swaps it in.
+    pub fn apply_in_place(&self, input: &mut String) {
+        match self {
+            Mutation::Prefix(p) => input.insert_str(0, p),
+            Mutation::Suffix(s) => input.push_str(s),
+            Mutation::Wrap { before, after } => {
+                input.insert_str(0, before);
+                input.push_str(after);
+            }
+            Mutation::Replace { from, to } => {
+                if input.contains(from.as_str()) {
+                    *input = input.replace(from, to);
+                }
+            }
+            Mutation::Base64 => {
+                *input = base64_encode(input.as_bytes());
+            }
+            Mutation::UrlEncode => {
+                *input = url_encode(input);
+            }
         }
     }
 }
@@ -75,8 +121,11 @@ pub fn generate(grammar: &Grammar, count: usize, rng_seed: u64) -> Vec<Variant> 
     let mut variants = Vec::with_capacity(count);
     for _ in 0..count {
         let seed_idx = (rng.next_u32() as usize) % grammar.seeds.len();
-        let seed = grammar.seeds[seed_idx].clone();
-        let mut payload = seed.clone();
+        let seed_ref = &grammar.seeds[seed_idx];
+        // Single clone of the seed (was two: once into `seed`, once into
+        // `payload`). The provenance.seed clone happens at variant
+        // construction time below.
+        let mut payload = seed_ref.clone();
         let mutations_to_apply = if grammar.mutations.is_empty() {
             0
         } else {
@@ -85,15 +134,18 @@ pub fn generate(grammar: &Grammar, count: usize, rng_seed: u64) -> Vec<Variant> 
         let mut applied = Vec::with_capacity(mutations_to_apply);
         for _ in 0..mutations_to_apply {
             let m_idx = (rng.next_u32() as usize) % grammar.mutations.len();
-            let mutation = grammar.mutations[m_idx].clone();
-            payload = mutation.apply(&payload);
-            applied.push(mutation);
+            // apply_in_place reuses the payload String buffer for
+            // Prefix / Suffix / Wrap mutations (the common case) —
+            // saves one String alloc per step compared to the
+            // previous `payload = mutation.apply(&payload)`.
+            grammar.mutations[m_idx].apply_in_place(&mut payload);
+            applied.push(grammar.mutations[m_idx].clone());
         }
         variants.push(Variant {
             vuln_class: grammar.vuln_class.clone(),
             payload,
             provenance: VariantProvenance {
-                seed,
+                seed: seed_ref.clone(),
                 mutations: applied,
             },
         });

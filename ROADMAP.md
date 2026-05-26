@@ -142,7 +142,7 @@ Lives under [`mantis-compliance`](./crates/mantis-compliance). Static lookup tab
 
 - [x] **Regression testbed catalog** — `mantis_bench::testbeds` ships static `Testbed` entries for [DVWA](https://github.com/digininja/DVWA), [OWASP Juice Shop](https://github.com/juice-shop/juice-shop), [WebGoat](https://github.com/WebGoat/WebGoat), and a [VulnHub](https://www.vulnhub.com/) placeholder — each with Docker image, default port, expected `vuln_class` findings, and recommended scan profile. Harness for actual run/compare lives in the engagement runner.
 - [x] **Public benchmark suite vs. Nuclei, ZAP, Nessus** — `mantis_bench::baseline` provides `BaselineScanner` (Nuclei/ZAP/Nessus), `FindingSet`, `ConfusionStats` (precision/recall/F1), and `BenchmarkRow` capturing Mantis-only vs baseline-only deltas against ground truth.
-- [ ] Reproducibility tests for evidence chain — tracked in `mantis-verify` / `mantis-chain` (chain replays exist; CI-level reproducibility harness still pending).
+- [x] **Reproducibility tests for evidence chain** — `mantis_bench::reproducibility::compare_runs` classifies each benchmark across two runs into `Match` / `StatusDrift` / `FlagDrift` / `OnlyInLeft` / `OnlyInRight`, computes a `reproducibility_rate`, and exposes `is_fully_reproducible` for CI gating.
 
 ---
 
