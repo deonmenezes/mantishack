@@ -14,8 +14,16 @@
 //!   memory-growth caps
 //! - microVM backend (Firecracker/QEMU) — lands in M2.1c
 
+// Firecracker is a Linux microVM technology built on KVM; it only runs on
+// Unix-like platforms. Gating the module avoids the Windows test failure
+// on `tokio::net::UnixStream`, which doesn't exist on Windows. On Windows
+// the FirecrackerBackend is simply not exported; users get a clear
+// "feature unavailable" at the type level rather than a confusing build
+// error deep inside an HTTP-over-Unix-socket call.
+#[cfg(unix)]
 pub mod firecracker_backend;
 pub mod wasmtime_backend;
+#[cfg(unix)]
 pub use firecracker_backend::FirecrackerBackend;
 pub use wasmtime_backend::WasmtimeBackend;
 
