@@ -16,6 +16,8 @@ use mantis_core::EngagementId;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+pub mod resume;
+
 #[derive(Debug, Error)]
 pub enum HibernationError {
     #[error("io: {0}")]

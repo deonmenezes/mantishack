@@ -95,6 +95,10 @@ function parseForm(body) {
       // Drop pathological keys early (prototype-pollution defense even
       // though we use a null-proto object).
       if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
+      // Reject duplicates — a legitimate browser form never sends them,
+      // but a hostile payload could try to overwrite an earlier value
+      // with a later one. Keep the FIRST occurrence and ignore the rest.
+      if (k in out) continue;
       out[k] = decodeURIComponent(rawVal.replace(/\+/g, " "));
     } catch {
       // Skip malformed pair.
@@ -197,7 +201,27 @@ function startCallbackServer(expectedSession) {
         return;
       }
 
+      // Host-header guard — defense against DNS rebinding. The kernel
+      // binds us to 127.0.0.1, but a victim browser pointed at
+      // attacker.com (rebound to 127.0.0.1 mid-flight) would still hit
+      // this server with `Host: attacker.com`. Refuse anything that
+      // isn't a loopback hostname.
+      const hostHeader = (req.headers.host || "").toString().toLowerCase();
+      if (!/^(127\.0\.0\.1|localhost|\[::1\])(:\d{1,5})?$/.test(hostHeader)) {
+        res.writeHead(403, HARDENED_HEADERS);
+        res.end("bad host");
+        return;
+      }
+
       const origin = (req.headers.origin || "").toString();
+      // Reject the literal "null" origin explicitly — sandboxed iframes,
+      // file:// pages, and some sandboxed cross-site contexts send it,
+      // and we never want any of those flows.
+      if (origin === "null") {
+        res.writeHead(403, HARDENED_HEADERS);
+        res.end("null origin not allowed");
+        return;
+      }
 
       if (req.method === "OPTIONS") {
         if (!origin || !allowedOrigins.has(origin)) {

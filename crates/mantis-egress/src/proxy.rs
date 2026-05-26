@@ -114,12 +114,19 @@ async fn handle_connect(
         path: None,
         protocol: Protocol::Https,
     });
-    let in_scope = matches!(decision, ScopeDecision::InScope);
-    let reason = match &decision {
-        ScopeDecision::InScope => format!("connect {}:{}", req.host, req.port),
-        ScopeDecision::OutOfScope { reason } => reason.clone(),
+    // Compute in_scope + log-payload reason in one match so `decision`
+    // is consumed exactly once. The prior code cloned the
+    // OutOfScope.reason and then immediately cloned it again inside
+    // log_decision (.to_owned()) — two allocations of the same string
+    // per rejected connection. Now: one allocation, moved through.
+    let (in_scope, reason): (bool, String) = match decision {
+        ScopeDecision::InScope => (
+            true,
+            format!("connect {}:{}", req.host, req.port),
+        ),
+        ScopeDecision::OutOfScope { reason } => (false, reason),
     };
-    log_decision(&cfg, &req, in_scope, &reason).await?;
+    log_decision(&cfg, &req, in_scope, reason).await?;
     if !in_scope {
         warn!(host = %req.host, port = req.port, %peer, "out-of-scope CONNECT rejected");
         write_response(&mut stream, 403, "Out of scope").await?;
@@ -192,12 +199,15 @@ async fn log_decision(
     cfg: &EgressConfig,
     req: &ConnectRequest,
     in_scope: bool,
-    reason: &str,
+    reason: String,
 ) -> Result<(), EgressError> {
+    // `reason` is moved in — caller already owns it. The prior version
+    // took &str and immediately .to_owned()-cloned, which doubled the
+    // allocation count of every CONNECT.
     let kind = EventKind::ScopeDecisionLogged {
         in_scope,
         target: format!("{}:{}", req.host, req.port),
-        reason: reason.to_owned(),
+        reason,
     };
     cfg.event_store
         .append(cfg.engagement_id, kind, cfg.signer.as_ref())?;
