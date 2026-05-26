@@ -235,16 +235,26 @@ fn detect_debug_and_config_exposure(surfaces: &[HttpSurface], out: &mut Vec<Anom
     }
 }
 
+/// Case-insensitive substring check across all needles. Lowercases
+/// `s` once (allocating) and then runs str::contains for each needle.
+fn contains_any_ci(s: &str, needles: &[&str]) -> bool {
+    let lc = s.to_ascii_lowercase();
+    needles.iter().any(|n| lc.contains(n))
+}
+
 fn detect_jwt_signals(findings: &[Finding], out: &mut Vec<Anomaly>) {
+    const NEEDLES: &[&str] = &["jwt", "bearer "];
     for f in findings {
-        let blob = format!(
-            "{} {} {}",
-            f.title,
-            f.description,
-            f.meta.values().cloned().collect::<Vec<_>>().join(" ")
-        )
-        .to_ascii_lowercase();
-        if blob.contains("jwt") || blob.contains("bearer ") {
+        // Check each field separately and short-circuit on first hit.
+        // The prior version built one big blob by cloning every meta
+        // value, collecting into a Vec, joining with " ", format!()-ing
+        // title+desc+blob into a third String, then to_ascii_lowercase
+        // on the result — 5+ allocations per finding even when no
+        // signal is present.
+        let hit = contains_any_ci(&f.title, NEEDLES)
+            || contains_any_ci(&f.description, NEEDLES)
+            || f.meta.values().any(|v| contains_any_ci(v, NEEDLES));
+        if hit {
             out.push(Anomaly::new(
                 AnomalyKind::JwtPresent,
                 &f.target,
@@ -258,12 +268,14 @@ fn detect_jwt_signals(findings: &[Finding], out: &mut Vec<Anomaly>) {
 }
 
 fn detect_env_leak(findings: &[Finding], out: &mut Vec<Anomaly>) {
+    const NEEDLES: &[&str] = &["debug", "staging", "test-key"];
     for f in findings {
         if f.severity == Severity::Critical || f.severity == Severity::High {
             continue; // already prominent on its own
         }
-        let blob = format!("{} {}", f.title, f.description).to_ascii_lowercase();
-        if blob.contains("debug") || blob.contains("staging") || blob.contains("test-key") {
+        // Skip the format!() + to_ascii_lowercase() round trip. Check
+        // title and description independently; lowercase each once.
+        if contains_any_ci(&f.title, NEEDLES) || contains_any_ci(&f.description, NEEDLES) {
             out.push(Anomaly::new(
                 AnomalyKind::EnvLeak,
                 &f.target,
