@@ -206,10 +206,24 @@ dbg_macro = "warn"
 
 [profile.release]
 opt-level = 3
-lto = "thin"
+lto = "fat"           # cross-crate inlining; ~5-10% perf on hot paths, slower link
 codegen-units = 1
 strip = "symbols"
+panic = "abort"       # daemon recovers via Result; unwind tables are dead weight
+incremental = false   # release builds shouldn't carry incremental metadata
+overflow-checks = false  # explicit; default for release, restate for clarity
 
 [profile.dev]
 opt-level = 0
 debug = "line-tables-only"
+# Dependencies still benefit from -O1 in dev — Rust crates are slow at opt-level=0
+# and dev-build wait time is dominated by deps, not the workspace.
+[profile.dev.package."*"]
+opt-level = 1
+
+# A `release-fast` profile for developer iteration: full opt without the
+# fat-LTO link delay. Run via `cargo build --profile release-fast`.
+[profile.release-fast]
+inherits = "release"
+lto = "thin"
+codegen-units = 16
