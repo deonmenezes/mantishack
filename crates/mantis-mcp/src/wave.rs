@@ -201,6 +201,76 @@ pub fn chain_attempts_path(engagement_id: &str, wave_number: u32) -> PathBuf {
     wave_dir(engagement_id, wave_number).join("chain-attempts.jsonl")
 }
 
+// ---------- Mantis-native vocabulary (architectural primitives #3, #4, #5) ----------
+//
+// Per docs/ARCHITECTURE_RENAME_PROPOSAL.md the wave / handoff / merge
+// vocabulary is being replaced with the Mantis-native pass / transcript /
+// reconcile vocabulary. The aliases and new path helpers below let new code
+// use the canonical names; existing code continues to work unchanged via the
+// legacy names above. The full file/type rename (`wave.rs` → `pass.rs`,
+// `Wave*` → `Pass*`, `waves/` → `passes/` on disk) lands as a coordinated
+// follow-up after all in-process callers have migrated.
+
+/// Mantis-native alias: a hunter's work-slot within a pass.
+/// Identical to [`Assignment`] (the legacy name was wave-oriented).
+pub type PassSlot = Assignment;
+
+/// Mantis-native alias: the artifact a hunter writes on completion.
+/// Identical to [`Handoff`] — renamed to reflect the forensic-investigation
+/// metaphor used across the rewritten role prompts.
+pub type Transcript = Handoff;
+
+/// Mantis-native alias: the per-slot progress record reported by status.
+pub type PassSlotStatus = AssignmentStatus;
+
+/// Mantis-native alias: aggregate of all transcripts in a pass after
+/// reconciliation.
+pub type ReconciledPass = WaveMerge;
+
+/// Mantis-native alias: snapshot of a pass's progress.
+pub type PassStatus = WaveStatus;
+
+/// Mantis-native filesystem path: `./mantishack-<id>/passes/`.
+///
+/// Mirrors [`waves_root`] but under the new `passes/` directory name. New
+/// engagement state writes should land here; legacy `waves/` is retained
+/// for backward compatibility until the coordinated migration completes.
+pub fn passes_root(engagement_id: &str) -> PathBuf {
+    engagement_dir(engagement_id).join("passes")
+}
+
+/// Mantis-native filesystem path: `./mantishack-<id>/passes/<n>/`.
+pub fn pass_dir(engagement_id: &str, pass_number: u32) -> PathBuf {
+    passes_root(engagement_id).join(pass_number.to_string())
+}
+
+/// Mantis-native filesystem path for one role's transcript within a pass.
+/// Convention: `./mantishack-<id>/passes/<n>/<role>-<slot-id>.json`.
+pub fn transcript_path(
+    engagement_id: &str,
+    pass_number: u32,
+    role: &str,
+    slot_id: &str,
+) -> PathBuf {
+    pass_dir(engagement_id, pass_number).join(format!("{role}-{slot_id}.json"))
+}
+
+/// Mantis-native filesystem path: `./mantishack-<id>/passes/<n>/findings.ndjson`.
+/// The Mantis-native alternative to the legacy
+/// `waves/<n>/chain-attempts.jsonl` location, using the canonical
+/// newline-delimited-JSON (`.ndjson`) extension instead of `.jsonl`.
+pub fn pass_findings_path(engagement_id: &str, pass_number: u32) -> PathBuf {
+    pass_dir(engagement_id, pass_number).join("findings.ndjson")
+}
+
+/// Mantis-native filesystem path: per-pass reconciled aggregate
+/// (`./mantishack-<id>/passes/<n>/reconciled.json`).
+pub fn reconciled_pass_path(engagement_id: &str, pass_number: u32) -> PathBuf {
+    pass_dir(engagement_id, pass_number).join("reconciled.json")
+}
+
+// ---------- legacy validators and persistence (unchanged below) ----------
+
 const CHAIN_OUTCOMES: &[&str] = &[
     "confirmed",
     "denied",
@@ -835,5 +905,85 @@ mod tests {
         let bytes = std::fs::read(merged_path(eng, 1)).unwrap();
         let parsed: WaveMerge = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(parsed.findings_total, 3);
+    }
+
+    // ----- Mantis-native vocabulary aliases (architectural primitive #3) -----
+
+    #[test]
+    fn pass_slot_alias_is_assignment() {
+        // Type alias compatibility — a PassSlot value is interchangeable
+        // with an Assignment everywhere.
+        let s: PassSlot = Assignment {
+            id: "slot-1".into(),
+            surfaces: vec![],
+            vuln_classes: vec![],
+            notes: None,
+        };
+        let a: Assignment = s;
+        assert_eq!(a.id, "slot-1");
+    }
+
+    #[test]
+    fn transcript_alias_is_handoff() {
+        let t: Transcript = Handoff {
+            assignment_id: "slot-1".into(),
+            hunter: "mantis-hunter".into(),
+            started_at_unix: 0,
+            completed_at_unix: 1,
+            findings: vec![],
+            dead_ends: vec![],
+            coverage: vec![],
+        };
+        let h: Handoff = t;
+        assert_eq!(h.assignment_id, "slot-1");
+    }
+
+    #[test]
+    fn passes_root_uses_passes_directory() {
+        let p = passes_root("01ABCDEF");
+        assert!(
+            p.to_string_lossy().ends_with("passes"),
+            "expected path ending in 'passes', got {}",
+            p.display()
+        );
+    }
+
+    #[test]
+    fn pass_dir_uses_passes_subdirectory() {
+        let p = pass_dir("01ABCDEF", 3);
+        let s = p.to_string_lossy();
+        assert!(s.contains("passes"), "missing 'passes': {s}");
+        assert!(s.ends_with("/3") || s.ends_with("\\3"), "missing pass number: {s}");
+    }
+
+    #[test]
+    fn transcript_path_includes_role_and_slot() {
+        let p = transcript_path("01ABCDEF", 0, "hunter", "slot-XYZ");
+        let s = p.to_string_lossy();
+        assert!(s.contains("hunter-slot-XYZ.json"), "got {s}");
+    }
+
+    #[test]
+    fn pass_findings_path_uses_ndjson_extension() {
+        let p = pass_findings_path("01ABCDEF", 2);
+        let s = p.to_string_lossy();
+        assert!(s.ends_with("findings.ndjson"), "got {s}");
+        assert!(s.contains("passes"), "missing passes dir: {s}");
+    }
+
+    #[test]
+    fn reconciled_pass_path_uses_reconciled_json() {
+        let p = reconciled_pass_path("01ABCDEF", 4);
+        let s = p.to_string_lossy();
+        assert!(s.ends_with("reconciled.json"), "got {s}");
+    }
+
+    #[test]
+    fn legacy_waves_path_and_new_passes_path_are_distinct() {
+        // Both helpers must produce different paths so an operator can run
+        // a side-by-side migration without one clobbering the other.
+        let legacy = wave_dir("01ABCDEF", 1);
+        let mantis_native = pass_dir("01ABCDEF", 1);
+        assert_ne!(legacy, mantis_native);
     }
 }
