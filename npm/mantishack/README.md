@@ -35,7 +35,12 @@ One of the per-platform binary packages (`@deonmenezes/mantis-cli-darwin-arm64`,
 # 1. Wire the daemon + MCP server into your local AI CLI (idempotent)
 mantis init
 
-# 2. One-shot end-to-end pentest against an authorized target
+# 2. (Optional) Sign in — opens the browser, supabase-CLI-style
+mantis login        # ↪ mantishack.com/login → token saved to ~/.Mantis/auth.json
+mantis whoami       # prints your signed-in email
+mantis logout       # clears the saved token
+
+# 3. One-shot end-to-end pentest against an authorized target
 mantis hack app.example.com --i-have-authorization
 ```
 

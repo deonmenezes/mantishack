@@ -280,31 +280,45 @@ fn find_prefixed_runs(
     let mut out = Vec::new();
     let bytes = text.as_bytes();
     let prefix_bytes = prefix.as_bytes();
-    if bytes.len() < prefix_bytes.len() + body_len {
+    let plen = prefix_bytes.len();
+    if bytes.len() < plen + body_len {
         return out;
     }
-    let mut i = 0;
-    while i + prefix_bytes.len() + body_len <= bytes.len() {
-        if &bytes[i..i + prefix_bytes.len()] == prefix_bytes {
-            let body = &bytes[i + prefix_bytes.len()..i + prefix_bytes.len() + body_len];
-            if body.iter().all(|&c| body_ok(c)) {
-                // Also require no continuation past the expected length
-                // — i.e., the next byte (if any) is NOT part of the
-                // accepted charset. Avoids partial matches inside a
-                // longer base64 blob.
-                let next = bytes.get(i + prefix_bytes.len() + body_len).copied();
-                let continues = next.map(&body_ok).unwrap_or(false);
-                if !continues {
-                    let total = prefix_bytes.len() + body_len;
-                    let matched =
-                        std::str::from_utf8(&bytes[i..i + total]).unwrap_or("").to_string();
-                    out.push(Match { matched, offset: i });
-                    i += total;
-                    continue;
-                }
+    // SIMD-accelerated prefix search via memmem — jumps directly to each
+    // candidate position instead of stepping byte-by-byte. On a 1 MB JS
+    // bundle this drops the prefix-scan cost from O(n) byte compares to
+    // ~one vector instruction per chunk; the body verification still
+    // runs per candidate, but candidates are rare relative to the input.
+    let finder = memchr::memmem::Finder::new(prefix_bytes);
+    let mut search_from = 0;
+    while let Some(rel) = finder.find(&bytes[search_from..]) {
+        let i = search_from + rel;
+        let body_end = i + plen + body_len;
+        if body_end > bytes.len() {
+            // Not enough trailing bytes; no later occurrence can satisfy
+            // the length requirement either, since the input only gets
+            // shorter as we advance.
+            break;
+        }
+        let body = &bytes[i + plen..body_end];
+        if body.iter().all(|&c| body_ok(c)) {
+            // Reject partial matches embedded in a longer accepted run
+            // (e.g. an AKIA…run continuing past the expected 16 chars
+            // would otherwise look like a valid 16-char token).
+            let continues = bytes.get(body_end).copied().is_some_and(&body_ok);
+            if !continues {
+                // Input is &str, so the byte slice is valid UTF-8 by
+                // construction — skip the from_utf8 round-trip.
+                let matched = text[i..body_end].to_string();
+                out.push(Match { matched, offset: i });
+                search_from = body_end;
+                continue;
             }
         }
-        i += 1;
+        // Either the body charset failed or the run continues past
+        // body_len. Advance past this prefix occurrence and keep
+        // searching.
+        search_from = i + 1;
     }
     out
 }
@@ -356,29 +370,26 @@ fn match_slack_token(text: &str) -> Vec<Match> {
     let mut out = Vec::new();
     // Slack tokens: xoxb-/xoxp-/xoxa-/xoxr- followed by digits, then
     // alnum segments joined by `-`. We accept ≥ 20 chars of body.
+    let bytes = text.as_bytes();
     for prefix in ["xoxb-", "xoxp-", "xoxa-", "xoxr-"] {
-        let bytes = text.as_bytes();
         let p = prefix.as_bytes();
-        let mut i = 0;
-        while i + p.len() < bytes.len() {
-            if &bytes[i..i + p.len()] == p {
-                let start = i;
-                let mut j = i + p.len();
-                while j < bytes.len() && alnum_or_dash_underscore(bytes[j]) {
-                    j += 1;
-                }
-                if j - (i + p.len()) >= 20 {
-                    let matched = std::str::from_utf8(&bytes[start..j])
-                        .unwrap_or("")
-                        .to_string();
-                    out.push(Match {
-                        matched,
-                        offset: start,
-                    });
-                }
-                i = j;
+        // SIMD-jump to each prefix occurrence.
+        let finder = memchr::memmem::Finder::new(p);
+        let mut from = 0;
+        while let Some(rel) = finder.find(&bytes[from..]) {
+            let start = from + rel;
+            let mut j = start + p.len();
+            while j < bytes.len() && alnum_or_dash_underscore(bytes[j]) {
+                j += 1;
+            }
+            if j - (start + p.len()) >= 20 {
+                out.push(Match {
+                    matched: text[start..j].to_string(),
+                    offset: start,
+                });
+                from = j;
             } else {
-                i += 1;
+                from = start + 1;
             }
         }
     }
@@ -391,24 +402,22 @@ fn match_slack_webhook(text: &str) -> Vec<Match> {
     let mut out = Vec::new();
     let bytes = text.as_bytes();
     let p = anchor.as_bytes();
-    let mut i = 0;
-    while i + p.len() < bytes.len() {
-        if &bytes[i..i + p.len()] == p {
-            let start = i;
-            let mut j = i + p.len();
-            while j < bytes.len() && (alnum(bytes[j]) || bytes[j] == b'/') {
-                j += 1;
-            }
-            if j - start > p.len() + 20 {
-                let matched = std::str::from_utf8(&bytes[start..j]).unwrap_or("").to_string();
-                out.push(Match {
-                    matched,
-                    offset: start,
-                });
-            }
-            i = j;
+    let finder = memchr::memmem::Finder::new(p);
+    let mut from = 0;
+    while let Some(rel) = finder.find(&bytes[from..]) {
+        let start = from + rel;
+        let mut j = start + p.len();
+        while j < bytes.len() && (alnum(bytes[j]) || bytes[j] == b'/') {
+            j += 1;
+        }
+        if j - start > p.len() + 20 {
+            out.push(Match {
+                matched: text[start..j].to_string(),
+                offset: start,
+            });
+            from = j;
         } else {
-            i += 1;
+            from = start + 1;
         }
     }
     out
@@ -429,7 +438,7 @@ fn match_stripe_key(text: &str) -> Vec<Match> {
                     j += 1;
                 }
                 if j - (i + p.len()) >= 20 {
-                    let matched = std::str::from_utf8(&bytes[start..j]).unwrap_or("").to_string();
+                    let matched = text[start..j].to_string();
                     out.push(Match {
                         matched,
                         offset: start,
@@ -468,7 +477,7 @@ fn match_openai_key(text: &str) -> Vec<Match> {
                 j += 1;
             }
             if j - (i + 3) >= 32 {
-                let matched = std::str::from_utf8(&bytes[start..j]).unwrap_or("").to_string();
+                let matched = text[start..j].to_string();
                 out.push(Match {
                     matched,
                     offset: start,
@@ -495,7 +504,7 @@ fn match_anthropic_key(text: &str) -> Vec<Match> {
                 j += 1;
             }
             if j - (i + prefix.len()) >= 40 {
-                let matched = std::str::from_utf8(&bytes[start..j]).unwrap_or("").to_string();
+                let matched = text[start..j].to_string();
                 out.push(Match {
                     matched,
                     offset: start,
@@ -529,7 +538,7 @@ fn match_sendgrid_key(text: &str) -> Vec<Match> {
             let body = &bytes[i + prefix.len()..j];
             // Must contain exactly one `.` and be ≥ 60 chars.
             if body.iter().filter(|&&c| c == b'.').count() == 1 && body.len() >= 60 {
-                let matched = std::str::from_utf8(&bytes[start..j]).unwrap_or("").to_string();
+                let matched = text[start..j].to_string();
                 out.push(Match {
                     matched,
                     offset: start,
@@ -566,7 +575,7 @@ fn match_pypi_token(text: &str) -> Vec<Match> {
                 j += 1;
             }
             if j - (i + prefix.len()) >= 60 {
-                let matched = std::str::from_utf8(&bytes[start..j]).unwrap_or("").to_string();
+                let matched = text[start..j].to_string();
                 out.push(Match {
                     matched,
                     offset: start,
@@ -626,7 +635,7 @@ fn match_discord_bot(text: &str) -> Vec<Match> {
             i = j + 1;
             continue;
         }
-        let matched = std::str::from_utf8(&bytes[start..m]).unwrap_or("").to_string();
+        let matched = text[start..m].to_string();
         out.push(Match {
             matched,
             offset: start,
@@ -650,7 +659,7 @@ fn match_discord_webhook(text: &str) -> Vec<Match> {
                 j += 1;
             }
             if j - start > p.len() + 20 {
-                let matched = std::str::from_utf8(&bytes[start..j]).unwrap_or("").to_string();
+                let matched = text[start..j].to_string();
                 out.push(Match {
                     matched,
                     offset: start,
@@ -690,7 +699,7 @@ fn match_telegram_bot(text: &str) -> Vec<Match> {
             k += 1;
         }
         if k - body_start >= 35 {
-            let matched = std::str::from_utf8(&bytes[start..k]).unwrap_or("").to_string();
+            let matched = text[start..k].to_string();
             out.push(Match {
                 matched,
                 offset: start,
@@ -757,7 +766,7 @@ fn match_jwt(text: &str) -> Vec<Match> {
             i = j + 1;
             continue;
         }
-        let matched = std::str::from_utf8(&bytes[start..m]).unwrap_or("").to_string();
+        let matched = text[start..m].to_string();
         out.push(Match {
             matched,
             offset: start,
@@ -822,7 +831,7 @@ fn match_heroku_api_key(text: &str) -> Vec<Match> {
         let look_back_start = i.saturating_sub(40);
         let prelude = &text[look_back_start..i];
         if prelude.to_ascii_lowercase().contains("heroku") {
-            let matched = std::str::from_utf8(slice).unwrap_or("").to_string();
+            let matched = text[i..i + 36].to_string();
             out.push(Match { matched, offset: i });
             i += 36;
         } else {
@@ -850,7 +859,7 @@ fn contextual_alnum_token(text: &str, hints: &[&str], len: usize) -> Vec<Match> 
         let look_back_start = i.saturating_sub(48);
         let prelude = &text[look_back_start..i].to_ascii_lowercase();
         if hints.iter().any(|h| prelude.contains(h)) {
-            let matched = std::str::from_utf8(slice).unwrap_or("").to_string();
+            let matched = text[i..i + len].to_string();
             out.push(Match { matched, offset: i });
             i += len;
         } else {
@@ -878,7 +887,7 @@ fn contextual_lowercase_hex_token(text: &str, hints: &[&str], len: usize) -> Vec
         let look_back_start = i.saturating_sub(48);
         let prelude = &text[look_back_start..i].to_ascii_lowercase();
         if hints.iter().any(|h| prelude.contains(h)) {
-            let matched = std::str::from_utf8(slice).unwrap_or("").to_string();
+            let matched = text[i..i + len].to_string();
             out.push(Match { matched, offset: i });
             i += len;
         } else {

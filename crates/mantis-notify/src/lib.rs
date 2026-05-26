@@ -1,9 +1,13 @@
 //! Notification payload formatters.
 //!
-//! Mantis produces findings that operators want surfaced in chat tools as
-//! they're confirmed. This crate handles the *formatting* half of that flow:
-//! a Mantis [`Notification`] is converted to the JSON payload each provider
-//! expects on its incoming-webhook endpoint.
+//! Mantis produces findings that operators want surfaced in chat tools and
+//! ticket systems as they're confirmed. This crate handles the *formatting*
+//! half of that flow:
+//!
+//! - Chat providers (Slack, Discord, Teams) are unified behind [`Provider`].
+//! - Ticket providers (Jira, Linear) are exposed as standalone modules
+//!   ([`jira`], [`linear`]) because they need provider-specific config
+//!   (project key, team id, label uuids).
 //!
 //! HTTP delivery is intentionally **not** in this crate. The daemon's
 //! notification dispatcher owns transport so it can route through
@@ -21,7 +25,12 @@
 
 #![deny(missing_docs)]
 
+pub mod bugcrowd;
 mod discord;
+pub mod github_sarif;
+pub mod hackerone;
+pub mod jira;
+pub mod linear;
 mod notification;
 mod slack;
 mod teams;

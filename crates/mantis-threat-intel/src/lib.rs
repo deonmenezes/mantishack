@@ -1,20 +1,26 @@
 //! Threat intelligence feed ingestion for Mantis.
 //!
-//! Today this crate ships the CISA KEV (Known Exploited Vulnerabilities) catalog
-//! reader, exposed via [`kev::KevCatalog`]. It lets the planner, hypothesis
-//! generator, and report renderer answer two questions in O(1):
+//! All upstream threat-intel sources Mantis consumes live behind this one
+//! crate's API. Today it ships four feed readers:
 //!
-//! 1. Is this CVE actively exploited in the wild?
-//! 2. If so, with what urgency (ransomware-linked, due-date severity)?
+//! - [`kev`] — CISA Known Exploited Vulnerabilities catalog (priority scoring).
+//! - [`ghsa`] — GitHub Security Advisory database (OSV format).
+//! - [`nvd`] — NVD CVE 2.0 JSON feeds (descriptions, CVSS, CWE).
+//! - [`exploitdb`] — Exploit-DB catalog CSV (public exploit lookup by CVE).
 //!
-//! Future modules under this crate will cover NVD/CVE feeds, GitHub Security
-//! Advisories, and ExploitDB — keeping all upstream threat-intel sources behind
-//! one Mantis-facing API surface.
+//! All four are pure parsers — they expect already-fetched bytes/strings.
+//! Operator-side fetch (HTTPS to CISA, GitHub, NVD, GitLab) is out of scope
+//! because the feeds don't go through `mantis-egress` (egress enforces target
+//! scope, not operator-side infrastructure pulls).
 
 #![deny(missing_docs)]
 
+pub mod exploitdb;
 pub mod ghsa;
 pub mod kev;
+pub mod nvd;
 
+pub use exploitdb::{ExploitDb, ExploitDbError, ExploitEntry};
 pub use ghsa::{Advisory, AdvisoryIndex, GhsaError};
 pub use kev::{KevCatalog, KevEntry, KevError, KevPriority, RansomwareUse};
+pub use nvd::{Cve, CveIndex, NvdError, Severity};
