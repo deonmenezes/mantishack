@@ -7,6 +7,7 @@
 //! body from a Mantis [`Notification`] plus engagement context.
 
 use serde_json::{json, Value};
+use std::fmt::Write as _;
 
 use crate::notification::{Notification, Severity};
 
@@ -83,19 +84,19 @@ pub fn format(n: &Notification, cfg: &HackerOneConfig<'_>) -> Value {
 fn report_body(n: &Notification) -> String {
     let mut out = String::new();
     if let Some(target) = &n.target {
-        out.push_str(&format!("**Target:** {target}\n\n"));
+        let _ = writeln!(out, "**Target:** {target}\n");
     }
     if let Some(cwe) = &n.cwe {
-        out.push_str(&format!("**CWE:** {cwe}\n\n"));
+        let _ = writeln!(out, "**CWE:** {cwe}\n");
     }
     if let Some(detail) = &n.detail {
         out.push_str("## Description\n\n");
         out.push_str(detail);
         out.push_str("\n\n");
     }
-    out.push_str(&format!("**Severity:** {}\n", n.severity.label()));
+    let _ = writeln!(out, "**Severity:** {}", n.severity.label());
     if let Some(eng) = &n.engagement_id {
-        out.push_str(&format!("\nReported by Mantis engagement `{eng}`.\n"));
+        let _ = writeln!(out, "\nReported by Mantis engagement `{eng}`.");
     }
     out
 }
