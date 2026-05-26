@@ -211,10 +211,15 @@ impl OciClient {
 /// hashing the raw manifest bytes — operators that sign with
 /// strict-equality semantics should ensure the signing pipeline
 /// strips the annotation before hashing.
-fn signature_payload(manifest_bytes: &[u8]) -> Vec<u8> {
+fn signature_payload(manifest_bytes: &[u8]) -> [u8; 32] {
+    // Return the BLAKE3 digest by value — `Hash::as_bytes()` returns
+    // `&[u8; 32]` which is Copy. The prior `.to_vec()` heap-allocated
+    // a fresh Vec<u8> every call only to immediately borrow it back as
+    // a slice for signature verify. Returning the array directly skips
+    // the heap allocation on every signature-payload call.
     let mut hasher = Hasher::new();
     hasher.update(manifest_bytes);
-    hasher.finalize().as_bytes().to_vec()
+    *hasher.finalize().as_bytes()
 }
 
 fn verify_digest(digest: &str, bytes: &[u8]) -> Result<(), RegistryError> {
