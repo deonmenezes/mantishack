@@ -139,13 +139,10 @@ Lives under [`mantis-compliance`](./crates/mantis-compliance). Static lookup tab
 - [x] **PCI-DSS / SOC2 / HIPAA finding tagging** — `mantis_compliance::regulatory` provides `PciDssRequirement` (Req 1–12), `Soc2Criterion` (CC6/CC7/CC8, A1, C1, PI1, P), `HipaaSafeguard` (Admin/Physical/Technical) + a unified `regulatory_for_cwe → RegulatoryTags` triple.
 
 ### Testing & validation
-- Automated regression testing against intentionally vulnerable targets:
-  - [DVWA](https://github.com/digininja/DVWA)
-  - [OWASP Juice Shop](https://github.com/juice-shop/juice-shop)
-  - [WebGoat](https://github.com/WebGoat/WebGoat)
-  - [VulnHub](https://www.vulnhub.com/) VMs
-- Public benchmark suite vs. Nuclei, ZAP, Nessus
-- Reproducibility tests for evidence chain
+
+- [x] **Regression testbed catalog** — `mantis_bench::testbeds` ships static `Testbed` entries for [DVWA](https://github.com/digininja/DVWA), [OWASP Juice Shop](https://github.com/juice-shop/juice-shop), [WebGoat](https://github.com/WebGoat/WebGoat), and a [VulnHub](https://www.vulnhub.com/) placeholder — each with Docker image, default port, expected `vuln_class` findings, and recommended scan profile. Harness for actual run/compare lives in the engagement runner.
+- [x] **Public benchmark suite vs. Nuclei, ZAP, Nessus** — `mantis_bench::baseline` provides `BaselineScanner` (Nuclei/ZAP/Nessus), `FindingSet`, `ConfusionStats` (precision/recall/F1), and `BenchmarkRow` capturing Mantis-only vs baseline-only deltas against ground truth.
+- [ ] Reproducibility tests for evidence chain — tracked in `mantis-verify` / `mantis-chain` (chain replays exist; CI-level reproducibility harness still pending).
 
 ---
 

@@ -48,7 +48,7 @@ pub struct FindingSet {
 
 impl FindingSet {
     /// Construct from any iterable of string-likes.
-    pub fn from_iter<I, S>(it: I) -> Self
+    pub fn from_items<I, S>(it: I) -> Self
     where
         I: IntoIterator<Item = S>,
         S: Into<String>,
@@ -179,14 +179,14 @@ mod tests {
 
     #[test]
     fn finding_set_from_iter_collects() {
-        let s = FindingSet::from_iter(["sqli", "xss", "ssrf"]);
+        let s = FindingSet::from_items(["sqli", "xss", "ssrf"]);
         assert_eq!(s.items.len(), 3);
     }
 
     #[test]
     fn confusion_stats_perfect_classifier() {
-        let mantis = FindingSet::from_iter(["sqli", "xss"]);
-        let truth = FindingSet::from_iter(["sqli", "xss"]);
+        let mantis = FindingSet::from_items(["sqli", "xss"]);
+        let truth = FindingSet::from_items(["sqli", "xss"]);
         let stats = ConfusionStats::compute(&mantis, &truth);
         assert_eq!(stats.tp, 2);
         assert_eq!(stats.fp, 0);
@@ -198,8 +198,8 @@ mod tests {
 
     #[test]
     fn confusion_stats_partial_match() {
-        let mantis = FindingSet::from_iter(["sqli", "xss", "ssrf"]);
-        let truth = FindingSet::from_iter(["sqli", "xss", "csrf"]);
+        let mantis = FindingSet::from_items(["sqli", "xss", "ssrf"]);
+        let truth = FindingSet::from_items(["sqli", "xss", "csrf"]);
         let stats = ConfusionStats::compute(&mantis, &truth);
         assert_eq!(stats.tp, 2);
         assert_eq!(stats.fp, 1);
@@ -213,7 +213,7 @@ mod tests {
     #[test]
     fn confusion_stats_no_findings_gives_zero_precision_zero_recall() {
         let empty = FindingSet::default();
-        let truth = FindingSet::from_iter(["sqli"]);
+        let truth = FindingSet::from_items(["sqli"]);
         let stats = ConfusionStats::compute(&empty, &truth);
         assert_eq!(stats.tp, 0);
         assert_eq!(stats.fp, 0);
@@ -225,8 +225,8 @@ mod tests {
 
     #[test]
     fn confusion_stats_all_false_positives() {
-        let mantis = FindingSet::from_iter(["xss"]);
-        let truth = FindingSet::from_iter(["sqli"]);
+        let mantis = FindingSet::from_items(["xss"]);
+        let truth = FindingSet::from_items(["sqli"]);
         let stats = ConfusionStats::compute(&mantis, &truth);
         assert_eq!(stats.tp, 0);
         assert_eq!(stats.fp, 1);
@@ -238,9 +238,9 @@ mod tests {
 
     #[test]
     fn benchmark_row_captures_mantis_only_findings() {
-        let mantis = FindingSet::from_iter(["sqli", "xss", "ssrf"]);
-        let baseline = FindingSet::from_iter(["sqli", "xss"]);
-        let truth = FindingSet::from_iter(["sqli", "xss", "ssrf"]);
+        let mantis = FindingSet::from_items(["sqli", "xss", "ssrf"]);
+        let baseline = FindingSet::from_items(["sqli", "xss"]);
+        let truth = FindingSet::from_items(["sqli", "xss", "ssrf"]);
         let row = BenchmarkRow::new("dvwa", BaselineScanner::Nuclei, &mantis, &baseline, &truth);
         assert_eq!(row.mantis_only, vec!["ssrf".to_string()]);
         assert!(row.baseline_only.is_empty());
@@ -248,9 +248,9 @@ mod tests {
 
     #[test]
     fn benchmark_row_captures_baseline_only_findings() {
-        let mantis = FindingSet::from_iter(["sqli"]);
-        let baseline = FindingSet::from_iter(["sqli", "xss"]);
-        let truth = FindingSet::from_iter(["sqli", "xss"]);
+        let mantis = FindingSet::from_items(["sqli"]);
+        let baseline = FindingSet::from_items(["sqli", "xss"]);
+        let truth = FindingSet::from_items(["sqli", "xss"]);
         let row = BenchmarkRow::new("dvwa", BaselineScanner::Zap, &mantis, &baseline, &truth);
         assert_eq!(row.baseline_only, vec!["xss".to_string()]);
         assert!(row.mantis_only.is_empty());
@@ -258,9 +258,9 @@ mod tests {
 
     #[test]
     fn benchmark_row_serializes() {
-        let mantis = FindingSet::from_iter(["sqli"]);
-        let baseline = FindingSet::from_iter(["sqli"]);
-        let truth = FindingSet::from_iter(["sqli"]);
+        let mantis = FindingSet::from_items(["sqli"]);
+        let baseline = FindingSet::from_items(["sqli"]);
+        let truth = FindingSet::from_items(["sqli"]);
         let row = BenchmarkRow::new("dvwa", BaselineScanner::Nuclei, &mantis, &baseline, &truth);
         let json = serde_json::to_string(&row).unwrap();
         assert!(json.contains("\"testbed_id\":\"dvwa\""));
