@@ -190,7 +190,15 @@ fn render_user(event: &serde_json::Value, t_secs: f64) -> Option<String> {
                 if trimmed.len() <= 240 {
                     trimmed.to_string()
                 } else {
-                    format!("{}…", &trimmed[..240])
+                    // Walk back from byte 240 to the nearest char boundary so
+                    // we never split a multi-byte codepoint (em dash, emoji,
+                    // CJK) — the naive &trimmed[..240] panics when byte 240
+                    // lands inside a codepoint.
+                    let mut end = 240usize.min(trimmed.len());
+                    while end > 0 && !trimmed.is_char_boundary(end) {
+                        end -= 1;
+                    }
+                    format!("{}…", &trimmed[..end])
                 }
             })
             .unwrap_or_default();
