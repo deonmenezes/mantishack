@@ -310,21 +310,13 @@ fn nuclei_value_to_finding(v: &serde_json::Value) -> Option<Finding> {
     // Best-effort enrichment from `info.classification`.
     if let Some(cls) = info.and_then(|i| i.get("classification")) {
         if let Some(cves) = cls.get("cve-id").and_then(|x| x.as_array()) {
-            let joined = cves
-                .iter()
-                .filter_map(|v| v.as_str())
-                .collect::<Vec<_>>()
-                .join(",");
+            let joined = join_json_array_strs(cves, ",");
             if !joined.is_empty() {
                 f = f.with_meta("cve", joined);
             }
         }
         if let Some(cwes) = cls.get("cwe-id").and_then(|x| x.as_array()) {
-            let joined = cwes
-                .iter()
-                .filter_map(|v| v.as_str())
-                .collect::<Vec<_>>()
-                .join(",");
+            let joined = join_json_array_strs(cwes, ",");
             if !joined.is_empty() {
                 f = f.with_meta("cwe", joined);
             }
@@ -341,7 +333,7 @@ fn nuclei_value_to_finding(v: &serde_json::Value) -> Option<Finding> {
         // Tags can be a JSON array OR a comma-joined string (older
         // template emissions). Handle both.
         let joined = if let Some(arr) = tags.as_array() {
-            arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(",")
+            join_json_array_strs(arr, ",")
         } else if let Some(s) = tags.as_str() {
             s.to_string()
         } else {
@@ -365,6 +357,28 @@ fn nuclei_value_to_finding(v: &serde_json::Value) -> Option<Finding> {
     }
 
     Some(f)
+}
+
+/// Join the string values inside a JSON array with `sep`, skipping
+/// non-string entries. Replaces the
+/// `arr.iter().filter_map(...).collect::<Vec<_>>().join(sep)` pattern:
+/// the prior code allocated an intermediate Vec<&str> just to feed
+/// .join(). Building the result String directly is one fewer
+/// allocation per call (and avoids the per-element pointer copy
+/// into the Vec).
+fn join_json_array_strs(arr: &[serde_json::Value], sep: &str) -> String {
+    let mut out = String::new();
+    let mut first = true;
+    for v in arr {
+        if let Some(s) = v.as_str() {
+            if !first {
+                out.push_str(sep);
+            }
+            first = false;
+            out.push_str(s);
+        }
+    }
+    out
 }
 
 #[cfg(test)]

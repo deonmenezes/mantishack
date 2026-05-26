@@ -305,14 +305,28 @@ fn scan_file_summary(path: &Path) -> (usize, Option<String>) {
 
 fn truncate_preview(text: &str) -> String {
     // Collapse whitespace runs into single spaces so multiline
-    // prompts render on one row.
-    let collapsed: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    // prompts render on one row. Build the collapsed string directly
+    // instead of via .split_whitespace().collect::<Vec>().join() —
+    // skips the intermediate Vec<&str> allocation.
+    let mut collapsed = String::with_capacity(text.len());
+    let mut first = true;
+    for word in text.split_whitespace() {
+        if !first {
+            collapsed.push(' ');
+        }
+        first = false;
+        collapsed.push_str(word);
+    }
     const MAX: usize = 80;
     if collapsed.chars().count() <= MAX {
         return collapsed;
     }
-    let truncated: String = collapsed.chars().take(MAX - 1).collect();
-    format!("{truncated}…")
+    // Truncate by chars (not bytes) so we don't split a multi-byte
+    // UTF-8 boundary. Append the ellipsis directly with push() instead
+    // of format!() to save one allocation.
+    let mut truncated: String = collapsed.chars().take(MAX - 1).collect();
+    truncated.push('…');
+    truncated
 }
 
 /// Format a `SystemTime` as a short human-readable age string.
