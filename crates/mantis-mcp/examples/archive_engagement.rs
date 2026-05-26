@@ -21,7 +21,6 @@
 //! Usage:
 //!   mantis-archive-engagement <engagement_id> [--severity-floor low|info|...]
 
-use std::fmt::Write as _;
 use mantis_mcp::server::{
     load_wave_merges, parse_severity_floor, render_markdown, severity_rank, EngagementSummary,
     Surface,
@@ -31,6 +30,7 @@ use mantis_proto::v1::engagement_client::EngagementClient;
 use mantis_proto::v1::{ExportRequest, StatusRequest};
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::path::PathBuf;
 
 #[tokio::main]
@@ -447,7 +447,6 @@ fn render_phase_md(
     if let Some(r) = override_reason {
         s.push_str("- **Override applied:** yes\n");
         let _ = writeln!(s, "- **Override reason:** {r}");
-
     } else {
         s.push_str("- **Override applied:** no (gate opened cleanly)\n");
     }
@@ -455,7 +454,6 @@ fn render_phase_md(
         s.push_str("- **Blocker codes (captured at transition time):**\n");
         for code in blocker_codes {
             let _ = writeln!(s, "  - `{code}`");
-
         }
     }
     s.push_str("\n## Audit trail\n\n");
@@ -474,13 +472,14 @@ fn render_wave_md(w: &wave::WaveMerge, floor_rank: u8) -> String {
 
     let _ = writeln!(s, "- **Merged at (unix):** {}", w.merged_at_unix);
 
-    let _ = writeln!(s,
+    let _ = writeln!(
+        s,
         "- **Handoffs:** {}/{} received",
         w.handoffs_received, w.assignments_total
-
     );
     if !w.handoffs_missing.is_empty() {
-        let _ = writeln!(s,
+        let _ = writeln!(
+            s,
             "- **Missing handoffs:** `{}`",
             w.handoffs_missing.join("`, `")
         );
@@ -501,7 +500,6 @@ fn render_wave_md(w: &wave::WaveMerge, floor_rank: u8) -> String {
                 "no"
             };
             let _ = writeln!(s, "| {sev} | {n} | {admitted} |");
-
         }
     }
     s.push('\n');
@@ -515,7 +513,8 @@ fn render_wave_md(w: &wave::WaveMerge, floor_rank: u8) -> String {
         if group.is_empty() {
             continue;
         }
-        let _ = writeln!(s,
+        let _ = writeln!(
+            s,
             "### {sev} ({} finding{})\n",
             group.len(),
             if group.len() == 1 { "" } else { "s" }
@@ -526,7 +525,6 @@ fn render_wave_md(w: &wave::WaveMerge, floor_rank: u8) -> String {
             let evidence_one_line: String =
                 f.evidence.replace('\n', " ").chars().take(400).collect();
             let _ = writeln!(s, "  - _evidence_: {evidence_one_line}");
-
         }
         s.push('\n');
     }
@@ -557,7 +555,6 @@ fn render_timeline(jsonl: &str) -> String {
             .unwrap_or("?");
         let summary = summarize_event_kind(kind, &v);
         let _ = writeln!(s, "| {seq} | {ts} | `{kind}` | {summary} |");
-
     }
     s
 }
@@ -649,10 +646,7 @@ fn render_readme(
 ) -> String {
     let total_findings: u32 = waves.iter().map(|w| w.findings_total).sum();
     let mut s = String::new();
-    let _ = writeln!(s,
-        "# {target_host} — engagement `{}`\n",
-        summary.id
-    );
+    let _ = writeln!(s, "# {target_host} — engagement `{}`\n", summary.id);
     let _ = writeln!(s, "- **Engagement name:** `{}`", summary.name);
 
     let _ = writeln!(s, "- **Daemon state:** `{}`", summary.state);
@@ -661,7 +655,6 @@ fn render_readme(
 
     if let Some(h) = &summary.scope_hash {
         let _ = writeln!(s, "- **Scope hash:** `{}`", h);
-
     }
     let _ = writeln!(s, "- **Waves merged:** {}", waves.len());
 
@@ -679,7 +672,6 @@ fn render_readme(
                 "no"
             };
             let _ = writeln!(s, "| {sev} | {n} | {admitted} |");
-
         }
     }
     s.push_str("\n## Layout\n\n");
@@ -699,7 +691,8 @@ fn render_readme(
         s.push_str("| # | Severity | Title | File |\n|---|---|---|---|\n");
         for (n, f) in findings {
             let one_line: String = f.title.replace('|', "\\|").chars().take(120).collect();
-            let _ = writeln!(s,
+            let _ = writeln!(
+                s,
                 "| F-{n:02} | `{}` | {} | [`findings/F-{n:02}.md`](findings/F-{n:02}.md) |",
                 f.severity, one_line
             );

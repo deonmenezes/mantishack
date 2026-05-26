@@ -62,19 +62,17 @@ pub fn pick_chat_adapter(
         None => std::env::var("MANTIS_LLM_PROVIDER").unwrap_or_else(|_| detect_provider()),
     };
 
-    let openai_compat = |key: String,
-                         base_url: &str,
-                         default_model: &str|
-     -> (Arc<dyn LlmAdapter>, String) {
-        let model = model_override
-            .map(str::to_string)
-            .unwrap_or_else(|| default_model.to_string());
-        let a = OpenAIAdapter::new(key)
-            .with_base_url(base_url)
-            .with_model(model.clone())
-            .with_max_tokens(4096);
-        (Arc::new(a), model)
-    };
+    let openai_compat =
+        |key: String, base_url: &str, default_model: &str| -> (Arc<dyn LlmAdapter>, String) {
+            let model = model_override
+                .map(str::to_string)
+                .unwrap_or_else(|| default_model.to_string());
+            let a = OpenAIAdapter::new(key)
+                .with_base_url(base_url)
+                .with_model(model.clone())
+                .with_max_tokens(4096);
+            (Arc::new(a), model)
+        };
 
     let (adapter, model_label): (Arc<dyn LlmAdapter>, String) = match provider.as_str() {
         "anthropic" => {
@@ -138,8 +136,9 @@ pub fn pick_chat_adapter(
             openai_compat(key, OPENROUTER_BASE, OPENROUTER_MODEL)
         }
         "qwen" | "dashscope" => {
-            let key = std::env::var("DASHSCOPE_API_KEY")
-                .context("DASHSCOPE_API_KEY is not set — get one at dashscope.console.aliyun.com")?;
+            let key = std::env::var("DASHSCOPE_API_KEY").context(
+                "DASHSCOPE_API_KEY is not set — get one at dashscope.console.aliyun.com",
+            )?;
             openai_compat(key, QWEN_BASE, QWEN_MODEL)
         }
         "zhipu" | "glm" => {

@@ -212,13 +212,22 @@ mod tests {
 
     #[test]
     fn finding_builder_chains_metadata() {
-        let f = Finding::new("nuclei", "vuln", "https://x.example/", Severity::High, "XSS")
-            .with_description("reflected XSS in `q` param")
-            .with_meta("template_id", "reflected-xss")
-            .with_meta("cwe", "CWE-79");
+        let f = Finding::new(
+            "nuclei",
+            "vuln",
+            "https://x.example/",
+            Severity::High,
+            "XSS",
+        )
+        .with_description("reflected XSS in `q` param")
+        .with_meta("template_id", "reflected-xss")
+        .with_meta("cwe", "CWE-79");
         assert_eq!(f.tool, "nuclei");
         assert_eq!(f.severity, Severity::High);
-        assert_eq!(f.meta.get("template_id").map(String::as_str), Some("reflected-xss"));
+        assert_eq!(
+            f.meta.get("template_id").map(String::as_str),
+            Some("reflected-xss")
+        );
         assert_eq!(f.meta.get("cwe").map(String::as_str), Some("CWE-79"));
     }
 

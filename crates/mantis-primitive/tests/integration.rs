@@ -289,11 +289,9 @@ async fn spawn_cors_server(
                 // Realistic apps don't reflect the literal "null" origin.
                 if reflect_origin && !origin.is_empty() && origin != "null" {
                     let _ = writeln!(hdr, "Access-Control-Allow-Origin: {origin}\r");
-
                 }
                 for (k, v) in response_headers {
                     let _ = writeln!(hdr, "{k}: {v}\r");
-
                 }
                 let body = "{\"ok\":true}";
                 let response = format!(

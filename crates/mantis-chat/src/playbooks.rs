@@ -387,7 +387,11 @@ mod tests {
 
     #[test]
     fn matching_dedupes_when_two_tags_hit_same_playbook() {
-        let tags = vec!["xss".to_string(), "dom_xss".to_string(), "stored_xss".to_string()];
+        let tags = vec![
+            "xss".to_string(),
+            "dom_xss".to_string(),
+            "stored_xss".to_string(),
+        ];
         let hits = matching_playbooks(&tags);
         let xss_count = hits.iter().filter(|p| p.label == "XSS").count();
         assert_eq!(xss_count, 1, "XSS playbook should only fire once");
@@ -414,8 +418,7 @@ mod tests {
                 .iter()
                 .find(|p| p.label == *label)
                 .unwrap_or_else(|| panic!("OOB_CLASSES references {label} but no playbook exists"));
-            let prompt =
-                compose_playbook_prompt(&[pb.tags[0].to_string()]);
+            let prompt = compose_playbook_prompt(&[pb.tags[0].to_string()]);
             assert!(
                 prompt.contains("mantis_oob_listener"),
                 "{} playbook should mention mantis_oob_listener in its composed prompt",
@@ -432,8 +435,7 @@ mod tests {
     #[test]
     fn non_blind_class_playbook_does_not_get_oob_directive() {
         // Default credentials is an in-band class — no OOB needed.
-        let prompt =
-            compose_playbook_prompt(&["default_credentials".to_string()]);
+        let prompt = compose_playbook_prompt(&["default_credentials".to_string()]);
         assert!(!prompt.contains("mantis_oob_listener"));
     }
 

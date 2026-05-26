@@ -10,8 +10,8 @@
 //! same split used in the gRPC API: the UI is just another
 //! rendering of `EngagementInfo` + claim/event streams.
 
-use std::fmt::Write as _;
 use serde::{Deserialize, Serialize};
+use std::fmt::Write as _;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ScreenModel {
@@ -127,7 +127,8 @@ impl ScreenModel {
                 } else {
                     "   "
                 };
-                let _ = writeln!(out,
+                let _ = writeln!(
+                    out,
                     "{marker}{}  {:<20} {:<10} events={}",
                     eng.id, eng.name, eng.state, eng.events
                 );
@@ -140,7 +141,8 @@ impl ScreenModel {
             out.push_str("   (none)\n");
         } else {
             for c in self.claims.iter().rev().take(10) {
-                let _ = writeln!(out,
+                let _ = writeln!(
+                    out,
                     "   [{}] {:<24} {} on {}",
                     c.severity, c.vuln_class, c.status, c.url
                 );
@@ -151,7 +153,6 @@ impl ScreenModel {
         out.push_str(" Log tail:\n");
         for line in self.log_lines.iter().rev().take(10) {
             let _ = writeln!(out, "   {line}");
-
         }
         out.push_str(&"=".repeat(width));
         out.push('\n');

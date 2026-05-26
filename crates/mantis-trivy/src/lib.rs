@@ -44,7 +44,7 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use mantis_static_scan::trivy::parse_trivy_output;
-use mantis_static_scan::{Finding, ScanError, Severity, binary_available};
+use mantis_static_scan::{binary_available, Finding, ScanError, Severity};
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 
@@ -189,7 +189,10 @@ impl TrivyScanner {
                 status: out.status.to_string(),
                 stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
             }),
-            Ok(Err(e)) => Err(ScanError::Spawn { tool: BIN, source: e }),
+            Ok(Err(e)) => Err(ScanError::Spawn {
+                tool: BIN,
+                source: e,
+            }),
             Err(_) => Err(ScanError::Timeout {
                 tool: BIN,
                 seconds: self.timeout.as_secs(),
@@ -301,7 +304,9 @@ pub fn emit_openvex(
                 id: format!("https://nvd.nist.gov/vuln/detail/{cve}"),
                 name: cve,
             },
-            products: vec![VexProduct { id: f.target.clone() }],
+            products: vec![VexProduct {
+                id: f.target.clone(),
+            }],
             status,
         });
     }

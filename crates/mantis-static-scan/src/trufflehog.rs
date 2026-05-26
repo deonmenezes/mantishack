@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use tokio::process::Command;
 
-use crate::{Finding, ScanError, Severity, binary_available};
+use crate::{binary_available, Finding, ScanError, Severity};
 
 const BIN: &str = "trufflehog";
 const INSTALL_HINT: &str =
@@ -96,7 +96,12 @@ impl TrufflehogAdapter {
                     stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
                 });
             }
-            Ok(Err(e)) => return Err(ScanError::Spawn { tool: BIN, source: e }),
+            Ok(Err(e)) => {
+                return Err(ScanError::Spawn {
+                    tool: BIN,
+                    source: e,
+                })
+            }
             Err(_) => {
                 return Err(ScanError::Timeout {
                     tool: BIN,
@@ -248,7 +253,10 @@ mod tests {
         assert_eq!(f.title, "AWS key AKIA…");
         assert_eq!(f.meta.get("detector").map(String::as_str), Some("AWS"));
         assert_eq!(f.meta.get("verified").map(String::as_str), Some("true"));
-        assert_eq!(f.meta.get("file").map(String::as_str), Some("src/config.py"));
+        assert_eq!(
+            f.meta.get("file").map(String::as_str),
+            Some("src/config.py")
+        );
         assert_eq!(f.meta.get("line").map(String::as_str), Some("42"));
         assert_eq!(
             f.meta.get("source_kind").map(String::as_str),

@@ -269,7 +269,10 @@ mod tests {
     #[test]
     fn parses_catalog_metadata() {
         let cat = KevCatalog::from_json(FIXTURE).unwrap();
-        assert_eq!(cat.title(), "CISA Catalog of Known Exploited Vulnerabilities");
+        assert_eq!(
+            cat.title(),
+            "CISA Catalog of Known Exploited Vulnerabilities"
+        );
         assert_eq!(cat.catalog_version(), "2024.05.01");
         assert_eq!(cat.len(), 2);
         assert!(!cat.is_empty());
@@ -346,7 +349,10 @@ mod tests {
         let cat = KevCatalog::from_entries([entry]);
         assert_eq!(cat.len(), 1);
         assert!(cat.is_kev("CVE-2023-12345"));
-        assert_eq!(cat.priority("cve-2023-12345"), KevPriority::IN_KEV_RANSOMWARE);
+        assert_eq!(
+            cat.priority("cve-2023-12345"),
+            KevPriority::IN_KEV_RANSOMWARE
+        );
     }
 
     #[test]

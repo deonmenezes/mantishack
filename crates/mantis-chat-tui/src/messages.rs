@@ -131,11 +131,13 @@ mod tests {
     fn rehydrate_skips_system_and_preserves_tool_calls() {
         let mut log = MessageLog::new();
         let mut assistant_with_call = ChatMessage::assistant("on it");
-        assistant_with_call.tool_calls.push(mantis_synthesizer::ToolCall {
-            id: "c1".into(),
-            name: "echo".into(),
-            arguments: serde_json::json!({}),
-        });
+        assistant_with_call
+            .tool_calls
+            .push(mantis_synthesizer::ToolCall {
+                id: "c1".into(),
+                name: "echo".into(),
+                arguments: serde_json::json!({}),
+            });
         let msgs = vec![
             ChatMessage::system("hidden"),
             ChatMessage::user("hello"),

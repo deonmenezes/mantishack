@@ -7,11 +7,11 @@
 //! lean — production callers route requests through the daemon's
 //! egress instead of reqwest directly.
 
-use std::fmt::Write as _;
 use crate::classify::{classify, DiffFinding, ProfileResponse, ProfileRole};
 use crate::AuthDiffError;
 use mantis_auth::AuthProfile;
 use serde::{Deserialize, Serialize};
+use std::fmt::Write as _;
 use std::time::Duration;
 use thiserror::Error;
 
@@ -158,7 +158,6 @@ fn urlencode(s: &str) -> String {
             _ => {
                 out.push('%');
                 let _ = write!(out, "{:02X}", b);
-
             }
         }
     }

@@ -56,13 +56,19 @@ pub fn format(n: &Notification, cfg: &HackerOneConfig<'_>) -> Value {
         .unwrap_or_else(|| severity_to_rating(n.severity));
 
     let mut attributes = serde_json::Map::new();
-    attributes.insert("team_handle".into(), Value::String(cfg.program_handle.to_string()));
+    attributes.insert(
+        "team_handle".into(),
+        Value::String(cfg.program_handle.to_string()),
+    );
     attributes.insert("title".into(), Value::String(n.title.clone()));
     attributes.insert(
         "vulnerability_information".into(),
         Value::String(report_body(n)),
     );
-    attributes.insert("severity_rating".into(), Value::String(severity_rating.to_string()));
+    attributes.insert(
+        "severity_rating".into(),
+        Value::String(severity_rating.to_string()),
+    );
     if let Some(wid) = cfg.weakness_id {
         attributes.insert("weakness_id".into(), Value::Number(wid.into()));
     }

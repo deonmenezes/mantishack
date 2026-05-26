@@ -9,10 +9,10 @@
 //! parameter is the standard first step a manual tester takes.
 //! It doesn't attempt UNION SELECT or any data-extraction payload.
 
-use std::fmt::Write as _;
 use async_trait::async_trait;
 use mantis_scanner_http::Surface;
 use reqwest::Client;
+use std::fmt::Write as _;
 
 use crate::reproducer::Reproducer;
 use crate::{EvidenceItem, Primitive, PrimitiveError, PrimitiveResult};
@@ -151,7 +151,6 @@ fn urlencoding(s: &str) -> String {
         } else {
             for b in c.to_string().bytes() {
                 let _ = write!(out, "%{b:02X}");
-
             }
         }
     }

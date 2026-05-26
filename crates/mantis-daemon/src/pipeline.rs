@@ -6,8 +6,8 @@
 //! Phase 2 will move it behind an `Engagement.Subscribe` streaming
 //! RPC so the operator sees progress live.
 
-use std::fmt::Write as _;
 use std::collections::HashSet;
+use std::fmt::Write as _;
 use std::sync::Arc;
 
 use mantis_claim::{verify_claim, Claim, ClaimState, SurfaceSnapshot};
@@ -288,7 +288,6 @@ pub(crate) async fn run_pipeline(
             let mut objective = String::with_capacity(256);
             for (vc, summary, prior) in hypotheses {
                 let _ = writeln!(objective, "[{vc} prior={prior}pp10k] {summary}");
-
             }
             let probe = TieredProbe {
                 target_url: surface_id.clone(),

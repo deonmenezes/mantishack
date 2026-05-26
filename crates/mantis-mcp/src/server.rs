@@ -2983,9 +2983,7 @@ impl MantisMcpServer {
         &self,
         Parameters(args): Parameters<ReconBurstArgs>,
     ) -> Result<CallToolResult, McpError> {
-        use mantis_recon_pipeline::{
-            run_pipeline, PipelineDepth, PipelineOptions,
-        };
+        use mantis_recon_pipeline::{run_pipeline, PipelineDepth, PipelineOptions};
         let depth = match args.depth.to_ascii_lowercase().as_str() {
             "deep" | "full" => PipelineDepth::Deep,
             _ => PipelineDepth::Quick,
@@ -3327,11 +3325,9 @@ fn render_verification_cascade_section(
         // Top-level metadata (adjudication_plan_hash, summary, etc.)
         if let Some(hash) = v.get("adjudication_plan_hash").and_then(|x| x.as_str()) {
             let _ = writeln!(s, "- **adjudication_plan_hash:** `{hash}`");
-
         }
         if let Some(summary) = v.get("summary").and_then(|x| x.as_str()) {
             let _ = writeln!(s, "- **summary:** {summary}");
-
         }
         // Findings map: per-finding verdicts.
         if let Some(findings) = v.get("findings").and_then(|x| x.as_object()) {
@@ -3353,9 +3349,7 @@ fn render_verification_cascade_section(
                             one_line.chars().take(180).collect::<String>()
                         })
                         .unwrap_or_default();
-                    let _ = writeln!(s,
-                        "| `{fid}` | {reportable} | {conf} | {reasoning} |"
-                    );
+                    let _ = writeln!(s, "| `{fid}` | {reportable} | {conf} | {reasoning} |");
                 }
                 s.push('\n');
             }
@@ -3387,19 +3381,15 @@ fn render_evidence_packs_section(packs: &serde_json::Value) -> String {
 
                 if let Some(title) = body.get("title").and_then(|t| t.as_str()) {
                     let _ = writeln!(s, "- **title:** {title}");
-
                 }
                 if let Some(sev) = body.get("severity").and_then(|t| t.as_str()) {
                     let _ = writeln!(s, "- **severity:** `{sev}`");
-
                 }
                 if let Some(endpoint) = body.get("endpoint").and_then(|t| t.as_str()) {
                     let _ = writeln!(s, "- **endpoint:** `{endpoint}`");
-
                 }
                 if let Some(impact) = body.get("impact").and_then(|t| t.as_str()) {
                     let _ = writeln!(s, "- **impact:** {impact}");
-
                 }
                 if let Some(poc) = body.get("proof_of_concept").and_then(|t| t.as_str()) {
                     s.push_str("\n**Proof of concept:**\n\n```\n");
@@ -3421,7 +3411,6 @@ fn render_evidence_packs_section(packs: &serde_json::Value) -> String {
                                 .and_then(|x| x.as_str())
                                 .unwrap_or("(no summary)");
                             let _ = writeln!(s, "{}. {}", i + 1, summary);
-
                         }
                         s.push('\n');
                     }
@@ -3453,7 +3442,6 @@ fn render_grade_verdict_section(grade: &serde_json::Value) -> String {
 
     if let Some(fb) = grade.get("feedback").and_then(|v| v.as_str()) {
         let _ = writeln!(s, "- **Feedback:** {fb}");
-
     }
     if let Some(findings) = grade.get("findings").and_then(|v| v.as_object()) {
         if !findings.is_empty() {
@@ -3466,7 +3454,8 @@ fn render_grade_verdict_section(grade: &serde_json::Value) -> String {
                         .map(|n| n.to_string())
                         .unwrap_or_else(|| "—".into())
                 };
-                let _ = writeln!(s,
+                let _ = writeln!(
+                    s,
                     "| `{fid}` | {} | {} | {} | {} | {} | {} |",
                     g("impact"),
                     g("proof_quality"),
@@ -3501,7 +3490,6 @@ fn render_markdown_core(
 
     if let Some(h) = &info.scope_hash {
         let _ = writeln!(s, "- **Scope hash:** `{}`", h);
-
     }
 
     let findings_total: u32 = waves.iter().map(|w| w.findings_total).sum();
@@ -3527,13 +3515,10 @@ fn render_markdown_core(
 
     let _ = writeln!(s, "| Waves executed | {} |", waves.len());
 
-    let _ = writeln!(s,
-        "| Findings (reportable) | {} |",
-        reportable_total
-
-    );
+    let _ = writeln!(s, "| Findings (reportable) | {} |", reportable_total);
     if suppressed_total > 0 {
-        let _ = writeln!(s,
+        let _ = writeln!(
+            s,
             "| Findings suppressed below floor | {} |",
             suppressed_total
         );
@@ -3555,7 +3540,6 @@ fn render_markdown_core(
                     "no"
                 };
                 let _ = writeln!(s, "| {} | {} | {} |", sev, n, admitted);
-
             }
         }
     }
@@ -3566,7 +3550,8 @@ fn render_markdown_core(
     } else {
         s.push_str("| seq | URL | status | server | tech |\n|---|---|---|---|---|\n");
         for surf in surfaces {
-            let _ = writeln!(s,
+            let _ = writeln!(
+                s,
                 "| {} | `{}://{}:{}{}` | {} | {} | {} |",
                 surf.seq,
                 surf.scheme,
@@ -3583,7 +3568,8 @@ fn render_markdown_core(
     if !waves.is_empty() {
         s.push_str("\n## Findings (from wave handoffs)\n\n");
         if severity_floor_rank > 0 {
-            let _ = write!(s,
+            let _ = write!(
+                s,
                 "_Findings below `{}` severity are suppressed; lower the floor with \
                  `--severity-floor info` or via the MCP arg to see everything._\n\n",
                 match severity_floor_rank {
@@ -3602,7 +3588,8 @@ fn render_markdown_core(
                 .iter()
                 .filter(|f| severity_rank(&f.severity) >= severity_floor_rank)
                 .count();
-            let _ = writeln!(s,
+            let _ = writeln!(
+                s,
                 "### Wave {} — {} reportable findings (received {}/{} handoffs)\n",
                 w.wave_number, wave_reportable, w.handoffs_received, w.assignments_total,
             );
@@ -3618,7 +3605,8 @@ fn render_markdown_core(
                 if group.is_empty() {
                     continue;
                 }
-                let _ = writeln!(s,
+                let _ = writeln!(
+                    s,
                     "#### {} ({} finding{})\n",
                     sev,
                     group.len(),
@@ -3630,12 +3618,12 @@ fn render_markdown_core(
                     let one_line: String =
                         f.evidence.replace('\n', " ").chars().take(400).collect();
                     let _ = writeln!(s, "  - _evidence_: {}", one_line);
-
                 }
                 s.push('\n');
             }
             if !w.handoffs_missing.is_empty() {
-                let _ = writeln!(s,
+                let _ = writeln!(
+                    s,
                     "_Missing handoffs (still pending):_ `{}`\n",
                     w.handoffs_missing.join("`, `")
                 );
@@ -3657,14 +3645,16 @@ fn render_markdown_core(
                     `bounty_write_chain_attempt`.\n\n",
         );
         for (wave_n, attempts) in chains {
-            let _ = writeln!(s,
+            let _ = writeln!(
+                s,
                 "### Wave {} — {} chain attempt{}\n",
                 wave_n,
                 attempts.len(),
                 if attempts.len() == 1 { "" } else { "s" }
             );
             for c in attempts {
-                let _ = writeln!(s,
+                let _ = writeln!(
+                    s,
                     "- **{}** _(severity: {}, outcome: {})_",
                     c.hypothesis, c.severity, c.outcome
                 );
@@ -3674,12 +3664,10 @@ fn render_markdown_core(
                     s.push_str("  - _steps_:\n");
                     for step in &c.steps {
                         let _ = writeln!(s, "    1. {}", step);
-
                     }
                 }
                 if let Some(r) = &c.severity_elevation_rationale {
                     let _ = writeln!(s, "  - _elevation rationale_: {}", r);
-
                 }
                 s.push('\n');
             }

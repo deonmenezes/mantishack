@@ -65,7 +65,10 @@ mod tests {
         let n = Notification::new("t", Severity::Critical);
         let payload = format(&n);
         let color = &payload["embeds"][0]["color"];
-        assert!(color.is_number(), "Discord requires decimal color, not string");
+        assert!(
+            color.is_number(),
+            "Discord requires decimal color, not string"
+        );
     }
 
     #[test]

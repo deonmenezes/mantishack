@@ -5154,11 +5154,15 @@ naturally until security work is requested.";
 fn pick_chat_adapter(
     provider_override: Option<&str>,
     model_override: Option<&str>,
-) -> Result<(std::sync::Arc<dyn mantis_synthesizer::LlmAdapter>, String, String)> {
+) -> Result<(
+    std::sync::Arc<dyn mantis_synthesizer::LlmAdapter>,
+    String,
+    String,
+)> {
     use crate::llm_pick::{
         BEDROCK_MODEL, DEEPSEEK_BASE, DEEPSEEK_MODEL, GROQ_BASE, GROQ_MODEL, MISTRAL_BASE,
-        MISTRAL_MODEL, MOONSHOT_BASE, MOONSHOT_MODEL, OPENROUTER_BASE, OPENROUTER_MODEL,
-        QWEN_BASE, QWEN_MODEL, XAI_BASE, XAI_MODEL, ZHIPU_BASE, ZHIPU_MODEL,
+        MISTRAL_MODEL, MOONSHOT_BASE, MOONSHOT_MODEL, OPENROUTER_BASE, OPENROUTER_MODEL, QWEN_BASE,
+        QWEN_MODEL, XAI_BASE, XAI_MODEL, ZHIPU_BASE, ZHIPU_MODEL,
     };
     use mantis_synthesizer::{
         anthropic::AnthropicAdapter, claude_cli::ClaudeCliAdapter, gemini::GeminiAdapter,
@@ -5174,19 +5178,17 @@ fn pick_chat_adapter(
     // Helper for the OpenAI-compatible cluster (Moonshot, DeepSeek,
     // Groq, Mistral, xAI, OpenRouter, Qwen, Zhipu, Bedrock-via-proxy).
     // Closure captures `model_override` so each call honors --model.
-    let openai_compat = |key: String,
-                         base_url: &str,
-                         default_model: &str|
-     -> (Arc<dyn LlmAdapter>, String) {
-        let model = model_override
-            .map(str::to_string)
-            .unwrap_or_else(|| default_model.to_string());
-        let a = OpenAIAdapter::new(key)
-            .with_base_url(base_url)
-            .with_model(model.clone())
-            .with_max_tokens(4096);
-        (Arc::new(a), model)
-    };
+    let openai_compat =
+        |key: String, base_url: &str, default_model: &str| -> (Arc<dyn LlmAdapter>, String) {
+            let model = model_override
+                .map(str::to_string)
+                .unwrap_or_else(|| default_model.to_string());
+            let a = OpenAIAdapter::new(key)
+                .with_base_url(base_url)
+                .with_model(model.clone())
+                .with_max_tokens(4096);
+            (Arc::new(a), model)
+        };
 
     let (adapter, model_label): (Arc<dyn LlmAdapter>, String) = match provider.as_str() {
         "anthropic" => {
@@ -5250,8 +5252,9 @@ fn pick_chat_adapter(
             openai_compat(key, OPENROUTER_BASE, OPENROUTER_MODEL)
         }
         "qwen" | "dashscope" => {
-            let key = std::env::var("DASHSCOPE_API_KEY")
-                .context("DASHSCOPE_API_KEY is not set — get one at dashscope.console.aliyun.com")?;
+            let key = std::env::var("DASHSCOPE_API_KEY").context(
+                "DASHSCOPE_API_KEY is not set — get one at dashscope.console.aliyun.com",
+            )?;
             openai_compat(key, QWEN_BASE, QWEN_MODEL)
         }
         "zhipu" | "glm" => {
@@ -5451,9 +5454,7 @@ async fn handle_chat(
         let count = loaded.len();
         conv.extend_from_history(loaded);
         if count > 0 {
-            eprintln!(
-                "{DIM}engagement resumed · {count} prior dispatches loaded{RESET}"
-            );
+            eprintln!("{DIM}engagement resumed · {count} prior dispatches loaded{RESET}");
         }
     }
 
@@ -5969,8 +5970,7 @@ async fn run_single_provider(
     use futures::StreamExt;
     use mantis_chat::ChatEvent;
 
-    let (adapter, _provider, _model) =
-        pick_chat_adapter(Some(provider_id), model_override)?;
+    let (adapter, _provider, _model) = pick_chat_adapter(Some(provider_id), model_override)?;
 
     let mut stream = adapter.stream_chat(messages, &[]);
     let mut collected = String::new();
@@ -6045,13 +6045,14 @@ fn available_providers() -> Vec<String> {
     // claude-cli fallback only included when nothing else is set —
     // if the user has even one API key configured, they probably
     // don't want the slower subprocess path in a multi-fan-out.
-    if out.is_empty() && std::process::Command::new("claude")
-        .arg("--version")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+    if out.is_empty()
+        && std::process::Command::new("claude")
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
     {
         out.push("claude-cli".into());
     }

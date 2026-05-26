@@ -11,11 +11,11 @@
 //! fuzzing (track which payloads change response shape and bias
 //! future samples toward them) lands in M2.3b.
 
-use std::fmt::Write as _;
 use rand::rngs::SmallRng;
 use rand::RngCore;
 use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
+use std::fmt::Write as _;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Mutation {
@@ -276,7 +276,6 @@ fn url_encode(s: &str) -> String {
         } else {
             for b in c.to_string().bytes() {
                 let _ = write!(out, "%{b:02X}");
-
             }
         }
     }

@@ -128,7 +128,9 @@ mod tests {
     fn has_cloud_metadata_payloads() {
         for cloud in ["aws", "gcp", "azure"] {
             assert!(
-                PAYLOADS.iter().any(|p| p.tags.contains(&cloud) && p.tags.contains(&"metadata")),
+                PAYLOADS
+                    .iter()
+                    .any(|p| p.tags.contains(&cloud) && p.tags.contains(&"metadata")),
                 "no metadata payload for {}",
                 cloud
             );

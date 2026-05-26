@@ -219,7 +219,8 @@ fn inline_one(path: &Path, budget: usize) -> std::io::Result<InlinedBlock> {
         block.push('\n');
     }
     if truncated {
-        let _ = writeln!(block,
+        let _ = writeln!(
+            block,
             "\n[truncated to {} bytes — original was {} bytes]",
             budget, original_len
         );

@@ -221,7 +221,10 @@ fn best_metric(m: &Metrics) -> (Option<f32>, Severity) {
             (e.cvss_data.base_score, label)
         })
     };
-    let chosen = pick(&m.v4).or_else(|| pick(&m.v31)).or_else(|| pick(&m.v30)).or_else(|| pick(&m.v2));
+    let chosen = pick(&m.v4)
+        .or_else(|| pick(&m.v31))
+        .or_else(|| pick(&m.v30))
+        .or_else(|| pick(&m.v2));
     match chosen {
         Some((score, label)) if !label.is_empty() => (Some(score), Severity::from_label(&label)),
         Some((score, _)) => (Some(score), Severity::from_base_score(score)),

@@ -64,7 +64,10 @@ mod tests {
 
     #[test]
     fn dos_payload_is_flagged_demo_only() {
-        let dos: Vec<_> = PAYLOADS.iter().filter(|p| p.tags.contains(&"dos")).collect();
+        let dos: Vec<_> = PAYLOADS
+            .iter()
+            .filter(|p| p.tags.contains(&"dos"))
+            .collect();
         for p in dos {
             assert!(
                 p.tags.contains(&"demo-only"),

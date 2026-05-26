@@ -45,7 +45,7 @@ use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 
-use mantis_static_scan::{Finding, ScanError, Severity, binary_available};
+use mantis_static_scan::{binary_available, Finding, ScanError, Severity};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::process::Command;
@@ -122,7 +122,10 @@ impl R2 {
                 status: out.status.to_string(),
                 stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
             })),
-            Ok(Err(e)) => Err(BinaryError::Scan(ScanError::Spawn { tool: BIN, source: e })),
+            Ok(Err(e)) => Err(BinaryError::Scan(ScanError::Spawn {
+                tool: BIN,
+                source: e,
+            })),
             Err(_) => Err(BinaryError::Scan(ScanError::Timeout {
                 tool: BIN,
                 seconds: self.timeout.as_secs(),
@@ -225,8 +228,8 @@ pub struct Import {
 /// Parser for `iIj`. r2 emits a single JSON object.
 pub fn parse_info(raw: &str) -> Result<BinaryInfo, BinaryError> {
     let trimmed = raw.trim();
-    let doc: serde_json::Value = serde_json::from_str(trimmed)
-        .map_err(|e| BinaryError::BadJson(format!("info: {e}")))?;
+    let doc: serde_json::Value =
+        serde_json::from_str(trimmed).map_err(|e| BinaryError::BadJson(format!("info: {e}")))?;
 
     let s = |key: &'static str| -> Result<String, BinaryError> {
         doc.get(key)
@@ -272,8 +275,7 @@ pub fn parse_functions(raw: &str) -> Result<Vec<Function>, BinaryError> {
     if trimmed.is_empty() {
         return Ok(Vec::new());
     }
-    serde_json::from_str(trimmed)
-        .map_err(|e| BinaryError::BadJson(format!("functions: {e}")))
+    serde_json::from_str(trimmed).map_err(|e| BinaryError::BadJson(format!("functions: {e}")))
 }
 
 pub fn parse_strings(raw: &str) -> Result<Vec<StringRef>, BinaryError> {
@@ -281,8 +283,7 @@ pub fn parse_strings(raw: &str) -> Result<Vec<StringRef>, BinaryError> {
     if trimmed.is_empty() {
         return Ok(Vec::new());
     }
-    serde_json::from_str(trimmed)
-        .map_err(|e| BinaryError::BadJson(format!("strings: {e}")))
+    serde_json::from_str(trimmed).map_err(|e| BinaryError::BadJson(format!("strings: {e}")))
 }
 
 pub fn parse_imports(raw: &str) -> Result<Vec<Import>, BinaryError> {
@@ -290,8 +291,7 @@ pub fn parse_imports(raw: &str) -> Result<Vec<Import>, BinaryError> {
     if trimmed.is_empty() {
         return Ok(Vec::new());
     }
-    serde_json::from_str(trimmed)
-        .map_err(|e| BinaryError::BadJson(format!("imports: {e}")))
+    serde_json::from_str(trimmed).map_err(|e| BinaryError::BadJson(format!("imports: {e}")))
 }
 
 /// Convert exploit-mitigation absence into [`Finding`]s. The

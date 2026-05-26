@@ -180,9 +180,7 @@ impl SecretScanner {
         if self.enable_entropy {
             for ef in entropy::scan(text, self.entropy_threshold) {
                 let end = ef.offset + ef.matched.len();
-                let overlaps = covered
-                    .iter()
-                    .any(|(s, e)| !(end <= *s || ef.offset >= *e));
+                let overlaps = covered.iter().any(|(s, e)| !(end <= *s || ef.offset >= *e));
                 if !overlaps {
                     out.push(SecretFinding {
                         source: source.map(str::to_string),
@@ -234,9 +232,7 @@ mod tests {
         let s = SecretScanner::new();
         // Source-level split so push protection doesn't see a contiguous AKIA… literal.
         let body = concat!("AWS_ACCESS_KEY_ID=", "AKIA", "IOSFODNN7EXAMPLE").as_bytes();
-        let found = s
-            .scan_bytes_with_source(body, Some("config.txt"))
-            .unwrap();
+        let found = s.scan_bytes_with_source(body, Some("config.txt")).unwrap();
         let aws = found
             .iter()
             .find(|f| f.rule_id == "aws-access-key-id")
@@ -252,9 +248,14 @@ mod tests {
         // contiguous patterns that match the regexes we ship (which would trigger
         // upstream secret-scanning push protection). The compiler joins them.
         let body = concat!(
-            "GITHUB_TOKEN=", "ghp", "_1234567890abcdefghijklmnopqrstuvwxyz ",
-            "STRIPE=", "sk_", "live_aaaaaaaaaaaaaaaaaaaaaaaa"
-        ).as_bytes();
+            "GITHUB_TOKEN=",
+            "ghp",
+            "_1234567890abcdefghijklmnopqrstuvwxyz ",
+            "STRIPE=",
+            "sk_",
+            "live_aaaaaaaaaaaaaaaaaaaaaaaa"
+        )
+        .as_bytes();
         let s = SecretScanner::new();
         let found = s.scan_bytes(body).unwrap();
         assert!(found.iter().any(|f| f.rule_id == "github-pat"));
@@ -266,9 +267,12 @@ mod tests {
         // First a Stripe key, then a GitHub PAT; expect ascending offsets.
         // Split as above to defeat source-file scanning while preserving runtime test.
         let body = concat!(
-            "sk_", "live_aaaaaaaaaaaaaaaaaaaaaaaa and later ",
-            "ghp", "_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-        ).as_bytes();
+            "sk_",
+            "live_aaaaaaaaaaaaaaaaaaaaaaaa and later ",
+            "ghp",
+            "_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        )
+        .as_bytes();
         let found = SecretScanner::new().scan_bytes(body).unwrap();
         let offsets: Vec<usize> = found.iter().map(|f| f.offset).collect();
         let mut sorted = offsets.clone();
@@ -319,7 +323,12 @@ mod tests {
         // A GitHub PAT also has high entropy. We should see exactly
         // one finding (the named rule), not two. Split the fixture so
         // push protection doesn't trip on this crate's own test data.
-        let body = concat!("token=", "ghp", "_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 done").as_bytes();
+        let body = concat!(
+            "token=",
+            "ghp",
+            "_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 done"
+        )
+        .as_bytes();
         let found = SecretScanner::new().scan_bytes(body).unwrap();
         let pat = found.iter().filter(|f| f.rule_id == "github-pat").count();
         let entropy = found
@@ -327,6 +336,9 @@ mod tests {
             .filter(|f| f.rule_id.starts_with("entropy"))
             .count();
         assert_eq!(pat, 1, "got {found:?}");
-        assert_eq!(entropy, 0, "entropy should suppress overlap with named rule");
+        assert_eq!(
+            entropy, 0,
+            "entropy should suppress overlap with named rule"
+        );
     }
 }

@@ -177,7 +177,10 @@ mod tests {
 
     #[test]
     fn time_based_payloads_mention_sleep_or_waitfor() {
-        let tb: Vec<_> = PAYLOADS.iter().filter(|p| p.tags.contains(&"time-based")).collect();
+        let tb: Vec<_> = PAYLOADS
+            .iter()
+            .filter(|p| p.tags.contains(&"time-based"))
+            .collect();
         assert!(!tb.is_empty());
         for p in tb {
             let v = p.value.to_ascii_uppercase();

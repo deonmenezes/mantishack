@@ -18,8 +18,8 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
 use mantis_static_scan::{
-    httpx::HttpxAdapter, nuclei::NucleiAdapter, subfinder::SubfinderAdapter,
-    trivy::TrivyAdapter, trufflehog::TrufflehogAdapter, Finding, ScanError, Severity,
+    httpx::HttpxAdapter, nuclei::NucleiAdapter, subfinder::SubfinderAdapter, trivy::TrivyAdapter,
+    trufflehog::TrufflehogAdapter, Finding, ScanError, Severity,
 };
 
 use crate::anomaly::detect;
@@ -287,8 +287,7 @@ fn push_scanner_result(bundle: &mut ReconBundle, name: &str, res: ScannerResult)
 fn push_subfinder_result(bundle: &mut ReconBundle, res: ScannerResult) {
     match res.outcome {
         Ok(findings) => {
-            let mut hosts: Vec<String> =
-                findings.iter().map(|f| f.target.clone()).collect();
+            let mut hosts: Vec<String> = findings.iter().map(|f| f.target.clone()).collect();
             hosts.sort();
             hosts.dedup();
             let count = hosts.len();
@@ -377,9 +376,7 @@ fn extract_title_from_httpx(t: &str) -> Option<String> {
     }
 }
 
-fn derive_tech_stack(
-    surfaces: &[HttpSurface],
-) -> std::collections::BTreeMap<String, Vec<String>> {
+fn derive_tech_stack(surfaces: &[HttpSurface]) -> std::collections::BTreeMap<String, Vec<String>> {
     use std::collections::{BTreeMap, BTreeSet};
     let mut by_cat: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for s in surfaces {
@@ -428,7 +425,10 @@ mod tests {
     #[test]
     fn strip_scheme_removes_protocol_and_path() {
         assert_eq!(strip_scheme("https://example.com/foo"), "example.com");
-        assert_eq!(strip_scheme("http://api.example.com:8080/x"), "api.example.com");
+        assert_eq!(
+            strip_scheme("http://api.example.com:8080/x"),
+            "api.example.com"
+        );
         assert_eq!(strip_scheme("example.com"), "example.com");
     }
 

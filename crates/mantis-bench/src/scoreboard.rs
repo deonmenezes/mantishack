@@ -283,11 +283,7 @@ impl Scoreboard {
             .iter()
             .filter(|st| st.no_flag >= 3 || (st.total >= 5 && st.solved == 0))
             .collect();
-        weak.sort_by(|a, b| {
-            b.no_flag
-                .cmp(&a.no_flag)
-                .then(b.total.cmp(&a.total))
-        });
+        weak.sort_by(|a, b| b.no_flag.cmp(&a.no_flag).then(b.total.cmp(&a.total)));
         if weak.is_empty() {
             s.push_str("(no weak tags surfaced — bump the threshold or add more benchmarks)\n");
         } else {

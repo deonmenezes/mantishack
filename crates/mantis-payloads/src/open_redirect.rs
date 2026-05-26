@@ -94,7 +94,10 @@ mod tests {
 
     #[test]
     fn has_filter_bypass_variants() {
-        let bypasses = PAYLOADS.iter().filter(|p| p.tags.contains(&"filter-bypass")).count();
+        let bypasses = PAYLOADS
+            .iter()
+            .filter(|p| p.tags.contains(&"filter-bypass"))
+            .count();
         assert!(bypasses >= 3);
     }
 }

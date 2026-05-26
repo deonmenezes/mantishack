@@ -126,12 +126,7 @@ impl Payload {
     /// hashes in the merkle log. Includes the corpus version so the
     /// hash changes whenever the embedded text changes.
     pub fn provenance_key(&self) -> String {
-        format!(
-            "{}|{}|{}",
-            CORPUS_VERSION,
-            self.category.slug(),
-            self.value
-        )
+        format!("{}|{}|{}", CORPUS_VERSION, self.category.slug(), self.value)
     }
 
     /// Convert to an owned, deserializable representation.

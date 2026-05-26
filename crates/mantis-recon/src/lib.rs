@@ -46,6 +46,4 @@ impl From<reqwest::Error> for ReconError {
 
 pub use crate::dnsx::{resolve_a, DnsResolution};
 pub use crate::httpx::{probe, HttpProbeResult, ProbeOptions};
-pub use crate::passive_subdomain::{
-    enumerate_passive, PassiveSource, SubdomainRecord,
-};
+pub use crate::passive_subdomain::{enumerate_passive, PassiveSource, SubdomainRecord};
