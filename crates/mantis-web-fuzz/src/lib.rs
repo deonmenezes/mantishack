@@ -4,15 +4,14 @@
 //! for vuln classes (XSS / SQLi / SSRF / etc.). This crate fills the
 //! complementary gap — fuzzing the *shape of the request itself*:
 //!
-//! * [`FuzzMode::Path`]      — brute-force paths under a base URL,
-//!                              the classic ffuf / feroxbuster usage.
-//! * [`FuzzMode::Vhost`]     — brute-force the `Host:` header to find
-//!                              virtual hosts the IP serves.
+//! * [`FuzzMode::Path`] — brute-force paths under a base URL, the
+//!   classic ffuf / feroxbuster usage.
+//! * [`FuzzMode::Vhost`] — brute-force the `Host:` header to find
+//!   virtual hosts the IP serves.
 //! * [`FuzzMode::Parameter`] — brute-force query-string parameter
-//!                              *names* (the value is fixed; what we
-//!                              vary is whether `?foo=v` is reflected
-//!                              or alters behaviour).
-//! * [`FuzzMode::Header`]    — brute-force HTTP header *names*.
+//!   *names* (the value is fixed; what we vary is whether `?foo=v`
+//!   is reflected or alters behaviour).
+//! * [`FuzzMode::Header`] — brute-force HTTP header *names*.
 //!
 //! Recursive path discovery is implemented as a follow-up call on
 //! interesting hits — see [`fuzz_recursive`].

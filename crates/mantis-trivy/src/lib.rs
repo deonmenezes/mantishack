@@ -5,14 +5,14 @@
 //! This crate sits one tier above [`mantis_static_scan::trivy`],
 //! which only ships filesystem + image scans. We add:
 //!
-//! * `config`  — Terraform / Kubernetes / Dockerfile / CloudFormation
-//!               misconfiguration scanning via `trivy config`.
-//! * `repo`    — full git-repo scan (vulns + secrets + misconfigs)
-//!               via `trivy repo`.
-//! * `sbom`    — vuln scanning of SPDX / CycloneDX bundles via
-//!               `trivy sbom`.
-//! * `rootfs`  — extracted-root-filesystem scan via `trivy rootfs`,
-//!               useful for analysing unpacked container layers.
+//! * `config` — Terraform / Kubernetes / Dockerfile / CloudFormation
+//!   misconfiguration scanning via `trivy config`.
+//! * `repo` — full git-repo scan (vulns + secrets + misconfigs) via
+//!   `trivy repo`.
+//! * `sbom` — vuln scanning of SPDX / CycloneDX bundles via
+//!   `trivy sbom`.
+//! * `rootfs` — extracted-root-filesystem scan via `trivy rootfs`,
+//!   useful for analysing unpacked container layers.
 //!
 //! Two output paths are supported:
 //!
