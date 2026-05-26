@@ -123,10 +123,11 @@ Lives under [`mantis-threat-intel`](./crates/mantis-threat-intel). One crate, on
 - [x] **HackerOne / Bugcrowd direct submission** — `mantis_notify::hackerone` emits the JSON:API `reports` create body (severity auto-mapped to H1 rating, weakness_id and structured_scope passthrough). `mantis_notify::bugcrowd` emits the `submissions` body with severity auto-mapped to VRT P1–P5 and target relationship.
 
 ### Operator experience
-- Web UI improvements (live scan visualization, evidence inspection)
-- VS Code extension for engagement management
-- Mobile companion app for status / notifications
-- Resume-interrupted-scans with full state restoration
+
+- [ ] Web UI improvements (live scan visualization, evidence inspection) — separate frontend codebase, out of scope for the Rust workspace.
+- [ ] VS Code extension for engagement management — separate TypeScript codebase.
+- [ ] Mobile companion app for status / notifications — separate mobile codebase.
+- [x] **Resume-interrupted-scans with full state restoration** — `mantis_hibernation::resume::build_resume_plan` walks the snapshot directory, classifies each engagement as `Resumable` / `Stale` / `Terminal` / `Corrupt`, and produces a `ResumePlan` the daemon's startup orchestration consumes. The actual restore (event-log replay from `last_event_seq`) is owned by the daemon.
 
 ### Compliance & frameworks
 Lives under [`mantis-compliance`](./crates/mantis-compliance). Static lookup tables + typed identifiers, no network.
@@ -155,6 +156,8 @@ Mantis's AI integration (Claude Code, Codex, OpenCode) is already a differentiat
 - Anthropic's [computer-use](https://docs.anthropic.com/en/docs/build-with-claude/computer-use) — relevant for browser-based exploitation steps
 
 Consider: a `mantis-agent` crate exposing primitives that agents call (rather than agents wrapping Mantis). Agents stay in their host CLI; Mantis stays the substrate.
+
+- [x] **Substrate-not-wrapper architecture** — realized via [`mantis-mcp`](./crates/mantis-mcp), which exposes Mantis primitives (`mantis_http_scan`, `mantis_run_recon`, `mantis_run_tiered`, claim inspection, report generation) as MCP tools. Host CLIs (Claude Code, Codex, OpenCode) consume them without wrapping Mantis. A separate `mantis-agent` crate would duplicate that surface — `mantis-mcp` is the canonical agent interface.
 
 ---
 
