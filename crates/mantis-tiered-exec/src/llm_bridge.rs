@@ -15,6 +15,7 @@
 //! configured (env vars, CLI flags, or config), wraps it in
 //! `SynthesizerLlmCodegen`, and hands the result to `TieredRunner`.
 
+use std::fmt::Write as _;
 use std::sync::Arc;
 
 use crate::adapter::{LlmAttempt, LlmCodegen};
@@ -65,21 +66,23 @@ impl SynthesizerLlmCodegen {
         if !attempts.is_empty() {
             s.push_str("\n\n--- PRIOR ATTEMPTS (rewrite to fix the verdicts below) ---\n");
             for (i, a) in attempts.iter().enumerate() {
-                s.push_str(&format!(
-                    "[attempt {} verdict] {}\n[attempt {} stdout]\n{}\n[attempt {} stderr]\n{}\n\n",
+                let _ = writeln!(
+                    s,
+                    "[attempt {} verdict] {}\n[attempt {} stdout]\n{}\n[attempt {} stderr]\n{}\n",
                     i + 1,
                     a.verdict,
                     i + 1,
                     truncate(&a.output.stdout, 2_000),
                     i + 1,
                     truncate(&a.output.stderr, 2_000),
-                ));
+                );
             }
         }
-        s.push_str(&format!(
-            "\n\n--- BUDGET ---\nbudget_seconds = {}\n",
+        let _ = writeln!(
+            s,
+            "\n\n--- BUDGET ---\nbudget_seconds = {}",
             probe.budget_seconds
-        ));
+        );
         s.push_str(
             "\n\n--- OUTPUT FORMAT ---\nReturn the raw script body. No backticks. \
             No commentary. The first line MUST be a shebang.\n",
@@ -122,19 +125,19 @@ fn render_profile(profile: &mantis_auth::AuthProfile) -> String {
     if !profile.cookies.is_empty() {
         s.push_str("cookies:\n");
         for c in &profile.cookies {
-            s.push_str(&format!("  - {}=<REDACTED>\n", c.name));
+            let _ = writeln!(s, "  - {}=<REDACTED>", c.name);
         }
     }
     if !profile.headers.is_empty() {
         s.push_str("headers:\n");
         for h in &profile.headers {
-            s.push_str(&format!("  - {}: <REDACTED>\n", h.name));
+            let _ = writeln!(s, "  - {}: <REDACTED>", h.name);
         }
     }
     if !profile.query.is_empty() {
         s.push_str("query:\n");
         for (k, _) in &profile.query {
-            s.push_str(&format!("  - {}=<REDACTED>\n", k));
+            let _ = writeln!(s, "  - {k}=<REDACTED>");
         }
     }
     if s.is_empty() {
