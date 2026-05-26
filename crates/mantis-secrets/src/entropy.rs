@@ -64,7 +64,35 @@ fn is_secret_char(c: u8) -> bool {
     c.is_ascii_alphanumeric() || c == b'+' || c == b'/' || c == b'=' || c == b'_' || c == b'-'
 }
 
+/// Precomputed `c * log2(c)` for c in [0, MAX_LEN]. Lets
+/// [`shannon_entropy`] avoid all transcendental calls in the inner
+/// loop on inputs ≤ MAX_LEN bytes — which is the entire callable
+/// range of the entropy scanner.
+///
+/// Identity used:
+///
+/// ```text
+/// H = -Σ p_i log2(p_i)
+///   = log2(N) - (1/N) Σ c_i log2(c_i)
+/// ```
+///
+/// where `c_i` is the count of byte `i` and `N` is the total length.
+/// So we need one `log2(N)` per call plus a table lookup per
+/// non-zero bucket — no other transcendentals.
+static C_LOG2_C: std::sync::LazyLock<[f64; MAX_LEN + 1]> = std::sync::LazyLock::new(|| {
+    let mut t = [0.0f64; MAX_LEN + 1];
+    for c in 1..=MAX_LEN {
+        t[c] = (c as f64) * (c as f64).log2();
+    }
+    t
+});
+
 /// Shannon entropy in bits/char.
+///
+/// Uses the [`C_LOG2_C`] lookup table to avoid per-byte log2 calls in
+/// the hot path. For inputs longer than [`MAX_LEN`] (which the scanner
+/// never produces, but `pub fn` callers might), falls back to the
+/// direct computation.
 pub fn shannon_entropy(s: &str) -> f64 {
     if s.is_empty() {
         return 0.0;
@@ -73,7 +101,19 @@ pub fn shannon_entropy(s: &str) -> f64 {
     for b in s.bytes() {
         counts[b as usize] += 1;
     }
-    let len = s.len() as f64;
+    let n = s.len();
+    let len = n as f64;
+    if n <= MAX_LEN {
+        // Hot path: c_i log2(c_i) via lookup. One log2 call total.
+        let mut sum_c_log2_c = 0.0;
+        for &c in counts.iter() {
+            if c != 0 {
+                sum_c_log2_c += C_LOG2_C[c as usize];
+            }
+        }
+        return len.log2() - sum_c_log2_c / len;
+    }
+    // Cold fallback for over-long inputs.
     let mut h = 0.0;
     for &c in counts.iter() {
         if c == 0 {
