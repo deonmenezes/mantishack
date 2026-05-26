@@ -7,6 +7,7 @@
 //! surface drops into the conversation.
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -138,8 +139,9 @@ impl ReconBundle {
         let mut s = String::new();
         let [info, low, med, high, crit] = self.severity_breakdown();
 
-        s.push_str(&format!(
-            "RECON COMPLETE for `{}` ({:.1}s · {} surfaces · {} findings: {}C/{}H/{}M/{}L/{}I)\n\n",
+        let _ = writeln!(
+            s,
+            "RECON COMPLETE for `{}` ({:.1}s · {} surfaces · {} findings: {}C/{}H/{}M/{}L/{}I)\n",
             self.target,
             self.elapsed_ms as f64 / 1000.0,
             self.live_surfaces.len(),
@@ -149,7 +151,7 @@ impl ReconBundle {
             med,
             low,
             info
-        ));
+        );
 
         // Surface graph
         if !self.live_surfaces.is_empty() || !self.subdomains.is_empty() {
@@ -162,16 +164,14 @@ impl ReconBundle {
                 } else {
                     format!(" [{}]", surf.tech.join(", "))
                 };
-                s.push_str(&format!(
-                    "- `{}` {status} {title}{tech}\n",
-                    surf.url
-                ));
+                let _ = writeln!(s, "- `{}` {status} {title}{tech}", surf.url);
             }
             if self.live_surfaces.len() > 20 {
-                s.push_str(&format!(
-                    "- (+{} more surfaces, in `live_surfaces`)\n",
+                let _ = writeln!(
+                    s,
+                    "- (+{} more surfaces, in `live_surfaces`)",
                     self.live_surfaces.len() - 20
-                ));
+                );
             }
             let extra_subs = self
                 .subdomains
@@ -184,9 +184,10 @@ impl ReconBundle {
                 })
                 .count();
             if extra_subs > 0 {
-                s.push_str(&format!(
-                    "- (+{extra_subs} non-responding subdomains, in `subdomains`)\n"
-                ));
+                let _ = writeln!(
+                    s,
+                    "- (+{extra_subs} non-responding subdomains, in `subdomains`)"
+                );
             }
             s.push('\n');
         }
@@ -198,7 +199,7 @@ impl ReconBundle {
                 if vals.is_empty() {
                     continue;
                 }
-                s.push_str(&format!("- {}: {}\n", cat, vals.join(", ")));
+                let _ = writeln!(s, "- {}: {}", cat, vals.join(", "));
             }
             s.push('\n');
         }
@@ -210,10 +211,7 @@ impl ReconBundle {
             .filter(|f| f.severity >= Severity::Medium)
             .collect();
         if !high_signal.is_empty() {
-            s.push_str(&format!(
-                "## Baseline findings ({} ≥ medium)\n",
-                high_signal.len()
-            ));
+            let _ = writeln!(s, "## Baseline findings ({} ≥ medium)", high_signal.len());
             for f in high_signal.iter().take(15) {
                 let sev = match f.severity {
                     Severity::Critical => "CRIT",
@@ -227,28 +225,27 @@ impl ReconBundle {
                 } else {
                     format!(" ({cve})")
                 };
-                s.push_str(&format!(
-                    "- [{sev}] {} on `{}`{cve_tag}\n",
-                    f.title, f.target
-                ));
+                let _ = writeln!(s, "- [{sev}] {} on `{}`{cve_tag}", f.title, f.target);
             }
             if high_signal.len() > 15 {
-                s.push_str(&format!(
-                    "- (+{} more medium+ findings, in `findings`)\n",
+                let _ = writeln!(
+                    s,
+                    "- (+{} more medium+ findings, in `findings`)",
                     high_signal.len() - 15
-                ));
+                );
             }
             s.push('\n');
         }
 
         // Anomalies — the heuristic "worth investigating" list
         if !self.anomalies.is_empty() {
-            s.push_str(&format!(
-                "## Anomalies worth investigating ({})\n",
+            let _ = writeln!(
+                s,
+                "## Anomalies worth investigating ({})",
                 self.anomalies.len()
-            ));
+            );
             for a in self.anomalies.iter().take(10) {
-                s.push_str(&format!("- {}: {}\n", a.kind.label(), a.rationale));
+                let _ = writeln!(s, "- {}: {}", a.kind.label(), a.rationale);
             }
             s.push('\n');
         }
@@ -261,10 +258,7 @@ impl ReconBundle {
             } else {
                 format!("{} findings", st.finding_count)
             };
-            s.push_str(&format!(
-                "- {}: {}ms · {status}\n",
-                st.scanner, st.elapsed_ms
-            ));
+            let _ = writeln!(s, "- {}: {}ms · {status}", st.scanner, st.elapsed_ms);
         }
         s.push('\n');
 
