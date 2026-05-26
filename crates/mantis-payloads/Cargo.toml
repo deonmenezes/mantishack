@@ -1,0 +1,16 @@
+[package]
+name = "mantis-payloads"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Versioned, categorized payload corpus for primitive + fuzzer crates. Vendors a curated subset of PayloadsAllTheThings and SecLists under their MIT licenses, structured by vulnerability class."
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

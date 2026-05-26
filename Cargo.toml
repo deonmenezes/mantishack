@@ -60,6 +60,13 @@ members = [
     "crates/mantis-web-fuzz",
     "crates/mantis-mobile",
     "crates/mantis-binary",
+    "crates/mantis-payloads",
+    "crates/mantis-secrets",
+    "crates/mantis-recon",
+    "crates/mantis-api",
+    "crates/mantis-threat-intel",
+    "crates/mantis-compliance",
+    "crates/mantis-notify",
 ]
 
 [workspace.package]
@@ -128,6 +135,13 @@ mantis-trivy = { path = "crates/mantis-trivy" }
 mantis-web-fuzz = { path = "crates/mantis-web-fuzz" }
 mantis-mobile = { path = "crates/mantis-mobile" }
 mantis-binary = { path = "crates/mantis-binary" }
+mantis-payloads = { path = "crates/mantis-payloads" }
+mantis-secrets = { path = "crates/mantis-secrets" }
+mantis-recon = { path = "crates/mantis-recon" }
+mantis-api = { path = "crates/mantis-api" }
+mantis-threat-intel = { path = "crates/mantis-threat-intel" }
+mantis-compliance = { path = "crates/mantis-compliance" }
+mantis-notify = { path = "crates/mantis-notify" }
 core_affinity = "0.8"
 num_cpus = "1.16"
 criterion = { version = "0.5", default-features = false, features = ["plotters", "cargo_bench_support"] }

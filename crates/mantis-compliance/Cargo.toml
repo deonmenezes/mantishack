@@ -1,0 +1,19 @@
+[package]
+name = "mantis-compliance"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Compliance and framework tagging for Mantis claims. Provides CWE identifiers, OWASP Top 10 (2021) classification, and (future) ASVS/MASVS/PCI-DSS/SOC2/HIPAA coverage tracking."
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
