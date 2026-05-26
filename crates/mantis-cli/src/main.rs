@@ -10,6 +10,7 @@ mod model_picker;
 mod project_config;
 mod run_log;
 mod setup;
+mod tools;
 
 use std::fmt::Write as _;
 
@@ -682,6 +683,16 @@ enum Command {
         #[arg(long, env = "MANTIS_DAEMON", default_value = DEFAULT_DAEMON_ENDPOINT)]
         daemon: String,
     },
+    /// Leaf utility tools — pure-compute helpers exposed as CLI commands.
+    ///
+    /// These are the first migration target of the MCP → CLI architectural
+    /// transition. Each subcommand performs a stateless transform and writes
+    /// a single JSON document to stdout. See `docs/MCP_TO_CLI_MIGRATION.md`
+    /// for the migration plan.
+    Tools {
+        #[command(subcommand)]
+        cmd: tools::ToolsCmd,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -1151,6 +1162,7 @@ fn main() -> Result<()> {
             output,
             daemon,
         )),
+        Command::Tools { cmd } => tools::run(cmd),
     }
 }
 
