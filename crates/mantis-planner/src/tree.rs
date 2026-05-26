@@ -192,21 +192,26 @@ impl Planner {
             .iter()
             .map(|c| self.nodes[c.0 as usize].visits)
             .sum();
-        parent.children.iter().copied().max_by(|a, b| {
-            let sa = ucb1(
-                self.nodes[a.0 as usize].visits,
-                self.nodes[a.0 as usize].total_reward,
-                parent_visits,
-                self.exploration_constant,
-            );
-            let sb = ucb1(
-                self.nodes[b.0 as usize].visits,
-                self.nodes[b.0 as usize].total_reward,
-                parent_visits,
-                self.exploration_constant,
-            );
-            sa.partial_cmp(&sb).unwrap_or(std::cmp::Ordering::Equal)
-        })
+        // max_by called ucb1 TWICE per comparison (once for `a`, once
+        // for `b`) — for N children that's 2(N-1) ucb1 calls. Use the
+        // Schwartzian transform: compute each score once into a tuple,
+        // then max_by_key. ~half the ucb1 calls per select_child, which
+        // runs once per MCTS rollout.
+        parent
+            .children
+            .iter()
+            .map(|c| {
+                let n = &self.nodes[c.0 as usize];
+                let score = ucb1(
+                    n.visits,
+                    n.total_reward,
+                    parent_visits,
+                    self.exploration_constant,
+                );
+                (*c, score)
+            })
+            .max_by(|(_, sa), (_, sb)| sa.partial_cmp(sb).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(c, _)| c)
     }
 
     /// Record the outcome of running an action. `reward` should be
