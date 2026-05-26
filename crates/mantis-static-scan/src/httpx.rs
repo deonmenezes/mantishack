@@ -258,9 +258,9 @@ mod tests {
             Some("301")
         );
         // No webserver / tech / port → none of those keys should be set.
-        assert!(findings[0].meta.get("webserver").is_none());
-        assert!(findings[0].meta.get("tech").is_none());
-        assert!(findings[0].meta.get("port").is_none());
+        assert!(!findings[0].meta.contains_key("webserver"));
+        assert!(!findings[0].meta.contains_key("tech"));
+        assert!(!findings[0].meta.contains_key("port"));
     }
 
     #[test]

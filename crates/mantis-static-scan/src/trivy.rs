@@ -316,7 +316,7 @@ mod tests {
         let b = &findings[1];
         assert_eq!(b.severity, Severity::Critical);
         // fixed_version was empty → must not be inserted
-        assert!(b.meta.get("fixed_version").is_none());
+        assert!(!b.meta.contains_key("fixed_version"));
     }
 
     #[test]

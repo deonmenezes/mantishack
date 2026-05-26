@@ -1721,6 +1721,7 @@ fn host_port_is_likely_http(host_port: &str) -> bool {
 /// Kept on the clap struct so old scripts don't hard-fail; we emit a
 /// deprecation warning if any are set and redirect the operator to
 /// `mantis find-auth-bugs`.
+#[derive(Default)]
 struct HackLegacyFlags {
     cookie: Option<String>,
     supabase_signup: Option<String>,
@@ -1742,21 +1743,6 @@ impl HackLegacyFlags {
             || !self.extra_paths.is_empty()
             || self.max_candidates.is_some()
             || self.max_endpoints_probed.is_some()
-    }
-}
-
-impl Default for HackLegacyFlags {
-    fn default() -> Self {
-        Self {
-            cookie: None,
-            supabase_signup: None,
-            supabase_apikey: None,
-            attacker_profile: None,
-            victim_profile: None,
-            extra_paths: vec![],
-            max_candidates: None,
-            max_endpoints_probed: None,
-        }
     }
 }
 
@@ -2836,7 +2822,7 @@ fn first_url_in_text(text: &str) -> Option<String> {
             c.is_whitespace() || matches!(c, '"' | '\'' | '`' | '<' | '>' | ')' | ',' | ';' | '\\')
         })
         .unwrap_or(rest.len());
-    let url = rest[..end].trim_end_matches(|c: char| matches!(c, '.' | '!' | '?'));
+    let url = rest[..end].trim_end_matches(['.', '!', '?']);
     if url.len() <= 8 {
         None
     } else {
@@ -4211,13 +4197,10 @@ fn maybe_migrate_keystore_from_os(ws_path: &std::path::Path) {
     let file = FileKeyStore::new(file_root);
     let mut migrated = 0usize;
     for (service, account) in probes {
-        match os.get(&service, account) {
-            Ok(bytes) => {
-                if file.put(&service, account, &bytes).is_ok() {
-                    migrated += 1;
-                }
+        if let Ok(bytes) = os.get(&service, account) {
+            if file.put(&service, account, &bytes).is_ok() {
+                migrated += 1;
             }
-            Err(_) => {}
         }
     }
     if migrated > 0 {
@@ -4317,9 +4300,8 @@ const ORCHESTRATOR_SLASH_COMMAND_SRC: &str =
 /// substitute `$ARGUMENTS` with the supplied target+flags string.
 fn orchestrator_role_body(arguments: &str) -> String {
     let raw = ORCHESTRATOR_SLASH_COMMAND_SRC;
-    let body = if raw.starts_with("---") {
+    let body = if let Some(after_open) = raw.strip_prefix("---") {
         // Find the closing `---` of the frontmatter.
-        let after_open = &raw[3..];
         match after_open
             .find("\n---\n")
             .or_else(|| after_open.find("\r\n---\r\n"))

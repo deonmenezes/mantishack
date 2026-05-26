@@ -55,7 +55,11 @@ pub enum Reward {
 /// without losing the structural signal.
 pub fn compress(engagement_id: EngagementId, events: &[Event]) -> Trajectory {
     use std::collections::HashMap;
-    let mut latest_verdict_by_pair: HashMap<(String, String), String> = HashMap::new();
+    // The verdict value is one of 3 fixed strings ("verified",
+    // "rejected", "retained") — store as &'static str so each insert
+    // doesn't allocate a fresh String. ~N fewer String allocations
+    // per compress() call, where N is the number of Claim* events.
+    let mut latest_verdict_by_pair: HashMap<(String, String), &'static str> = HashMap::new();
     let mut steps = vec![];
 
     // First pass: index claim verdicts so we can attach them to
@@ -69,7 +73,7 @@ pub fn compress(engagement_id: EngagementId, events: &[Event]) -> Trajectory {
             } => {
                 latest_verdict_by_pair.insert(
                     (surface_id.clone(), primitive_id.clone()),
-                    "verified".into(),
+                    "verified",
                 );
             }
             EventKind::ClaimRejected {
@@ -79,7 +83,7 @@ pub fn compress(engagement_id: EngagementId, events: &[Event]) -> Trajectory {
             } => {
                 latest_verdict_by_pair.insert(
                     (surface_id.clone(), primitive_id.clone()),
-                    "rejected".into(),
+                    "rejected",
                 );
             }
             EventKind::ClaimRetained {
@@ -89,7 +93,7 @@ pub fn compress(engagement_id: EngagementId, events: &[Event]) -> Trajectory {
             } => {
                 latest_verdict_by_pair.insert(
                     (surface_id.clone(), primitive_id.clone()),
-                    "retained".into(),
+                    "retained",
                 );
             }
             _ => {}
@@ -114,9 +118,11 @@ pub fn compress(engagement_id: EngagementId, events: &[Event]) -> Trajectory {
                 _ => Observation::Inconclusive,
             };
             let reward = if observation == Observation::Confirmed {
+                // .copied() unwraps the &&'static str into a &'static str
+                // so the literal-match arms keep working.
                 match latest_verdict_by_pair
                     .get(&(surface_id.clone(), primitive_id.clone()))
-                    .map(String::as_str)
+                    .copied()
                 {
                     Some("verified") => Reward::Full,
                     Some("rejected") => Reward::Negative,
