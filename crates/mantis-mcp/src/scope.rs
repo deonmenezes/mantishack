@@ -19,7 +19,6 @@ use mantis_scope::host_pattern::HostPattern;
 use mantis_scope::manifest::{Protocol, ScopeManifest, ScopeRules};
 use mantis_scope::port_range::PortMatcher;
 use mantis_scope::signed::SignedScope;
-use mantis_workspace::keystore::KeyStore;
 use mantis_workspace::{
     default_keystore, default_workspace_root, operator_keystore_service, Keypair, Workspace,
 };

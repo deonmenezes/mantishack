@@ -109,7 +109,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     // Sort: critical first, then high, medium, low, info.
-    all_findings.sort_by(|a, b| severity_rank(&b.severity).cmp(&severity_rank(&a.severity)));
+    all_findings.sort_by_key(|f| std::cmp::Reverse(severity_rank(&f.severity)));
     let mut finding_index: Vec<(usize, &wave::Finding)> = Vec::new();
     for (idx, f) in all_findings.iter().enumerate() {
         let n = idx + 1;
@@ -347,7 +347,9 @@ fn parse_surfaces(jsonl: &str) -> Vec<Surface> {
     out
 }
 
-fn parse_phase_events(jsonl: &str) -> Vec<(String, String, Option<String>, Vec<String>, u64)> {
+type PhaseEvent = (String, String, Option<String>, Vec<String>, u64);
+
+fn parse_phase_events(jsonl: &str) -> Vec<PhaseEvent> {
     let mut out = Vec::new();
     for line in jsonl.lines() {
         let Ok(v): Result<Value, _> = serde_json::from_str(line) else {
@@ -641,7 +643,7 @@ fn render_readme(
     waves: &[wave::WaveMerge],
     by_sev: &BTreeMap<String, u32>,
     findings: &[(usize, &wave::Finding)],
-    phase_events: &[(String, String, Option<String>, Vec<String>, u64)],
+    phase_events: &[PhaseEvent],
     floor_rank: u8,
 ) -> String {
     let total_findings: u32 = waves.iter().map(|w| w.findings_total).sum();

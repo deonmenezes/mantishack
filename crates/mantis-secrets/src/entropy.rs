@@ -81,8 +81,8 @@ fn is_secret_char(c: u8) -> bool {
 /// non-zero bucket — no other transcendentals.
 static C_LOG2_C: std::sync::LazyLock<[f64; MAX_LEN + 1]> = std::sync::LazyLock::new(|| {
     let mut t = [0.0f64; MAX_LEN + 1];
-    for c in 1..=MAX_LEN {
-        t[c] = (c as f64) * (c as f64).log2();
+    for (c, slot) in t.iter_mut().enumerate().take(MAX_LEN + 1).skip(1) {
+        *slot = (c as f64) * (c as f64).log2();
     }
     t
 });

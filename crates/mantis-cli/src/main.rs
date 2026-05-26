@@ -1434,8 +1434,12 @@ async fn handle_goal(
 
     // Build & authorize a permissive single-host scope so the egress
     // proxy admits the candidates we're about to probe.
-    let scope_json = build_signed_scope_json(&engagement_id, &[seed_url.clone()], budget_seconds)
-        .context("build signed scope")?;
+    let scope_json = build_signed_scope_json(
+        &engagement_id,
+        std::slice::from_ref(&seed_url),
+        budget_seconds,
+    )
+    .context("build signed scope")?;
     client
         .authorize(AuthorizeRequest {
             id: engagement_id.clone(),
@@ -1850,6 +1854,7 @@ async fn handle_preset(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_hack(
     target: String,
     i_have_authorization: bool,
@@ -4555,6 +4560,7 @@ fn summarize_tool_input(name: &str, input: Option<&serde_json::Value>) -> String
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_find_auth_bugs(
     target: String,
     supabase_signup: Option<String>,
@@ -4910,7 +4916,6 @@ fn build_signed_scope_json(
     use mantis_scope::manifest::{Protocol, ScopeManifest, ScopeRules};
     use mantis_scope::port_range::PortMatcher;
     use mantis_scope::signed::SignedScope;
-    use mantis_workspace::keystore::KeyStore;
     use mantis_workspace::{
         default_keystore, default_workspace_root, operator_keystore_service, Keypair, Workspace,
     };
@@ -5585,9 +5590,10 @@ async fn handle_chat(
                 // sits inside the 5-min Anthropic prompt cache, so
                 // the cost is paid once and read cheaply thereafter.
                 if !playbooks_armed {
-                    let hits = mantis_chat::matching_playbooks(&[msg.clone()]);
+                    let hits = mantis_chat::matching_playbooks(std::slice::from_ref(&msg));
                     if !hits.is_empty() {
-                        let pb_prompt = mantis_chat::compose_playbook_prompt(&[msg.clone()]);
+                        let pb_prompt =
+                            mantis_chat::compose_playbook_prompt(std::slice::from_ref(&msg));
                         conv.augment_system_prompt(&pb_prompt);
                         let names: Vec<&str> =
                             hits.iter().map(|p| p.label).collect();
@@ -6041,6 +6047,7 @@ fn available_providers() -> Vec<String> {
     out
 }
 
+#[allow(dead_code)]
 fn is_stdout_tty() -> bool {
     use std::io::IsTerminal;
     std::io::stdout().is_terminal()

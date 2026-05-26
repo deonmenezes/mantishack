@@ -996,7 +996,7 @@ pub fn extract_secrets(args: &ExtractSecretsArgs) -> SecretsReport {
     // (e.g. `sk-`) at the same offset during the overlap dedupe
     // step below.
     let mut pattern_order: Vec<&'static SecretPattern> = PATTERNS.iter().collect();
-    pattern_order.sort_by(|a, b| b.prefix.len().cmp(&a.prefix.len()));
+    pattern_order.sort_by_key(|p| std::cmp::Reverse(p.prefix.len()));
     for p in pattern_order {
         let mut start = 0usize;
         while let Some(idx) = blob[start..].find(p.prefix) {
@@ -1056,7 +1056,7 @@ pub fn extract_secrets(args: &ExtractSecretsArgs) -> SecretsReport {
     let mut matches = kept;
 
     let total_matches = matches.len();
-    let cap = args.match_cap.max(1).min(10_000);
+    let cap = args.match_cap.clamp(1, 10_000);
     matches.truncate(cap);
 
     let mut distinct_kinds = std::collections::BTreeSet::new();
@@ -1933,7 +1933,7 @@ pub fn extract_links(args: &ExtractLinksArgs) -> ExtractLinksResult {
     let mut matches: Vec<LinkMatch> = found.into_values().collect();
     matches.sort_by_key(|m| m.byte_offset);
     let count = matches.len();
-    matches.truncate(args.max_links.max(1).min(10_000));
+    matches.truncate(args.max_links.clamp(1, 10_000));
 
     let mut distinct_hosts: std::collections::BTreeSet<String> = Default::default();
     for m in &matches {

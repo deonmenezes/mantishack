@@ -2988,11 +2988,13 @@ impl MantisMcpServer {
             "deep" | "full" => PipelineDepth::Deep,
             _ => PipelineDepth::Quick,
         };
-        let mut opts = PipelineOptions::default();
-        opts.depth = depth;
-        opts.filesystem_root = args.filesystem_root.map(std::path::PathBuf::from);
-        opts.scope_hash = args.scope_hash;
-        opts.cache_ttl = std::time::Duration::from_secs(args.cache_ttl_secs);
+        let opts = PipelineOptions {
+            depth,
+            filesystem_root: args.filesystem_root.map(std::path::PathBuf::from),
+            scope_hash: args.scope_hash,
+            cache_ttl: std::time::Duration::from_secs(args.cache_ttl_secs),
+            ..PipelineOptions::default()
+        };
 
         let bundle = run_pipeline(&args.target, opts)
             .await
@@ -3277,6 +3279,7 @@ pub fn render_markdown(
 /// `## Evidence packs`, and / or `## Grade verdict` section so the
 /// final artifact is the proof itself — not just a list of finding
 /// titles.
+#[allow(clippy::too_many_arguments)]
 pub fn render_markdown_with_evidence(
     info: &EngagementSummary,
     surfaces: &[Surface],

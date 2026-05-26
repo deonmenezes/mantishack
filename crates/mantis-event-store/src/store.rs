@@ -114,10 +114,11 @@ impl EventStore {
             new_count.to_be_bytes(),
         );
 
-        // Pre-size for count + 1 so the push() below doesn't trigger a
-        // Vec realloc (read_leaves only allocates `count` slots, but we
-        // immediately push one more for the freshly-appended event).
-        let mut all_leaves = read_leaves(&self.db, engagement_id, count + 1)?;
+        // Read the `count` leaves currently on disk (the batch with the
+        // new event hasn't been committed yet) and append the
+        // freshly-hashed event so the merkle root we sign covers it.
+        let mut all_leaves = read_leaves(&self.db, engagement_id, count)?;
+        all_leaves.reserve_exact(1);
         all_leaves.push(leaf_hash(&bytes));
         let root = merkle_root(&all_leaves);
         let head = SignedTreeHead::create(signer, engagement_id, new_count, root);

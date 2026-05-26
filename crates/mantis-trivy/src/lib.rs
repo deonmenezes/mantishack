@@ -280,7 +280,10 @@ pub fn emit_openvex(
     findings: &[Finding],
     default_status: VexStatus,
 ) -> OpenVex {
-    let mut statements = Vec::new();
+    // Pre-size the statements Vec. The typical case is most findings
+    // are CVE-kind, so findings.len() is a good upper bound — avoids
+    // the geometric grow/reallocate cycle during push().
+    let mut statements = Vec::with_capacity(findings.len());
     for f in findings.iter().filter(|f| f.kind == "cve") {
         let cve = match f.meta.get("cve") {
             Some(c) if !c.is_empty() => c.clone(),

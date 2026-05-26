@@ -71,30 +71,24 @@ pub fn compress(engagement_id: EngagementId, events: &[Event]) -> Trajectory {
                 primitive_id,
                 ..
             } => {
-                latest_verdict_by_pair.insert(
-                    (surface_id.clone(), primitive_id.clone()),
-                    "verified",
-                );
+                latest_verdict_by_pair
+                    .insert((surface_id.clone(), primitive_id.clone()), "verified");
             }
             EventKind::ClaimRejected {
                 surface_id,
                 primitive_id,
                 ..
             } => {
-                latest_verdict_by_pair.insert(
-                    (surface_id.clone(), primitive_id.clone()),
-                    "rejected",
-                );
+                latest_verdict_by_pair
+                    .insert((surface_id.clone(), primitive_id.clone()), "rejected");
             }
             EventKind::ClaimRetained {
                 surface_id,
                 primitive_id,
                 ..
             } => {
-                latest_verdict_by_pair.insert(
-                    (surface_id.clone(), primitive_id.clone()),
-                    "retained",
-                );
+                latest_verdict_by_pair
+                    .insert((surface_id.clone(), primitive_id.clone()), "retained");
             }
             _ => {}
         }
