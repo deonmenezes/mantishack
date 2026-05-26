@@ -26,6 +26,7 @@
 //! (unknown engagement id, malformed url) and `internal_error` for
 //! infrastructure problems (daemon down, signing-key missing).
 
+use std::fmt::Write as _;
 use std::str::FromStr;
 
 use rmcp::handler::server::wrapper::Parameters;
@@ -3321,13 +3322,16 @@ fn render_verification_cascade_section(
     );
     for round in ["brutalist", "balanced", "final"] {
         let Some(v) = rounds.get(round) else { continue };
-        s.push_str(&format!("### {round} verifier\n\n"));
+        let _ = writeln!(s, "### {round} verifier\n");
+
         // Top-level metadata (adjudication_plan_hash, summary, etc.)
         if let Some(hash) = v.get("adjudication_plan_hash").and_then(|x| x.as_str()) {
-            s.push_str(&format!("- **adjudication_plan_hash:** `{hash}`\n"));
+            let _ = writeln!(s, "- **adjudication_plan_hash:** `{hash}`");
+
         }
         if let Some(summary) = v.get("summary").and_then(|x| x.as_str()) {
-            s.push_str(&format!("- **summary:** {summary}\n"));
+            let _ = writeln!(s, "- **summary:** {summary}");
+
         }
         // Findings map: per-finding verdicts.
         if let Some(findings) = v.get("findings").and_then(|x| x.as_object()) {
@@ -3379,18 +3383,23 @@ fn render_evidence_packs_section(packs: &serde_json::Value) -> String {
     if let Some(map) = packs.as_object() {
         if let Some(findings) = map.get("findings").and_then(|f| f.as_object()) {
             for (fid, body) in findings {
-                s.push_str(&format!("### {fid}\n\n"));
+                let _ = writeln!(s, "### {fid}\n");
+
                 if let Some(title) = body.get("title").and_then(|t| t.as_str()) {
-                    s.push_str(&format!("- **title:** {title}\n"));
+                    let _ = writeln!(s, "- **title:** {title}");
+
                 }
                 if let Some(sev) = body.get("severity").and_then(|t| t.as_str()) {
-                    s.push_str(&format!("- **severity:** `{sev}`\n"));
+                    let _ = writeln!(s, "- **severity:** `{sev}`");
+
                 }
                 if let Some(endpoint) = body.get("endpoint").and_then(|t| t.as_str()) {
-                    s.push_str(&format!("- **endpoint:** `{endpoint}`\n"));
+                    let _ = writeln!(s, "- **endpoint:** `{endpoint}`");
+
                 }
                 if let Some(impact) = body.get("impact").and_then(|t| t.as_str()) {
-                    s.push_str(&format!("- **impact:** {impact}\n"));
+                    let _ = writeln!(s, "- **impact:** {impact}");
+
                 }
                 if let Some(poc) = body.get("proof_of_concept").and_then(|t| t.as_str()) {
                     s.push_str("\n**Proof of concept:**\n\n```\n");
@@ -3411,7 +3420,8 @@ fn render_evidence_packs_section(packs: &serde_json::Value) -> String {
                                 .or_else(|| step.get("description"))
                                 .and_then(|x| x.as_str())
                                 .unwrap_or("(no summary)");
-                            s.push_str(&format!("{}. {}\n", i + 1, summary));
+                            let _ = writeln!(s, "{}. {}", i + 1, summary);
+
                         }
                         s.push('\n');
                     }
@@ -3437,10 +3447,13 @@ fn render_grade_verdict_section(grade: &serde_json::Value) -> String {
         .get("total_score")
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
-    s.push_str(&format!("- **Verdict:** `{verdict}`\n"));
-    s.push_str(&format!("- **Total score:** {total}\n"));
+    let _ = writeln!(s, "- **Verdict:** `{verdict}`");
+
+    let _ = writeln!(s, "- **Total score:** {total}");
+
     if let Some(fb) = grade.get("feedback").and_then(|v| v.as_str()) {
-        s.push_str(&format!("- **Feedback:** {fb}\n"));
+        let _ = writeln!(s, "- **Feedback:** {fb}");
+
     }
     if let Some(findings) = grade.get("findings").and_then(|v| v.as_object()) {
         if !findings.is_empty() {
@@ -3478,12 +3491,17 @@ fn render_markdown_core(
 ) -> String {
     let mut s = String::new();
     s.push_str("# Mantis Engagement Report\n\n");
-    s.push_str(&format!("- **Engagement:** `{}`\n", info.id));
-    s.push_str(&format!("- **Name:** `{}`\n", info.name));
-    s.push_str(&format!("- **State:** `{}`\n", info.state));
-    s.push_str(&format!("- **Events recorded:** {}\n", info.event_count));
+    let _ = writeln!(s, "- **Engagement:** `{}`", info.id);
+
+    let _ = writeln!(s, "- **Name:** `{}`", info.name);
+
+    let _ = writeln!(s, "- **State:** `{}`", info.state);
+
+    let _ = writeln!(s, "- **Events recorded:** {}", info.event_count);
+
     if let Some(h) = &info.scope_hash {
-        s.push_str(&format!("- **Scope hash:** `{}`\n", h));
+        let _ = writeln!(s, "- **Scope hash:** `{}`", h);
+
     }
 
     let findings_total: u32 = waves.iter().map(|w| w.findings_total).sum();
@@ -3505,8 +3523,10 @@ fn render_markdown_core(
 
     s.push_str("\n## Pipeline summary\n\n");
     s.push_str("| Stage | Count |\n|---|---|\n");
-    s.push_str(&format!("| Surfaces discovered | {} |\n", surfaces.len()));
-    s.push_str(&format!("| Waves executed | {} |\n", waves.len()));
+    let _ = writeln!(s, "| Surfaces discovered | {} |", surfaces.len());
+
+    let _ = writeln!(s, "| Waves executed | {} |", waves.len());
+
     s.push_str(&format!(
         "| Findings (reportable) | {} |\n",
         reportable_total
@@ -3517,9 +3537,11 @@ fn render_markdown_core(
             suppressed_total
         ));
     }
-    s.push_str(&format!("| Findings total (raw) | {} |\n", findings_total));
-    s.push_str(&format!("| Dead-ends | {} |\n", dead_ends_total));
-    s.push_str(&format!("| Coverage entries | {} |\n", coverage_total));
+    let _ = writeln!(s, "| Findings total (raw) | {} |", findings_total);
+
+    let _ = writeln!(s, "| Dead-ends | {} |", dead_ends_total);
+
+    let _ = writeln!(s, "| Coverage entries | {} |", coverage_total);
 
     if !by_sev.is_empty() {
         s.push_str("\n## Findings by severity\n\n");
@@ -3531,7 +3553,8 @@ fn render_markdown_core(
                 } else {
                     "no"
                 };
-                s.push_str(&format!("| {} | {} | {} |\n", sev, n, admitted));
+                let _ = writeln!(s, "| {} | {} | {} |", sev, n, admitted);
+
             }
         }
     }
@@ -3601,10 +3624,12 @@ fn render_markdown_core(
                     if group.len() == 1 { "" } else { "s" }
                 ));
                 for f in group {
-                    s.push_str(&format!("- **{}** — `{}`\n", f.title, f.surface));
+                    let _ = writeln!(s, "- **{}** — `{}`", f.title, f.surface);
+
                     let one_line: String =
                         f.evidence.replace('\n', " ").chars().take(400).collect();
-                    s.push_str(&format!("  - _evidence_: {}\n", one_line));
+                    let _ = writeln!(s, "  - _evidence_: {}", one_line);
+
                 }
                 s.push('\n');
             }
@@ -3642,15 +3667,18 @@ fn render_markdown_core(
                     "- **{}** _(severity: {}, outcome: {})_\n",
                     c.hypothesis, c.severity, c.outcome
                 ));
-                s.push_str(&format!("  - _evidence_: {}\n", c.evidence_summary));
+                let _ = writeln!(s, "  - _evidence_: {}", c.evidence_summary);
+
                 if !c.steps.is_empty() {
                     s.push_str("  - _steps_:\n");
                     for step in &c.steps {
-                        s.push_str(&format!("    1. {}\n", step));
+                        let _ = writeln!(s, "    1. {}", step);
+
                     }
                 }
                 if let Some(r) = &c.severity_elevation_rationale {
-                    s.push_str(&format!("  - _elevation rationale_: {}\n", r));
+                    let _ = writeln!(s, "  - _elevation rationale_: {}", r);
+
                 }
                 s.push('\n');
             }
