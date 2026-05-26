@@ -127,6 +127,10 @@ mantis engagement report "demo" --format pdf       # render report
 
 Recon tools (subfinder, httpx, katana, nuclei, jwt_tool) are **auto-installed** into the per-repo `tools/recon/bin/` directory by `install.sh` / `mantis init`. No manual `go install` step needed; the recon-agent prepends that directory to PATH at engagement start. Run `mantis doctor` to confirm what's installed. Mantis runs without any of them — coverage just narrows.
 
+## Roadmap
+
+See [`ROADMAP.md`](./ROADMAP.md) for the integration roadmap — priority-ordered plan for `mantis-nuclei`, `mantis-cloud-{aws,azure,gcp}`, `mantis-ad`, `mantis-defectdojo`, `mantis-recon`, `mantis-secrets`, `mantis-api`, `mantis-payloads`, plus strategic additions and a 12-month sequencing plan. Architectural invariant: every integration routes through `mantis-egress` and produces verifiable claims.
+
 ## Upstream credit — Hacker Bob
 
 **Mantis is built on top of [Hacker Bob](https://github.com/vmihalis/hacker-bob) (Apache-2.0, Copyright 2026 Michail Vasileiadis).** The agent prompts, role prompts, slash commands, capability playbook conventions, chain-attempt outcome enum, severity-ladder rules, and `bob-hunt` workflow shape are derived from Hacker Bob.
