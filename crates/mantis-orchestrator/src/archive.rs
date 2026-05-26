@@ -203,11 +203,11 @@ pub fn write_archive(
     tl.push_str("# Pipeline timeline\n\n");
     tl.push_str("| # | stage | summary |\n|---|---|---|\n");
     for (i, (filename, title, _)) in phases.iter().enumerate() {
-        tl.push_str(&format!(
-            "| {} | [{title}]({}/{filename}) | — |\n",
-            i + 1,
-            "phases"
-        ));
+        let _ = writeln!(
+            tl,
+            "| {} | [{title}](phases/{filename}) | — |",
+            i + 1
+        );
     }
     tl.push_str("\n## Findings landed\n\n");
     if numbered.is_empty() {
@@ -215,11 +215,12 @@ pub fn write_archive(
     } else {
         tl.push_str("| F-# | class | severity | URL |\n|---|---|---|---|\n");
         for (n, f, url) in &numbered {
-            tl.push_str(&format!(
-                "| F-{n:02} | `{}` | `{}` | `{url}` |\n",
+            let _ = writeln!(
+                tl,
+                "| F-{n:02} | `{}` | `{}` | `{url}` |",
                 f.class.vuln_class(),
                 f.class.default_severity(),
-            ));
+            );
         }
     }
     fs_write(&root.join("timeline.md"), tl.into_bytes())?;
@@ -371,13 +372,14 @@ fn render_vulnerability_report(
         s.push_str("_No findings discovered._\n");
     } else {
         for (n, f, url) in numbered {
-            s.push_str(&format!(
-                "### F-{n:02} — `{}` (`{}`)\n\n",
+            let _ = writeln!(
+                s,
+                "### F-{n:02} — `{}` (`{}`)\n",
                 f.class.vuln_class(),
                 f.class.default_severity()
-            ));
-            s.push_str(&format!("- **URL:** `{url}`\n"));
-            s.push_str(&format!("- **Hash:** `{}`\n\n", f.finding_hash));
+            );
+            let _ = writeln!(s, "- **URL:** `{url}`");
+            let _ = writeln!(s, "- **Hash:** `{}`\n", f.finding_hash);
             s.push_str("**Evidence**\n\n");
             s.push_str(&f.evidence);
             s.push_str("\n\n---\n\n");
@@ -393,33 +395,29 @@ fn render_readme(
     numbered: &[(usize, &DiffFinding, &str)],
 ) -> String {
     let mut s = String::new();
-    s.push_str(&format!(
-        "# {host} — `find-auth-bugs` engagement `{engagement_id}`\n\n"
-    ));
-    s.push_str(&format!("- **Target URL:** `{}`\n", report.target_url));
+    let _ = writeln!(
+        s,
+        "# {host} — `find-auth-bugs` engagement `{engagement_id}`\n"
+    );
+    let _ = writeln!(s, "- **Target URL:** `{}`", report.target_url);
     if let Some(e) = &report.attacker_email {
-        s.push_str(&format!("- **Attacker:** `{e}`\n"));
+        let _ = writeln!(s, "- **Attacker:** `{e}`");
     }
     if let Some(e) = &report.victim_email {
-        s.push_str(&format!("- **Victim:** `{e}`\n"));
+        let _ = writeln!(s, "- **Victim:** `{e}`");
     }
-    s.push_str(&format!(
-        "- **Endpoints probed:** {}\n",
-        report.endpoints_probed
-    ));
-    s.push_str(&format!(
-        "- **Endpoints with findings:** {}\n",
+    let _ = writeln!(s, "- **Endpoints probed:** {}", report.endpoints_probed);
+    let _ = writeln!(
+        s,
+        "- **Endpoints with findings:** {}",
         report.endpoints_with_findings
-    ));
-    s.push_str(&format!(
-        "- **Findings total:** {}\n",
-        report.findings_total
-    ));
+    );
+    let _ = writeln!(s, "- **Findings total:** {}", report.findings_total);
     s.push_str("\n## Severity breakdown\n\n");
     s.push_str("| Severity | Count |\n|---|---|\n");
     for sev in ["critical", "high", "medium", "low", "info"] {
         if let Some(n) = report.findings_by_severity.get(sev) {
-            s.push_str(&format!("| {sev} | {n} |\n"));
+            let _ = writeln!(s, "| {sev} | {n} |");
         }
     }
     s.push_str("\n## Layout\n\n```\n");
@@ -436,11 +434,12 @@ fn render_readme(
     } else {
         s.push_str("| F-# | severity | class | URL | file |\n|---|---|---|---|---|\n");
         for (n, f, url) in numbered {
-            let class_label = format!("{:?}", f.class);
-            s.push_str(&format!(
-                "| F-{n:02} | `{}` | `{class_label}` | `{url}` | [`findings/F-{n:02}.md`](findings/F-{n:02}.md) |\n",
-                f.class.default_severity()
-            ));
+            let _ = writeln!(
+                s,
+                "| F-{n:02} | `{}` | `{:?}` | `{url}` | [`findings/F-{n:02}.md`](findings/F-{n:02}.md) |",
+                f.class.default_severity(),
+                f.class,
+            );
         }
     }
     s
