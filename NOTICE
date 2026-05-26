@@ -161,14 +161,23 @@ Hacker Bob
   for the upstream originals.
 
   These ported files are derivative works of Hacker Bob under
-  Apache License 2.0. The Hacker Bob NOTICE text is reproduced
-  verbatim below as required by Apache-2.0 §4(d).
+  Apache License 2.0.
+
+  Apache-2.0 §4(d) requires a derivative work to reproduce, in a
+  NOTICE text file distributed as part of the derivative, the
+  attribution notices that the upstream work contains in its NOTICE
+  file. As of 2026-05-25, the upstream repository at
+  https://github.com/vmihalis/hacker-bob carries no `NOTICE` file
+  (path 404 on the `main` branch), so there is no verbatim text to
+  reproduce. The block below is a courtesy attribution Mantis chooses
+  to carry regardless — it summarizes the upstream copyright and
+  license terms, but it is NOT a verbatim reproduction of an upstream
+  NOTICE file (no such file exists).
 
   Grateful acknowledgement is given to the Hacker Bob project.
 
-  --- Upstream NOTICE (reproduced verbatim from
-      https://github.com/vmihalis/hacker-bob/blob/main/NOTICE
-      per Apache License 2.0 §4(d)) ---
+  --- Courtesy attribution (Mantis-authored summary; upstream has no
+      NOTICE file as of 2026-05-25) ---
 
   Hacker Bob
   Copyright 2026 Michail Vasileiadis
@@ -177,7 +186,7 @@ Hacker Bob
   and contributors to the Hacker Bob project.
 
   Hacker Bob is licensed under the Apache License, Version 2.0.
-  See LICENSE for details. See DISCLAIMER.md for usage terms specific
-  to security testing.
+  See its LICENSE file for details and its DISCLAIMER.md for usage
+  terms specific to security testing.
 
-  --- end upstream NOTICE ---
+  --- end courtesy attribution ---

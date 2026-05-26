@@ -11,6 +11,7 @@
 //! fuzzing (track which payloads change response shape and bias
 //! future samples toward them) lands in M2.3b.
 
+use std::fmt::Write as _;
 use rand::rngs::SmallRng;
 use rand::RngCore;
 use rand::SeedableRng;
@@ -274,7 +275,8 @@ fn url_encode(s: &str) -> String {
             out.push(c);
         } else {
             for b in c.to_string().bytes() {
-                out.push_str(&format!("%{b:02X}"));
+                let _ = write!(out, "%{b:02X}");
+
             }
         }
     }

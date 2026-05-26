@@ -6,6 +6,7 @@
 //! Phase 2 will move it behind an `Engagement.Subscribe` streaming
 //! RPC so the operator sees progress live.
 
+use std::fmt::Write as _;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -286,7 +287,8 @@ pub(crate) async fn run_pipeline(
             // surface had so the LLM can pick the most promising one.
             let mut objective = String::with_capacity(256);
             for (vc, summary, prior) in hypotheses {
-                objective.push_str(&format!("[{vc} prior={prior}pp10k] {summary}\n"));
+                let _ = writeln!(objective, "[{vc} prior={prior}pp10k] {summary}");
+
             }
             let probe = TieredProbe {
                 target_url: surface_id.clone(),

@@ -127,10 +127,10 @@ impl ScreenModel {
                 } else {
                     "   "
                 };
-                out.push_str(&format!(
-                    "{marker}{}  {:<20} {:<10} events={}\n",
+                let _ = writeln!(out,
+                    "{marker}{}  {:<20} {:<10} events={}",
                     eng.id, eng.name, eng.state, eng.events
-                ));
+                );
             }
         }
         out.push_str(&"-".repeat(width));
@@ -140,10 +140,10 @@ impl ScreenModel {
             out.push_str("   (none)\n");
         } else {
             for c in self.claims.iter().rev().take(10) {
-                out.push_str(&format!(
-                    "   [{}] {:<24} {} on {}\n",
+                let _ = writeln!(out,
+                    "   [{}] {:<24} {} on {}",
                     c.severity, c.vuln_class, c.status, c.url
-                ));
+                );
             }
         }
         out.push_str(&"-".repeat(width));
