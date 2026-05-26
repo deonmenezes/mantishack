@@ -116,7 +116,12 @@ pub fn build_resume_plan(
 
     let mut candidates: Vec<ResumeCandidate> = Vec::new();
     let mut ids = backend.list()?;
-    ids.sort_by_key(|id| id.to_string());
+    // Sort by the inner Ulid (Copy, 16 bytes). The prior code did
+    // `id.to_string()` inside sort_by_key, which clones a new String
+    // for every comparison — O(N log N) String allocations just to
+    // sort. Ulid's Ord impl is lexicographic over the same bytes
+    // .to_string() would have produced, so the final order matches.
+    ids.sort_by_key(|id| id.0);
 
     for engagement_id in ids {
         match backend.load(engagement_id) {
