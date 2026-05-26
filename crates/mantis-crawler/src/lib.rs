@@ -328,10 +328,15 @@ fn find_forms(haystack: &str) -> Vec<DiscoveredForm> {
         };
         let form_body = &haystack[open_abs + tag_end..body_end];
         let mut field_names: Vec<String> = Vec::new();
-        for tag in &["input", "select", "textarea"] {
-            let lc_body = form_body.to_ascii_lowercase();
+        // Compute the lowercased form body ONCE — the prior version
+        // recomputed it on every iteration of the input/select/textarea
+        // loop, doing the same O(form_body) lowercase 3 times. Also
+        // pre-build the search needles as &'static str so we don't
+        // format!("<{tag}") on every find iteration.
+        let lc_body = form_body.to_ascii_lowercase();
+        for tag_pat in &["<input", "<select", "<textarea"] {
             let mut s = 0usize;
-            while let Some(p) = lc_body[s..].find(&format!("<{tag}")) {
+            while let Some(p) = lc_body[s..].find(tag_pat) {
                 let abs = s + p;
                 let after = &form_body[abs..];
                 let tag_close = after.find('>').unwrap_or(after.len());
