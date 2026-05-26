@@ -425,28 +425,28 @@ fn match_slack_webhook(text: &str) -> Vec<Match> {
 
 fn match_stripe_key(text: &str) -> Vec<Match> {
     let mut out = Vec::new();
+    let bytes = text.as_bytes();
     for prefix in ["sk_live_", "sk_test_", "rk_live_", "rk_test_"] {
-        // Stripe keys are 24+ alphanum after the prefix.
-        let bytes = text.as_bytes();
+        // Stripe keys are 24+ alphanum after the prefix. memmem prefix
+        // search instead of byte-by-byte compare (same pattern as the
+        // sibling matchers in this file).
         let p = prefix.as_bytes();
-        let mut i = 0;
-        while i + p.len() < bytes.len() {
-            if &bytes[i..i + p.len()] == p {
-                let start = i;
-                let mut j = i + p.len();
-                while j < bytes.len() && alnum(bytes[j]) {
-                    j += 1;
-                }
-                if j - (i + p.len()) >= 20 {
-                    let matched = text[start..j].to_string();
-                    out.push(Match {
-                        matched,
-                        offset: start,
-                    });
-                }
-                i = j;
+        let finder = memchr::memmem::Finder::new(p);
+        let mut from = 0;
+        while let Some(rel) = finder.find(&bytes[from..]) {
+            let start = from + rel;
+            let mut j = start + p.len();
+            while j < bytes.len() && alnum(bytes[j]) {
+                j += 1;
+            }
+            if j - (start + p.len()) >= 20 {
+                out.push(Match {
+                    matched: text[start..j].to_string(),
+                    offset: start,
+                });
+                from = j;
             } else {
-                i += 1;
+                from = start + 1;
             }
         }
     }
@@ -495,24 +495,23 @@ fn match_anthropic_key(text: &str) -> Vec<Match> {
     let bytes = text.as_bytes();
     let prefix = b"sk-ant-";
     let mut out = Vec::new();
-    let mut i = 0;
-    while i + prefix.len() < bytes.len() {
-        if &bytes[i..i + prefix.len()] == prefix {
-            let start = i;
-            let mut j = i + prefix.len();
-            while j < bytes.len() && alnum_or_dash_underscore(bytes[j]) {
-                j += 1;
-            }
-            if j - (i + prefix.len()) >= 40 {
-                let matched = text[start..j].to_string();
-                out.push(Match {
-                    matched,
-                    offset: start,
-                });
-            }
-            i = j;
+    // memmem prefix search (same pattern as sibling matchers).
+    let finder = memchr::memmem::Finder::new(prefix);
+    let mut from = 0;
+    while let Some(rel) = finder.find(&bytes[from..]) {
+        let start = from + rel;
+        let mut j = start + prefix.len();
+        while j < bytes.len() && alnum_or_dash_underscore(bytes[j]) {
+            j += 1;
+        }
+        if j - (start + prefix.len()) >= 40 {
+            out.push(Match {
+                matched: text[start..j].to_string(),
+                offset: start,
+            });
+            from = j;
         } else {
-            i += 1;
+            from = start + 1;
         }
     }
     out
@@ -571,24 +570,22 @@ fn match_pypi_token(text: &str) -> Vec<Match> {
     let bytes = text.as_bytes();
     let prefix = b"pypi-";
     let mut out = Vec::new();
-    let mut i = 0;
-    while i + prefix.len() < bytes.len() {
-        if &bytes[i..i + prefix.len()] == prefix {
-            let start = i;
-            let mut j = i + prefix.len();
-            while j < bytes.len() && alnum_or_dash_underscore(bytes[j]) {
-                j += 1;
-            }
-            if j - (i + prefix.len()) >= 60 {
-                let matched = text[start..j].to_string();
-                out.push(Match {
-                    matched,
-                    offset: start,
-                });
-            }
-            i = j;
+    let finder = memchr::memmem::Finder::new(prefix);
+    let mut from = 0;
+    while let Some(rel) = finder.find(&bytes[from..]) {
+        let start = from + rel;
+        let mut j = start + prefix.len();
+        while j < bytes.len() && alnum_or_dash_underscore(bytes[j]) {
+            j += 1;
+        }
+        if j - (start + prefix.len()) >= 60 {
+            out.push(Match {
+                matched: text[start..j].to_string(),
+                offset: start,
+            });
+            from = j;
         } else {
-            i += 1;
+            from = start + 1;
         }
     }
     out
@@ -655,24 +652,24 @@ fn match_discord_webhook(text: &str) -> Vec<Match> {
     let bytes = text.as_bytes();
     let p = anchor.as_bytes();
     let mut out = Vec::new();
-    let mut i = 0;
-    while i + p.len() < bytes.len() {
-        if &bytes[i..i + p.len()] == p {
-            let start = i;
-            let mut j = i + p.len();
-            while j < bytes.len() && (alnum(bytes[j]) || bytes[j] == b'/' || bytes[j] == b'-' || bytes[j] == b'_') {
-                j += 1;
-            }
-            if j - start > p.len() + 20 {
-                let matched = text[start..j].to_string();
-                out.push(Match {
-                    matched,
-                    offset: start,
-                });
-            }
-            i = j;
+    let finder = memchr::memmem::Finder::new(p);
+    let mut from = 0;
+    while let Some(rel) = finder.find(&bytes[from..]) {
+        let start = from + rel;
+        let mut j = start + p.len();
+        while j < bytes.len()
+            && (alnum(bytes[j]) || bytes[j] == b'/' || bytes[j] == b'-' || bytes[j] == b'_')
+        {
+            j += 1;
+        }
+        if j - start > p.len() + 20 {
+            out.push(Match {
+                matched: text[start..j].to_string(),
+                offset: start,
+            });
+            from = j;
         } else {
-            i += 1;
+            from = start + 1;
         }
     }
     out
