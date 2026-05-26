@@ -1,6 +1,7 @@
 //! Scoreboard rendering — per-tag, per-level, and overall stats.
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 
 use serde::{Deserialize, Serialize};
 
@@ -200,15 +201,16 @@ impl Scoreboard {
     pub fn to_markdown(&self) -> String {
         let mut s = String::new();
         s.push_str("# Mantis benchmark scoreboard\n\n");
-        s.push_str(&format!(
-            "**Overall:** {} / {} solved ({:.1}%). Addressable: {} / {} ({:.1}%).\n\n",
+        let _ = writeln!(
+            s,
+            "**Overall:** {} / {} solved ({:.1}%). Addressable: {} / {} ({:.1}%).\n",
             self.solved,
             self.total,
             100.0 * self.solve_rate(),
             self.solved,
             self.addressable_total(),
             100.0 * self.addressable_solve_rate()
-        ));
+        );
 
         // Status histogram.
         s.push_str("## Status breakdown\n\n");
@@ -223,7 +225,7 @@ impl Scoreboard {
             ("other", self.other),
         ] {
             if n > 0 {
-                s.push_str(&format!("| {name} | {n} |\n"));
+                let _ = writeln!(s, "| {name} | {n} |");
             }
         }
         s.push('\n');
@@ -233,13 +235,14 @@ impl Scoreboard {
             s.push_str("## By difficulty level\n\n");
             s.push_str("| level | solved | total | rate |\n|---|---:|---:|---:|\n");
             for (lvl, st) in &self.by_level {
-                s.push_str(&format!(
-                    "| {} | {} | {} | {:.1}% |\n",
+                let _ = writeln!(
+                    s,
+                    "| {} | {} | {} | {:.1}% |",
                     lvl,
                     st.solved,
                     st.total,
                     100.0 * st.solve_rate()
-                ));
+                );
             }
             s.push('\n');
         }
@@ -250,24 +253,26 @@ impl Scoreboard {
         let mut sorted: Vec<&TagStats> = self.by_tag.iter().collect();
         sorted.sort_by(|a, b| b.total.cmp(&a.total));
         for st in sorted {
-            s.push_str(&format!(
-                "| {} | {} | {} | {} | {:.1}% |\n",
+            let _ = writeln!(
+                s,
+                "| {} | {} | {} | {} | {:.1}% |",
                 st.tag,
                 st.solved,
                 st.no_flag,
                 st.total,
                 100.0 * st.solve_rate()
-            ));
+            );
         }
         s.push('\n');
 
         // Solve-duration percentiles.
         if let Some((p50, p90, max)) = self.solved_percentiles() {
             s.push_str("## Solved benchmark durations\n\n");
-            s.push_str(&format!(
-                "p50: **{p50}s** · p90: **{p90}s** · max: **{max}s** (n={})\n\n",
+            let _ = writeln!(
+                s,
+                "p50: **{p50}s** · p90: **{p90}s** · max: **{max}s** (n={})\n",
                 self.solved_durations_sec.len()
-            ));
+            );
         }
 
         s.push_str("## Where to invest next\n\n");
@@ -288,10 +293,11 @@ impl Scoreboard {
         } else {
             for st in weak.iter().take(8) {
                 let unsolved = st.total - st.solved;
-                s.push_str(&format!(
-                    "- **{}**: {} unsolved of {} ({:.1}% solve rate). Build dedicated playbook + verify nuclei templates cover the class.\n",
+                let _ = writeln!(
+                    s,
+                    "- **{}**: {} unsolved of {} ({:.1}% solve rate). Build dedicated playbook + verify nuclei templates cover the class.",
                     st.tag, unsolved, st.total, 100.0 * st.solve_rate()
-                ));
+                );
             }
         }
 
