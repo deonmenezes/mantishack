@@ -21,6 +21,7 @@
 //! Usage:
 //!   mantis-archive-engagement <engagement_id> [--severity-floor low|info|...]
 
+use std::fmt::Write as _;
 use mantis_mcp::server::{
     load_wave_merges, parse_severity_floor, render_markdown, severity_rank, EngagementSummary,
     Surface,
@@ -397,10 +398,14 @@ fn parse_phase_events(jsonl: &str) -> Vec<(String, String, Option<String>, Vec<S
 
 fn render_finding_md(n: usize, f: &wave::Finding) -> String {
     let mut s = String::new();
-    s.push_str(&format!("# Finding F-{n:02}\n\n"));
-    s.push_str(&format!("- **Title:** {}\n", f.title));
-    s.push_str(&format!("- **Severity:** `{}`\n", f.severity));
-    s.push_str(&format!("- **Surface:** `{}`\n\n", f.surface));
+    let _ = writeln!(s, "# Finding F-{n:02}\n");
+
+    let _ = writeln!(s, "- **Title:** {}", f.title);
+
+    let _ = writeln!(s, "- **Severity:** `{}`", f.severity);
+
+    let _ = writeln!(s, "- **Surface:** `{}`\n", f.surface);
+
     s.push_str("## Evidence\n\n");
     s.push_str(&f.evidence);
     s.push_str("\n\n");
@@ -431,20 +436,26 @@ fn render_phase_md(
     ts: u64,
 ) -> String {
     let mut s = String::new();
-    s.push_str(&format!("# Phase transition {n:02}: {from} → {to}\n\n"));
-    s.push_str(&format!("- **From:** `{from}`\n"));
-    s.push_str(&format!("- **To:** `{to}`\n"));
-    s.push_str(&format!("- **Unix timestamp:** `{ts}`\n"));
+    let _ = writeln!(s, "# Phase transition {n:02}: {from} → {to}\n");
+
+    let _ = writeln!(s, "- **From:** `{from}`");
+
+    let _ = writeln!(s, "- **To:** `{to}`");
+
+    let _ = writeln!(s, "- **Unix timestamp:** `{ts}`");
+
     if let Some(r) = override_reason {
         s.push_str("- **Override applied:** yes\n");
-        s.push_str(&format!("- **Override reason:** {r}\n"));
+        let _ = writeln!(s, "- **Override reason:** {r}");
+
     } else {
         s.push_str("- **Override applied:** no (gate opened cleanly)\n");
     }
     if !blocker_codes.is_empty() {
         s.push_str("- **Blocker codes (captured at transition time):**\n");
         for code in blocker_codes {
-            s.push_str(&format!("  - `{code}`\n"));
+            let _ = writeln!(s, "  - `{code}`");
+
         }
     }
     s.push_str("\n## Audit trail\n\n");
@@ -459,8 +470,10 @@ fn render_phase_md(
 
 fn render_wave_md(w: &wave::WaveMerge, floor_rank: u8) -> String {
     let mut s = String::new();
-    s.push_str(&format!("# Wave {}\n\n", w.wave_number));
-    s.push_str(&format!("- **Merged at (unix):** {}\n", w.merged_at_unix));
+    let _ = writeln!(s, "# Wave {}\n", w.wave_number);
+
+    let _ = writeln!(s, "- **Merged at (unix):** {}", w.merged_at_unix);
+
     s.push_str(&format!(
         "- **Handoffs:** {}/{} received\n",
         w.handoffs_received, w.assignments_total
@@ -471,9 +484,11 @@ fn render_wave_md(w: &wave::WaveMerge, floor_rank: u8) -> String {
             w.handoffs_missing.join("`, `")
         ));
     }
-    s.push_str(&format!("- **Findings (raw):** {}\n", w.findings_total));
-    s.push_str(&format!("- **Dead-ends:** {}\n", w.dead_ends_total));
-    s.push_str(&format!("- **Coverage entries:** {}\n\n", w.coverage_total));
+    let _ = writeln!(s, "- **Findings (raw):** {}", w.findings_total);
+
+    let _ = writeln!(s, "- **Dead-ends:** {}", w.dead_ends_total);
+
+    let _ = writeln!(s, "- **Coverage entries:** {}\n", w.coverage_total);
 
     s.push_str("## Findings by severity\n\n");
     s.push_str("| Severity | Count | Reported |\n|---|---|---|\n");
@@ -484,7 +499,8 @@ fn render_wave_md(w: &wave::WaveMerge, floor_rank: u8) -> String {
             } else {
                 "no"
             };
-            s.push_str(&format!("| {sev} | {n} | {admitted} |\n"));
+            let _ = writeln!(s, "| {sev} | {n} | {admitted} |");
+
         }
     }
     s.push('\n');
@@ -504,10 +520,12 @@ fn render_wave_md(w: &wave::WaveMerge, floor_rank: u8) -> String {
             if group.len() == 1 { "" } else { "s" }
         ));
         for f in group {
-            s.push_str(&format!("- **{}** — `{}`\n", f.title, f.surface));
+            let _ = writeln!(s, "- **{}** — `{}`", f.title, f.surface);
+
             let evidence_one_line: String =
                 f.evidence.replace('\n', " ").chars().take(400).collect();
-            s.push_str(&format!("  - _evidence_: {evidence_one_line}\n"));
+            let _ = writeln!(s, "  - _evidence_: {evidence_one_line}");
+
         }
         s.push('\n');
     }
@@ -537,7 +555,8 @@ fn render_timeline(jsonl: &str) -> String {
             .and_then(|k| k.as_str())
             .unwrap_or("?");
         let summary = summarize_event_kind(kind, &v);
-        s.push_str(&format!("| {seq} | {ts} | `{kind}` | {summary} |\n"));
+        let _ = writeln!(s, "| {seq} | {ts} | `{kind}` | {summary} |");
+
     }
     s
 }
@@ -633,15 +652,22 @@ fn render_readme(
         "# {target_host} — engagement `{}`\n\n",
         summary.id
     ));
-    s.push_str(&format!("- **Engagement name:** `{}`\n", summary.name));
-    s.push_str(&format!("- **Daemon state:** `{}`\n", summary.state));
-    s.push_str(&format!("- **Events recorded:** {}\n", summary.event_count));
+    let _ = writeln!(s, "- **Engagement name:** `{}`", summary.name);
+
+    let _ = writeln!(s, "- **Daemon state:** `{}`", summary.state);
+
+    let _ = writeln!(s, "- **Events recorded:** {}", summary.event_count);
+
     if let Some(h) = &summary.scope_hash {
-        s.push_str(&format!("- **Scope hash:** `{}`\n", h));
+        let _ = writeln!(s, "- **Scope hash:** `{}`", h);
+
     }
-    s.push_str(&format!("- **Waves merged:** {}\n", waves.len()));
-    s.push_str(&format!("- **Findings (raw):** {}\n", total_findings));
-    s.push_str(&format!("- **Phase events:** {}\n", phase_events.len()));
+    let _ = writeln!(s, "- **Waves merged:** {}", waves.len());
+
+    let _ = writeln!(s, "- **Findings (raw):** {}", total_findings);
+
+    let _ = writeln!(s, "- **Phase events:** {}", phase_events.len());
+
     s.push_str("\n## Severity breakdown\n\n");
     s.push_str("| Severity | Count | Reported |\n|---|---|---|\n");
     for sev in ["critical", "high", "medium", "low", "info"] {
@@ -651,7 +677,8 @@ fn render_readme(
             } else {
                 "no"
             };
-            s.push_str(&format!("| {sev} | {n} | {admitted} |\n"));
+            let _ = writeln!(s, "| {sev} | {n} | {admitted} |");
+
         }
     }
     s.push_str("\n## Layout\n\n");
