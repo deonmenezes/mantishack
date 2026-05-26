@@ -18,6 +18,7 @@
 
 use crate::find_auth_bugs::AuthBugReport;
 use mantis_auth_differential::DiffFinding;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
@@ -146,21 +147,27 @@ pub fn write_archive(
             "04 Auth-differential per endpoint",
             {
                 let mut s = String::new();
-                s.push_str(&format!(
-                    "Replayed each candidate URL under all available profiles (unauthenticated, attacker, victim). Per-endpoint hits below:\n\n",
-                ));
+                // The original first push_str(&format!()) had no
+                // interpolation args at all — write a plain str instead
+                // of allocating a redundant intermediate String.
+                s.push_str("Replayed each candidate URL under all available profiles (unauthenticated, attacker, victim). Per-endpoint hits below:\n\n");
                 for ep in &report.per_endpoint {
                     if ep.findings.is_empty() {
                         continue;
                     }
-                    s.push_str(&format!("- `{}` — {} finding(s)\n", ep.url, ep.findings.len()));
+                    // write! lets the formatter write directly into `s`
+                    // instead of allocating a fresh String per line via
+                    // format!() then push_str-ing it. Per endpoint with
+                    // K findings we save 1 + K String allocations.
+                    let _ = writeln!(s, "- `{}` — {} finding(s)", ep.url, ep.findings.len());
                     for f in &ep.findings {
-                        s.push_str(&format!(
-                            "  - **{:?}** severity=`{}` hash=`{}`\n",
+                        let _ = writeln!(
+                            s,
+                            "  - **{:?}** severity=`{}` hash=`{}`",
                             f.class,
                             f.class.default_severity(),
                             &f.finding_hash[..16.min(f.finding_hash.len())]
-                        ));
+                        );
                     }
                 }
                 if s.lines().count() <= 2 {
@@ -333,36 +340,31 @@ fn render_vulnerability_report(
 ) -> String {
     let mut s = String::new();
     s.push_str("# Vulnerability report\n\n");
-    s.push_str(&format!("- **Target:** `{}`\n", report.target_url));
+    let _ = writeln!(s, "- **Target:** `{}`", report.target_url);
     if let Some(e) = &report.attacker_email {
-        s.push_str(&format!("- **Attacker account:** `{e}`\n"));
+        let _ = writeln!(s, "- **Attacker account:** `{e}`");
     }
     if let Some(e) = &report.victim_email {
-        s.push_str(&format!("- **Victim account:** `{e}`\n"));
+        let _ = writeln!(s, "- **Victim account:** `{e}`");
     }
-    s.push_str(&format!(
-        "- **Endpoints probed:** {}\n",
-        report.endpoints_probed
-    ));
-    s.push_str(&format!(
-        "- **Endpoints with findings:** {}\n",
+    let _ = writeln!(s, "- **Endpoints probed:** {}", report.endpoints_probed);
+    let _ = writeln!(
+        s,
+        "- **Endpoints with findings:** {}",
         report.endpoints_with_findings
-    ));
-    s.push_str(&format!(
-        "- **Findings total:** {}\n",
-        report.findings_total
-    ));
+    );
+    let _ = writeln!(s, "- **Findings total:** {}", report.findings_total);
     s.push_str("\n## Severity breakdown\n\n");
     s.push_str("| Severity | Count |\n|---|---|\n");
     for sev in ["critical", "high", "medium", "low", "info"] {
         if let Some(n) = report.findings_by_severity.get(sev) {
-            s.push_str(&format!("| {sev} | {n} |\n"));
+            let _ = writeln!(s, "| {sev} | {n} |");
         }
     }
     s.push_str("\n## Class breakdown\n\n");
     s.push_str("| Class | Count |\n|---|---|\n");
     for (k, v) in &report.findings_by_class {
-        s.push_str(&format!("| `{k}` | {v} |\n"));
+        let _ = writeln!(s, "| `{k}` | {v} |");
     }
     s.push_str("\n## Findings\n\n");
     if numbered.is_empty() {

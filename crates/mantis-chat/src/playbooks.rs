@@ -349,7 +349,13 @@ pub fn compose_playbook_prompt(tags: &[String]) -> String {
     let mut s = String::new();
     s.push_str("\n\nFOCUSED PLAYBOOKS (operator mentioned classes the model historically fails — follow these):\n\n");
     for pb in pbs {
-        s.push_str(&format!("### {}\n{}", pb.label, pb.body));
+        // push_str the components directly instead of building a
+        // throwaway String via format! and pushing that. Saves one
+        // String allocation per matching playbook.
+        s.push_str("### ");
+        s.push_str(pb.label);
+        s.push('\n');
+        s.push_str(pb.body);
         if playbook_needs_oob(pb.label) {
             s.push_str(OOB_DIRECTIVE);
         }
