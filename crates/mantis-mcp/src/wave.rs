@@ -280,6 +280,94 @@ pub fn validate_chain_outcome(outcome: &str) -> Result<()> {
     Ok(())
 }
 
+/// Structured impact bonus to add to a chain's severity beyond the
+/// chain-length contribution. Mantis-native replacement for the prior
+/// free-form `elevation:` rationale string — every High / Critical
+/// chain now carries a named asset and a named loss surface instead
+/// of free-form prose.
+///
+/// See [`compute_chain_severity_clamp`] for the formula.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ChainImpact {
+    /// The asset the chain reaches. Must be non-empty. Examples:
+    /// `"production_database"`, `"admin_session"`, `"billing.users"`.
+    pub asset: String,
+    /// What the attacker compromises. One of an open vocabulary
+    /// describing the loss class. Examples: `"exfiltration"`,
+    /// `"account_takeover"`, `"rce"`, `"lateral_movement"`,
+    /// `"data_destruction"`, `"privilege_escalation"`,
+    /// `"denial_of_service"`, `"supply_chain_compromise"`, `"other"`.
+    pub loss: String,
+    /// Severity bonus contributed by this impact, in [0..=2]. Values
+    /// > 2 are clamped to 2 by [`compute_chain_severity_clamp`].
+    pub bonus: u8,
+}
+
+/// Compute the recommended chain severity using the Mantis-native
+/// clamp-based formula:
+///
+/// ```text
+/// severity = clamp(
+///     max(severity_of_each_input)
+///     + (chain_length - 1)        // one bonus per additional link
+///     + impact_bonus,             // 0..=2 from structured impact
+///     LOW, CRITICAL
+/// )
+/// ```
+///
+/// Where `chain_length = input_severities.len()`. The formula is
+/// fully constructive: given the inputs, it returns the canonical
+/// recommended severity. No `elevation:` rationale parsing required.
+///
+/// Returns the severity as a static string from the canonical set
+/// `low` / `medium` / `high` / `critical`. The `info` floor (rank 0)
+/// is intentionally excluded — a chain by definition is more than
+/// any single informational observation.
+///
+/// Returns `Err` if `input_severities` is empty or if no input
+/// resolves to a valid severity rank.
+pub fn compute_chain_severity_clamp(
+    input_severities: &[String],
+    impact: Option<&ChainImpact>,
+) -> Result<&'static str> {
+    if input_severities.is_empty() {
+        return Err(anyhow!("chain must have at least one input severity"));
+    }
+    let max_input = input_severities
+        .iter()
+        .filter_map(|s| severity_rank(s))
+        .max()
+        .ok_or_else(|| {
+            anyhow!("at least one input severity must be a valid rank (info/low/medium/high/critical)")
+        })?;
+
+    let chain_length = u8::try_from(input_severities.len()).unwrap_or(u8::MAX);
+    let chain_length_bonus = chain_length.saturating_sub(1);
+    let impact_bonus = impact.map(|i| i.bonus.min(2)).unwrap_or(0);
+
+    let raw = max_input
+        .saturating_add(chain_length_bonus)
+        .saturating_add(impact_bonus);
+    // Clamp to [low=1, critical=4]; chains never resolve to info.
+    let clamped = raw.clamp(1, 4);
+
+    Ok(match clamped {
+        1 => "low",
+        2 => "medium",
+        3 => "high",
+        4 => "critical",
+        _ => unreachable!("clamp(1,4) bounds output to 1..=4"),
+    })
+}
+
+/// Reverse mapping: given a severity string from the canonical set,
+/// return its integer rank. Lifts the private `severity_rank` helper
+/// as a public convenience for callers that want to compare ladder
+/// outputs.
+pub fn severity_rank_pub(s: &str) -> Option<u8> {
+    severity_rank(s)
+}
+
 /// Append a chain attempt to `waves/<n>/chain-attempts.jsonl`.
 ///
 /// Uses `O_APPEND` writes so concurrent recorders cannot clobber each
@@ -835,5 +923,126 @@ mod tests {
         let bytes = std::fs::read(merged_path(eng, 1)).unwrap();
         let parsed: WaveMerge = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(parsed.findings_total, 3);
+    }
+
+    // ----- New clamp-based severity formula (Mantis-native) -----
+
+    #[test]
+    fn clamp_single_input_no_impact_returns_input_severity() {
+        // 1 input means chain_length=1, bonus = 0. No impact. Output
+        // equals input severity (clamped to low minimum).
+        let out = compute_chain_severity_clamp(&["medium".into()], None).unwrap();
+        assert_eq!(out, "medium");
+    }
+
+    #[test]
+    fn clamp_two_low_inputs_yields_medium() {
+        // max(LOW, LOW) = 1; chain_length=2 → +1; total=2 → MEDIUM.
+        // This is the canonical "LOW + LOW chained → MEDIUM" case
+        // from prompts/roles/chain.md (PR #79).
+        let out = compute_chain_severity_clamp(&["low".into(), "low".into()], None).unwrap();
+        assert_eq!(out, "medium");
+    }
+
+    #[test]
+    fn clamp_two_medium_inputs_with_impact_yields_critical() {
+        // max(M, M) = 2; chain_length=2 → +1; impact_bonus=2; total=5
+        // → clamped to 4 → CRITICAL. Matches the IDOR + XSS → ATO
+        // example from prompts/roles/chain.md.
+        let impact = ChainImpact {
+            asset: "users.session_cookies".into(),
+            loss: "account_takeover".into(),
+            bonus: 2,
+        };
+        let out =
+            compute_chain_severity_clamp(&["medium".into(), "medium".into()], Some(&impact))
+                .unwrap();
+        assert_eq!(out, "critical");
+    }
+
+    #[test]
+    fn clamp_excludes_info_floor() {
+        // Even when max input is `info` (rank 0) and no bonuses apply,
+        // the chain output is clamped up to LOW (rank 1). A chain
+        // never collapses to "informational" by construction.
+        let out = compute_chain_severity_clamp(&["info".into()], None).unwrap();
+        assert_eq!(out, "low");
+    }
+
+    #[test]
+    fn clamp_caps_at_critical() {
+        // max(critical) = 4; chain_length=3 → +2; impact_bonus=2.
+        // Raw = 4+2+2 = 8. Clamped to 4 → CRITICAL. No "uber-critical"
+        // tier.
+        let impact = ChainImpact {
+            asset: "everything".into(),
+            loss: "rce".into(),
+            bonus: 2,
+        };
+        let out = compute_chain_severity_clamp(
+            &["critical".into(), "high".into(), "high".into()],
+            Some(&impact),
+        )
+        .unwrap();
+        assert_eq!(out, "critical");
+    }
+
+    #[test]
+    fn clamp_chain_length_bonus_is_n_minus_1() {
+        // 3 LOW inputs → chain_length=3 → +2. max(LOW)=1. Total=3 → HIGH.
+        let out = compute_chain_severity_clamp(
+            &["low".into(), "low".into(), "low".into()],
+            None,
+        )
+        .unwrap();
+        assert_eq!(out, "high");
+    }
+
+    #[test]
+    fn clamp_impact_bonus_capped_at_2() {
+        // Even if a caller passes bonus=5, the formula caps at 2 so a
+        // single-input low chain with maximum impact reaches at most
+        // high (1+0+2=3), never critical (which would require either
+        // a higher input or more chain links).
+        let impact = ChainImpact {
+            asset: "x".into(),
+            loss: "rce".into(),
+            bonus: 5,
+        };
+        let out = compute_chain_severity_clamp(&["low".into()], Some(&impact)).unwrap();
+        assert_eq!(out, "high");
+    }
+
+    #[test]
+    fn clamp_empty_inputs_is_err() {
+        let err = compute_chain_severity_clamp(&[], None).unwrap_err();
+        assert!(err.to_string().contains("at least one input"));
+    }
+
+    #[test]
+    fn clamp_all_invalid_inputs_is_err() {
+        let err =
+            compute_chain_severity_clamp(&["garbage".into(), "not-a-sev".into()], None)
+                .unwrap_err();
+        assert!(err.to_string().contains("valid rank"));
+    }
+
+    #[test]
+    fn clamp_mixed_valid_and_invalid_uses_max_of_valid() {
+        // "garbage" is filtered out; the only valid rank is medium (2).
+        // No chain bonus because chain_length=2 but max-of-valid is 2.
+        // Wait: chain_length is `input_severities.len()` regardless of
+        // whether the strings are valid. So chain_length=2 → +1.
+        // max_valid=2. Total=3 → HIGH.
+        let out =
+            compute_chain_severity_clamp(&["medium".into(), "garbage".into()], None).unwrap();
+        assert_eq!(out, "high");
+    }
+
+    #[test]
+    fn severity_rank_pub_exposes_the_internal_helper() {
+        assert_eq!(severity_rank_pub("info"), Some(0));
+        assert_eq!(severity_rank_pub("critical"), Some(4));
+        assert_eq!(severity_rank_pub("garbage"), None);
     }
 }
