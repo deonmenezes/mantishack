@@ -1,0 +1,21 @@
+[package]
+name = "mantis-trivy"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Container, IaC, repo, and SBOM scanning via Aqua Security's trivy. Extends the basic trivy adapter in mantis-static-scan with config/repo/sbom/rootfs scan modes, SARIF passthrough for downstream tooling, and OpenVEX statement emission from CVE findings."
+
+[dependencies]
+mantis-static-scan = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[lints]
+workspace = true

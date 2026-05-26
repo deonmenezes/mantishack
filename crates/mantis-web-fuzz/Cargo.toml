@@ -1,0 +1,22 @@
+[package]
+name = "mantis-web-fuzz"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "HTTP-specific fuzzer for vhost, parameter, header, path, and recursive-path discovery. Complements mantis-fuzzer (grammar / coverage-guided payload mutation) with the request-shape fuzzing modes operators expect from ffuf / feroxbuster. Concurrency via tokio + reqwest; response-shape filters (status / size / words / lines) follow the ffuf convention so wordlists port over directly."
+
+[dependencies]
+mantis-static-scan = { workspace = true }
+anyhow = { workspace = true }
+futures = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[lints]
+workspace = true

@@ -56,6 +56,10 @@ members = [
     "crates/mantis-static-scan",
     "crates/mantis-recon-pipeline",
     "crates/mantis-bench",
+    "crates/mantis-trivy",
+    "crates/mantis-web-fuzz",
+    "crates/mantis-mobile",
+    "crates/mantis-binary",
 ]
 
 [workspace.package]
@@ -120,6 +124,10 @@ mantis-server = { path = "crates/mantis-server" }
 mantis-static-scan = { path = "crates/mantis-static-scan" }
 mantis-recon-pipeline = { path = "crates/mantis-recon-pipeline" }
 mantis-bench = { path = "crates/mantis-bench" }
+mantis-trivy = { path = "crates/mantis-trivy" }
+mantis-web-fuzz = { path = "crates/mantis-web-fuzz" }
+mantis-mobile = { path = "crates/mantis-mobile" }
+mantis-binary = { path = "crates/mantis-binary" }
 core_affinity = "0.8"
 num_cpus = "1.16"
 criterion = { version = "0.5", default-features = false, features = ["plotters", "cargo_bench_support"] }
