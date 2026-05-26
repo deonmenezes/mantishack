@@ -14,6 +14,7 @@ pub struct SearchQuery {
 
 pub fn search(entries: &[Entry], query: &SearchQuery) -> Vec<Entry> {
     let text = query.text.as_deref().map(|s| s.to_ascii_lowercase());
+    let needle_bytes = text.as_deref().map(str::as_bytes);
     let publisher = query.publisher.as_deref();
     entries
         .iter()
@@ -26,16 +27,58 @@ pub fn search(entries: &[Entry], query: &SearchQuery) -> Vec<Entry> {
             Some(p) => e.publisher == p,
             None => true,
         })
-        .filter(|e| match &text {
-            Some(t) => {
-                e.id.0.to_ascii_lowercase().contains(t)
-                    || e.display_name.to_ascii_lowercase().contains(t)
-                    || e.description.to_ascii_lowercase().contains(t)
+        .filter(|e| match needle_bytes {
+            Some(n) => {
+                // Case-insensitive substring check that does NOT
+                // allocate a lowercased copy of the haystack. The
+                // prior version called `.to_ascii_lowercase()` on up
+                // to 3 fields PER ENTRY — N entries × 3 fields = 3N
+                // String allocations per query. Now: zero allocations
+                // for the haystacks; needle is lowercased once before
+                // the loop.
+                contains_ascii_ci(&e.id.0, n)
+                    || contains_ascii_ci(&e.display_name, n)
+                    || contains_ascii_ci(&e.description, n)
             }
             None => true,
         })
         .cloned()
         .collect()
+}
+
+/// True if `haystack` contains `needle_lower` case-insensitively
+/// (ASCII only). `needle_lower` must already be lowercased by the
+/// caller. Operates on raw bytes; no String allocation.
+fn contains_ascii_ci(haystack: &str, needle_lower: &[u8]) -> bool {
+    if needle_lower.is_empty() {
+        return true;
+    }
+    let h = haystack.as_bytes();
+    if h.len() < needle_lower.len() {
+        return false;
+    }
+    let first = needle_lower[0];
+    // Walk possible match starts. memchr-find for the first byte
+    // (case-insensitive: scan for both lower and upper of the first
+    // needle byte) would be faster; this loop is the obvious
+    // correctness-first version and still beats the prior
+    // String-allocating approach.
+    for start in 0..=h.len() - needle_lower.len() {
+        // Quick reject on first byte before the full window compare.
+        let hb = h[start];
+        if hb != first && hb.to_ascii_lowercase() != first {
+            continue;
+        }
+        let window = &h[start..start + needle_lower.len()];
+        if window
+            .iter()
+            .zip(needle_lower)
+            .all(|(a, b)| a.to_ascii_lowercase() == *b)
+        {
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(test)]
