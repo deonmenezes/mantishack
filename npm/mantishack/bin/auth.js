@@ -13,6 +13,7 @@
 "use strict";
 
 const http = require("node:http");
+const https = require("node:https");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -24,6 +25,15 @@ const AUTH_DIR = path.join(os.homedir(), ".Mantis");
 const AUTH_FILE = path.join(AUTH_DIR, "auth.json");
 const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
 const MAX_BODY_BYTES = 16 * 1024; // Supabase JWTs run ~1-2 KB each; 16 KB is comfortably above worst case.
+const VERIFY_TIMEOUT_MS = 10 * 1000;
+// If set, MUST match the Supabase project URL that issued the token.
+// Without pinning, the CLI accepts any *.supabase.co project — fine for
+// dev but means an attacker who can register at a *different* Supabase
+// project could substitute their token. Set this in production.
+const EXPECTED_SUPABASE_URL = (process.env.MANTIS_SUPABASE_URL || "").trim();
+// If MANTIS_SKIP_TOKEN_VERIFY=1 we accept the form's token without
+// calling Supabase — only intended for offline dev/tests.
+const SKIP_TOKEN_VERIFY = process.env.MANTIS_SKIP_TOKEN_VERIFY === "1";
 
 // Allow-list of origins permitted to POST to /callback. Built from
 // MANTISHACK_URL plus optional MANTIS_LOGIN_ALLOW_ORIGINS for dev.
@@ -128,6 +138,91 @@ function looksLikeJwt(v) {
 
 function looksLikeEmail(v) {
   return typeof v === "string" && v.length > 0 && v.length < 320 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+}
+
+// Shape check for the Supabase project URL the page POSTed back.
+// Accepts the standard managed-cloud form `https://<ref>.supabase.co`
+// (with optional trailing slash) AND, when explicitly pinned via
+// MANTIS_SUPABASE_URL, exact-matches that. Anything else (attacker
+// domain, IP literal, http://, query string, path segments) is
+// rejected so a forged form can't redirect us to a server it owns.
+function isValidSupabaseUrl(v) {
+  if (typeof v !== "string") return false;
+  if (EXPECTED_SUPABASE_URL) return v.replace(/\/+$/, "") === EXPECTED_SUPABASE_URL.replace(/\/+$/, "");
+  return /^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/i.test(v);
+}
+
+function isValidAnonKey(v) {
+  // Supabase anon keys are JWTs (3 base64url segments). Bound the
+  // length so a hostile form can't ship a multi-MB string.
+  return typeof v === "string" && v.length >= 40 && v.length <= 4096 && looksLikeJwt(v);
+}
+
+// Verify the access_token by asking Supabase. /auth/v1/user requires
+// the anon key as `apikey` AND the access_token as Bearer. A real
+// token returns 200 + user object; anything else (forged JWT, expired,
+// revoked, wrong issuer) returns 401/403.
+function verifyAccessToken({ supabaseUrl, anonKey, accessToken }) {
+  return new Promise((resolve) => {
+    let url;
+    try {
+      url = new URL("/auth/v1/user", supabaseUrl);
+    } catch {
+      resolve({ ok: false, reason: "bad supabase_url" });
+      return;
+    }
+    if (url.protocol !== "https:") {
+      resolve({ ok: false, reason: "non-https supabase_url" });
+      return;
+    }
+    const req = https.request(
+      {
+        method: "GET",
+        hostname: url.hostname,
+        port: url.port || 443,
+        path: url.pathname + url.search,
+        headers: {
+          apikey: anonKey,
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "application/json",
+          "User-Agent": "mantishack-cli",
+        },
+        timeout: VERIFY_TIMEOUT_MS,
+      },
+      (res) => {
+        let body = "";
+        res.on("data", (c) => {
+          body += c;
+          // Bound the response — /auth/v1/user payloads are <2 KB.
+          if (body.length > 16 * 1024) {
+            req.destroy();
+          }
+        });
+        res.on("end", () => {
+          if (res.statusCode !== 200) {
+            resolve({ ok: false, reason: `supabase /user → ${res.statusCode}` });
+            return;
+          }
+          try {
+            const user = JSON.parse(body);
+            if (!user || typeof user.id !== "string" || !user.id) {
+              resolve({ ok: false, reason: "no user.id in response" });
+              return;
+            }
+            resolve({ ok: true, user });
+          } catch {
+            resolve({ ok: false, reason: "malformed /user json" });
+          }
+        });
+      },
+    );
+    req.on("error", (e) => resolve({ ok: false, reason: e.message || "request error" }));
+    req.on("timeout", () => {
+      req.destroy();
+      resolve({ ok: false, reason: "verify timeout" });
+    });
+    req.end();
+  });
 }
 
 const SUCCESS_HTML = `<!doctype html>
@@ -303,20 +398,76 @@ function startCallbackServer(expectedSession) {
           res.end("malformed email");
           return;
         }
+        // Validate the Supabase project URL + anon key the page sent
+        // BEFORE we make any outbound request. Without this an attacker
+        // could redirect the verify call to a server they control.
+        if (!isValidSupabaseUrl(form.supabase_url)) {
+          res.writeHead(400, { ...HARDENED_HEADERS, "Content-Type": "text/plain" });
+          res.end("invalid or unpinned supabase_url");
+          return;
+        }
+        if (!isValidAnonKey(form.supabase_anon_key)) {
+          res.writeHead(400, { ...HARDENED_HEADERS, "Content-Type": "text/plain" });
+          res.end("invalid supabase_anon_key");
+          return;
+        }
 
-        res.writeHead(200, {
-          ...corsHeadersFor(origin),
-          "Content-Type": "text/html; charset=utf-8",
-        });
-        res.end(SUCCESS_HTML);
+        // Verify the access_token against Supabase BEFORE responding 200,
+        // so a forged JWT-shaped string is rejected here instead of
+        // ending up in ~/.Mantis/auth.json. The page sees a clear error
+        // status and can prompt re-auth.
+        (async () => {
+          let verifyResult = { ok: true, user: null };
+          if (!SKIP_TOKEN_VERIFY) {
+            verifyResult = await verifyAccessToken({
+              supabaseUrl: form.supabase_url,
+              anonKey: form.supabase_anon_key,
+              accessToken: form.access_token,
+            });
+            if (!verifyResult.ok) {
+              res.writeHead(400, { ...HARDENED_HEADERS, "Content-Type": "text/plain" });
+              res.end("token verification failed: " + verifyResult.reason);
+              return;
+            }
+            // Cross-check that the email on the form matches the user
+            // Supabase actually authenticated. An attacker who substituted
+            // their own real token would get caught here.
+            const verifiedEmail = verifyResult.user && verifyResult.user.email;
+            if (form.email && verifiedEmail && form.email.toLowerCase() !== verifiedEmail.toLowerCase()) {
+              res.writeHead(400, { ...HARDENED_HEADERS, "Content-Type": "text/plain" });
+              res.end("email mismatch with verified user");
+              return;
+            }
+          }
 
-        finish(() => {
-          resolve({
-            access_token: form.access_token,
-            refresh_token: form.refresh_token || "",
-            email: form.email || "",
-            expires_at: Number(form.expires_at) || 0,
+          // Clamp expires_at into [now, now + 24h] — see threat-model
+          // notes; refusing absurd futures defangs forged "never
+          // expires" payloads that suppress refresh.
+          const now = Math.floor(Date.now() / 1000);
+          const claimedExp = Number(form.expires_at) || 0;
+          const safeExp = Math.max(0, Math.min(claimedExp, now + 24 * 3600));
+
+          res.writeHead(200, {
+            ...corsHeadersFor(origin),
+            "Content-Type": "text/html; charset=utf-8",
           });
+          res.end(SUCCESS_HTML);
+
+          finish(() => {
+            resolve({
+              access_token: form.access_token,
+              refresh_token: form.refresh_token || "",
+              email: form.email || (verifyResult.user && verifyResult.user.email) || "",
+              expires_at: safeExp,
+              supabase_url: form.supabase_url.replace(/\/+$/, ""),
+              user_id: (verifyResult.user && verifyResult.user.id) || null,
+            });
+          });
+        })().catch((err) => {
+          // Network/verify errors fall through to a generic 502 so we
+          // never leak the verifier's full error string back to the page.
+          res.writeHead(502, { ...HARDENED_HEADERS, "Content-Type": "text/plain" });
+          res.end("verify error");
         });
       });
       req.on("error", () => {
@@ -355,6 +506,8 @@ async function login() {
     expires_at: tokens.expires_at,
     obtained_at: Math.floor(Date.now() / 1000),
     url: LOGIN_URL_BASE,
+    supabase_url: tokens.supabase_url || null,
+    user_id: tokens.user_id || null,
   });
   process.stderr.write(
     `[mantis] signed in${tokens.email ? ` as ${tokens.email}` : ""}\n`,
