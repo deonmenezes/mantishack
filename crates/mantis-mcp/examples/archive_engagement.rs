@@ -474,15 +474,16 @@ fn render_wave_md(w: &wave::WaveMerge, floor_rank: u8) -> String {
 
     let _ = writeln!(s, "- **Merged at (unix):** {}", w.merged_at_unix);
 
-    s.push_str(&format!(
-        "- **Handoffs:** {}/{} received\n",
+    let _ = writeln!(s,
+        "- **Handoffs:** {}/{} received",
         w.handoffs_received, w.assignments_total
-    ));
+
+    );
     if !w.handoffs_missing.is_empty() {
-        s.push_str(&format!(
-            "- **Missing handoffs:** `{}`\n",
+        let _ = writeln!(s,
+            "- **Missing handoffs:** `{}`",
             w.handoffs_missing.join("`, `")
-        ));
+        );
     }
     let _ = writeln!(s, "- **Findings (raw):** {}", w.findings_total);
 
@@ -514,11 +515,11 @@ fn render_wave_md(w: &wave::WaveMerge, floor_rank: u8) -> String {
         if group.is_empty() {
             continue;
         }
-        s.push_str(&format!(
-            "### {sev} ({} finding{})\n\n",
+        let _ = writeln!(s,
+            "### {sev} ({} finding{})\n",
             group.len(),
             if group.len() == 1 { "" } else { "s" }
-        ));
+        );
         for f in group {
             let _ = writeln!(s, "- **{}** — `{}`", f.title, f.surface);
 
@@ -648,10 +649,10 @@ fn render_readme(
 ) -> String {
     let total_findings: u32 = waves.iter().map(|w| w.findings_total).sum();
     let mut s = String::new();
-    s.push_str(&format!(
-        "# {target_host} — engagement `{}`\n\n",
+    let _ = writeln!(s,
+        "# {target_host} — engagement `{}`\n",
         summary.id
-    ));
+    );
     let _ = writeln!(s, "- **Engagement name:** `{}`", summary.name);
 
     let _ = writeln!(s, "- **Daemon state:** `{}`", summary.state);
@@ -698,10 +699,10 @@ fn render_readme(
         s.push_str("| # | Severity | Title | File |\n|---|---|---|---|\n");
         for (n, f) in findings {
             let one_line: String = f.title.replace('|', "\\|").chars().take(120).collect();
-            s.push_str(&format!(
-                "| F-{n:02} | `{}` | {} | [`findings/F-{n:02}.md`](findings/F-{n:02}.md) |\n",
+            let _ = writeln!(s,
+                "| F-{n:02} | `{}` | {} | [`findings/F-{n:02}.md`](findings/F-{n:02}.md) |",
                 f.severity, one_line
-            ));
+            );
         }
     }
     s.push_str("\n## Phase log\n\n");
@@ -717,9 +718,9 @@ fn render_readme(
             } else {
                 "no"
             };
-            s.push_str(&format!(
-                "| {n:02} | `{from}` | `{to}` | {override_str} | [`phases/{name}`](phases/{name}) |\n"
-            ));
+            let _ = writeln!(s,
+                "| {n:02} | `{from}` | `{to}` | {override_str} | [`phases/{name}`](phases/{name}) |"
+            );
         }
     }
     s.push_str("\n## Provenance\n\n");
