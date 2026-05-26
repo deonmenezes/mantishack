@@ -19,6 +19,37 @@ const path = require("node:path");
 
 const BIN_NAME = path.basename(process.argv[1] || "mantis");
 
+// --- Auth subcommands (login / logout / whoami) ---------------------
+// These are handled entirely in Node — no Rust binary required — so
+// the CLI can ship `login` even on platforms where the prebuilt
+// binary hasn't landed yet, and so the auth code is identical
+// across every platform package. The Supabase Auth token ends up in
+// ~/.Mantis/auth.json; downstream Rust commands can read it from
+// there. Modeled on the `supabase login` / `gh auth login` browser
+// handoff: open the site, capture the callback on localhost, done.
+{
+  const sub = process.argv[2];
+  const isMantisBin = BIN_NAME === "mantis" || BIN_NAME === "mantis.js";
+  if (isMantisBin && (sub === "login" || sub === "logout" || sub === "whoami")) {
+    const auth = require("./auth");
+    Promise.resolve()
+      .then(() => {
+        if (sub === "login") return auth.login();
+        if (sub === "logout") return auth.logout();
+        if (sub === "whoami") return auth.whoami();
+      })
+      .then(() => process.exit(0))
+      .catch((err) => {
+        process.stderr.write(
+          `[mantis] ${sub} failed: ${err && err.message ? err.message : err}\n`,
+        );
+        process.exit(1);
+      });
+    // Don't fall through into the binary launcher below.
+    return;
+  }
+}
+
 const PLATFORM_MAP = {
   "darwin-arm64": "@deonmenezes/mantis-cli-darwin-arm64",
   "darwin-x64": "@deonmenezes/mantis-cli-darwin-x64",
