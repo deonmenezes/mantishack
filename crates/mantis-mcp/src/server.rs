@@ -3353,9 +3353,9 @@ fn render_verification_cascade_section(
                             one_line.chars().take(180).collect::<String>()
                         })
                         .unwrap_or_default();
-                    s.push_str(&format!(
-                        "| `{fid}` | {reportable} | {conf} | {reasoning} |\n"
-                    ));
+                    let _ = writeln!(s,
+                        "| `{fid}` | {reportable} | {conf} | {reasoning} |"
+                    );
                 }
                 s.push('\n');
             }
@@ -3466,15 +3466,15 @@ fn render_grade_verdict_section(grade: &serde_json::Value) -> String {
                         .map(|n| n.to_string())
                         .unwrap_or_else(|| "—".into())
                 };
-                s.push_str(&format!(
-                    "| `{fid}` | {} | {} | {} | {} | {} | {} |\n",
+                let _ = writeln!(s,
+                    "| `{fid}` | {} | {} | {} | {} | {} | {} |",
                     g("impact"),
                     g("proof_quality"),
                     g("severity_accuracy"),
                     g("chain_potential"),
                     g("report_quality"),
                     g("total_score"),
-                ));
+                );
             }
             s.push('\n');
         }
@@ -3527,15 +3527,16 @@ fn render_markdown_core(
 
     let _ = writeln!(s, "| Waves executed | {} |", waves.len());
 
-    s.push_str(&format!(
-        "| Findings (reportable) | {} |\n",
+    let _ = writeln!(s,
+        "| Findings (reportable) | {} |",
         reportable_total
-    ));
+
+    );
     if suppressed_total > 0 {
-        s.push_str(&format!(
-            "| Findings suppressed below floor | {} |\n",
+        let _ = writeln!(s,
+            "| Findings suppressed below floor | {} |",
             suppressed_total
-        ));
+        );
     }
     let _ = writeln!(s, "| Findings total (raw) | {} |", findings_total);
 
@@ -3565,8 +3566,8 @@ fn render_markdown_core(
     } else {
         s.push_str("| seq | URL | status | server | tech |\n|---|---|---|---|---|\n");
         for surf in surfaces {
-            s.push_str(&format!(
-                "| {} | `{}://{}:{}{}` | {} | {} | {} |\n",
+            let _ = writeln!(s,
+                "| {} | `{}://{}:{}{}` | {} | {} | {} |",
                 surf.seq,
                 surf.scheme,
                 surf.host,
@@ -3575,14 +3576,14 @@ fn render_markdown_core(
                 surf.status,
                 surf.server.as_deref().unwrap_or(""),
                 surf.tech_hints.join(", "),
-            ));
+            );
         }
     }
 
     if !waves.is_empty() {
         s.push_str("\n## Findings (from wave handoffs)\n\n");
         if severity_floor_rank > 0 {
-            s.push_str(&format!(
+            let _ = write!(s,
                 "_Findings below `{}` severity are suppressed; lower the floor with \
                  `--severity-floor info` or via the MCP arg to see everything._\n\n",
                 match severity_floor_rank {
@@ -3592,7 +3593,7 @@ fn render_markdown_core(
                     4 => "critical",
                     _ => "low",
                 }
-            ));
+            );
         }
         for w in waves {
             // Recompute the wave's reportable count post-floor.
@@ -3601,10 +3602,10 @@ fn render_markdown_core(
                 .iter()
                 .filter(|f| severity_rank(&f.severity) >= severity_floor_rank)
                 .count();
-            s.push_str(&format!(
-                "### Wave {} — {} reportable findings (received {}/{} handoffs)\n\n",
+            let _ = writeln!(s,
+                "### Wave {} — {} reportable findings (received {}/{} handoffs)\n",
                 w.wave_number, wave_reportable, w.handoffs_received, w.assignments_total,
-            ));
+            );
             // Render highest-severity first so disclosure-grade items
             // surface near the top of the section. Skip severities
             // below the floor entirely.
@@ -3617,12 +3618,12 @@ fn render_markdown_core(
                 if group.is_empty() {
                     continue;
                 }
-                s.push_str(&format!(
-                    "#### {} ({} finding{})\n\n",
+                let _ = writeln!(s,
+                    "#### {} ({} finding{})\n",
                     sev,
                     group.len(),
                     if group.len() == 1 { "" } else { "s" }
-                ));
+                );
                 for f in group {
                     let _ = writeln!(s, "- **{}** — `{}`", f.title, f.surface);
 
@@ -3634,10 +3635,10 @@ fn render_markdown_core(
                 s.push('\n');
             }
             if !w.handoffs_missing.is_empty() {
-                s.push_str(&format!(
-                    "_Missing handoffs (still pending):_ `{}`\n\n",
+                let _ = writeln!(s,
+                    "_Missing handoffs (still pending):_ `{}`\n",
                     w.handoffs_missing.join("`, `")
-                ));
+                );
             }
         }
     } else {
@@ -3656,17 +3657,17 @@ fn render_markdown_core(
                     `bounty_write_chain_attempt`.\n\n",
         );
         for (wave_n, attempts) in chains {
-            s.push_str(&format!(
-                "### Wave {} — {} chain attempt{}\n\n",
+            let _ = writeln!(s,
+                "### Wave {} — {} chain attempt{}\n",
                 wave_n,
                 attempts.len(),
                 if attempts.len() == 1 { "" } else { "s" }
-            ));
+            );
             for c in attempts {
-                s.push_str(&format!(
-                    "- **{}** _(severity: {}, outcome: {})_\n",
+                let _ = writeln!(s,
+                    "- **{}** _(severity: {}, outcome: {})_",
                     c.hypothesis, c.severity, c.outcome
-                ));
+                );
                 let _ = writeln!(s, "  - _evidence_: {}", c.evidence_summary);
 
                 if !c.steps.is_empty() {
