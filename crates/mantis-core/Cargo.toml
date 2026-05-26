@@ -9,6 +9,8 @@ repository.workspace = true
 description = "Shared types, errors, and pure logic for the Mantis daemon."
 
 [dependencies]
+blake3 = { workspace = true }
+hex = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 ulid = { workspace = true }

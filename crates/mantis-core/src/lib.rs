@@ -8,6 +8,14 @@
 //! [`EngagementState`] enum. The full data model from PRD §7.4 lands across
 //! milestones M0.1 through M0.5.
 
+pub mod hash;
+
+pub use hash::{
+    mantis_hash, mantis_hash_hex, DOMAIN_CLAIM_BODY, DOMAIN_EVENT_PAYLOAD, DOMAIN_EVIDENCE,
+    DOMAIN_MERKLE_LEAF, DOMAIN_REPRODUCER, DOMAIN_REQUEST_SHAPE, DOMAIN_SCOPE_MANIFEST,
+    MANTIS_HASH_DOMAIN,
+};
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use ulid::Ulid;
