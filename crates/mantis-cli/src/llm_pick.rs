@@ -40,6 +40,7 @@ use mantis_synthesizer::{
     anthropic::AnthropicAdapter, claude_cli::ClaudeCliAdapter, gemini::GeminiAdapter,
     ollama::OllamaAdapter, openai::OpenAIAdapter, LlmAdapter,
 };
+#[cfg(test)]
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -301,10 +302,12 @@ fn is_executable(p: &std::path::Path) -> bool {
 
 /// Cap LLM-suggested paths so a hallucinating model can't blow up
 /// the wordlist. 50 is generous — typical reply yields 10–25.
+#[allow(dead_code)]
 const MAX_LLM_PATHS: usize = 50;
 
 /// Ask the LLM for high-signal API endpoint paths to add to the
 /// wordlist, based on the recon notes from Phase 1.
+#[allow(dead_code)]
 pub(crate) async fn suggest_paths(
     adapter: &dyn LlmAdapter,
     target_url: &str,
@@ -349,6 +352,7 @@ pub(crate) async fn suggest_paths(
     }
 }
 
+#[allow(dead_code)]
 fn parse_paths(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     for raw in text.lines() {

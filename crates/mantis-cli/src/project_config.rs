@@ -33,6 +33,7 @@ pub(crate) struct ProjectConfig {
     /// Default daemon endpoint (override the compiled default and
     /// `MANTIS_DAEMON` env when neither is set).
     #[serde(default)]
+    #[allow(dead_code)]
     pub daemon: Option<String>,
 }
 
