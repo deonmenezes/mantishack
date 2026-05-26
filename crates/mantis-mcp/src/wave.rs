@@ -108,10 +108,27 @@ pub struct DeadEnd {
 }
 
 /// A chain attempt — a recorded hypothesis that one finding enables
-/// another, with an explicit outcome. Inspired by Hacker Bob's
-/// `bounty_write_chain_attempt`. The severity ladder is enforced:
-/// LOW+LOW = LOW, no hand-wave escalation. See
-/// `plugin/claude-code/playbooks/README.md` for the rules.
+/// another, with an explicit outcome.
+///
+/// As of the independence transition (see
+/// [`docs/ARCHITECTURE_RENAME_PROPOSAL.md`](../../../docs/ARCHITECTURE_RENAME_PROPOSAL.md)),
+/// the canonical outcome vocabulary is the Mantis-native set:
+/// `Verified` / `Refuted` / `Gated` / `Unresolved` / `OutOfScope`.
+///
+/// During the transition window, the older lowercase set
+/// (`confirmed` / `denied` / `blocked` / `inconclusive` / `not_applicable`)
+/// is also accepted on input for backward compatibility with persisted
+/// JSONL files written before the rename landed. New writes should use
+/// the canonical Mantis-native names. The
+/// [`canonicalize_outcome`] helper maps any accepted form to the
+/// canonical Mantis-native form for callers that want the normalized
+/// value.
+///
+/// The severity ladder enforced here is the legacy ladder (LOW+LOW=LOW,
+/// `max input + 1` without rationale, `max input + 2` with `elevation:`).
+/// The redesigned clamp-based ladder proposed in
+/// `docs/ARCHITECTURE_RENAME_PROPOSAL.md` §3 lands in a follow-up
+/// alongside the full enum refactor.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ChainAttempt {
     /// Short ULID-derived id, generated server-side.
@@ -124,8 +141,12 @@ pub struct ChainAttempt {
     pub hypothesis: String,
     /// Concise replay/rejection steps, one per line.
     pub steps: Vec<String>,
-    /// Outcome (enforced server-side):
-    /// `confirmed`, `denied`, `blocked`, `inconclusive`, `not_applicable`.
+    /// Outcome (enforced server-side). Canonical Mantis-native values:
+    /// `Verified`, `Refuted`, `Gated`, `Unresolved`, `OutOfScope`.
+    /// Legacy lowercase values (`confirmed`, `denied`, `blocked`,
+    /// `inconclusive`, `not_applicable`) are accepted on input for
+    /// backward compatibility with pre-transition data; new writes
+    /// should use the canonical Mantis-native names.
     pub outcome: String,
     /// Severity of the *composed* chain, max per the ladder rules.
     pub severity: String,
@@ -201,13 +222,59 @@ pub fn chain_attempts_path(engagement_id: &str, wave_number: u32) -> PathBuf {
     wave_dir(engagement_id, wave_number).join("chain-attempts.jsonl")
 }
 
-const CHAIN_OUTCOMES: &[&str] = &[
+/// Canonical Mantis-native chain-outcome values. Output of
+/// [`canonicalize_outcome`] is always one of these.
+pub const CHAIN_OUTCOMES_CANONICAL: &[&str] = &[
+    "Verified",
+    "Refuted",
+    "Gated",
+    "Unresolved",
+    "OutOfScope",
+];
+
+/// Legacy chain-outcome values from the pre-transition Hacker-Bob-derived
+/// vocabulary. Accepted on input for backward compatibility with persisted
+/// JSONL files written before the rename. NOT for use in new writes —
+/// new code should emit canonical values from [`CHAIN_OUTCOMES_CANONICAL`].
+pub const CHAIN_OUTCOMES_LEGACY: &[&str] = &[
     "confirmed",
     "denied",
     "blocked",
     "inconclusive",
     "not_applicable",
 ];
+
+/// Union of canonical + legacy outcomes for validation purposes.
+const CHAIN_OUTCOMES: &[&str] = &[
+    // Canonical Mantis-native
+    "Verified",
+    "Refuted",
+    "Gated",
+    "Unresolved",
+    "OutOfScope",
+    // Legacy (pre-transition); accepted on input only.
+    "confirmed",
+    "denied",
+    "blocked",
+    "inconclusive",
+    "not_applicable",
+];
+
+/// Map any accepted outcome value (canonical or legacy) to its canonical
+/// Mantis-native form. Returns `None` for unknown values.
+///
+/// Use this when normalizing data from persisted storage so downstream
+/// consumers don't need to handle both vocabularies.
+pub fn canonicalize_outcome(outcome: &str) -> Option<&'static str> {
+    match outcome {
+        "Verified" | "confirmed" => Some("Verified"),
+        "Refuted" | "denied" => Some("Refuted"),
+        "Gated" | "blocked" => Some("Gated"),
+        "Unresolved" | "inconclusive" => Some("Unresolved"),
+        "OutOfScope" | "not_applicable" => Some("OutOfScope"),
+        _ => None,
+    }
+}
 
 const SEVERITY_RANK: &[(&str, u8)] = &[
     ("info", 0),
@@ -685,7 +752,10 @@ mod tests {
     }
 
     #[test]
-    fn outcome_validator_accepts_terminal_outcomes() {
+    fn outcome_validator_accepts_legacy_terminal_outcomes() {
+        // Backward compatibility with persisted JSONL files written
+        // before the rename transition. New writes should use the
+        // canonical Mantis-native names below.
         for ok in [
             "confirmed",
             "denied",
@@ -695,7 +765,85 @@ mod tests {
         ] {
             assert!(validate_chain_outcome(ok).is_ok(), "rejected `{ok}`");
         }
-        assert!(validate_chain_outcome("maybe").is_err());
+    }
+
+    #[test]
+    fn outcome_validator_accepts_canonical_mantis_native_outcomes() {
+        // These are the canonical Mantis-native vocabulary per
+        // docs/ARCHITECTURE_RENAME_PROPOSAL.md and used in
+        // prompts/roles/chain.md (clean-room rewritten in PR #79).
+        for ok in ["Verified", "Refuted", "Gated", "Unresolved", "OutOfScope"] {
+            assert!(validate_chain_outcome(ok).is_ok(), "rejected canonical `{ok}`");
+        }
+    }
+
+    #[test]
+    fn outcome_validator_rejects_unknown_outcomes() {
+        // Unknown values must still be rejected. The expanded set is
+        // exactly canonical + legacy, nothing else.
+        for bad in ["maybe", "partial", "verified" /* lowercase */, "REFUTED" /* uppercase */] {
+            assert!(
+                validate_chain_outcome(bad).is_err(),
+                "accepted unknown `{bad}` — should be canonical exact-match only"
+            );
+        }
+    }
+
+    #[test]
+    fn canonicalize_maps_legacy_to_mantis_native() {
+        // Backward-compat normalization for downstream consumers that
+        // want a single vocabulary.
+        assert_eq!(canonicalize_outcome("confirmed"), Some("Verified"));
+        assert_eq!(canonicalize_outcome("denied"), Some("Refuted"));
+        assert_eq!(canonicalize_outcome("blocked"), Some("Gated"));
+        assert_eq!(canonicalize_outcome("inconclusive"), Some("Unresolved"));
+        assert_eq!(canonicalize_outcome("not_applicable"), Some("OutOfScope"));
+    }
+
+    #[test]
+    fn canonicalize_idempotent_on_canonical_values() {
+        // Canonical values map to themselves.
+        assert_eq!(canonicalize_outcome("Verified"), Some("Verified"));
+        assert_eq!(canonicalize_outcome("Refuted"), Some("Refuted"));
+        assert_eq!(canonicalize_outcome("Gated"), Some("Gated"));
+        assert_eq!(canonicalize_outcome("Unresolved"), Some("Unresolved"));
+        assert_eq!(canonicalize_outcome("OutOfScope"), Some("OutOfScope"));
+    }
+
+    #[test]
+    fn canonicalize_returns_none_for_unknown() {
+        assert_eq!(canonicalize_outcome("maybe"), None);
+        assert_eq!(canonicalize_outcome("partial"), None);
+        assert_eq!(canonicalize_outcome(""), None);
+    }
+
+    #[test]
+    fn canonical_and_legacy_arrays_are_distinct_and_complete() {
+        // The two arrays must be the same length (each canonical maps to
+        // exactly one legacy and vice versa) and must not share values.
+        assert_eq!(CHAIN_OUTCOMES_CANONICAL.len(), CHAIN_OUTCOMES_LEGACY.len());
+        for canonical in CHAIN_OUTCOMES_CANONICAL {
+            assert!(
+                !CHAIN_OUTCOMES_LEGACY.contains(canonical),
+                "canonical `{canonical}` overlaps legacy set"
+            );
+        }
+        // Each canonical has a legacy preimage under canonicalize_outcome.
+        let preimages_per_canonical: std::collections::HashMap<&str, usize> =
+            CHAIN_OUTCOMES_LEGACY
+                .iter()
+                .filter_map(|legacy| canonicalize_outcome(legacy))
+                .fold(std::collections::HashMap::new(), |mut acc, c| {
+                    *acc.entry(c).or_insert(0) += 1;
+                    acc
+                });
+        for canonical in CHAIN_OUTCOMES_CANONICAL {
+            assert_eq!(
+                preimages_per_canonical.get(canonical).copied().unwrap_or(0),
+                1,
+                "canonical `{canonical}` should have exactly one legacy preimage"
+            );
+        }
     }
 
     #[test]
