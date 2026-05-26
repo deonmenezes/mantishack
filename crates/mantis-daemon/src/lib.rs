@@ -10,6 +10,7 @@
 mod pipeline;
 mod service;
 
+use std::fmt::Write as _;
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::process::Command;
 use std::sync::Arc;
@@ -104,12 +105,12 @@ fn already_running_error(root: &Utf8Path, lock_dir: &Utf8Path) -> anyhow::Error 
             "this workspace is already being served by a running mantis-daemon — \
              you don't need to start a second one.\n",
         );
-        msg.push_str(&format!("  workspace: {root}\n"));
+        let _ = writeln!(msg, "  workspace: {root}");
         if let Some(endpoint) = &endpoint {
-            msg.push_str(&format!("  endpoint:  {endpoint}\n"));
+            let _ = writeln!(msg, "  endpoint:  {endpoint}");
         }
         if let Some((pid, cmd)) = &holder {
-            msg.push_str(&format!("  process:   pid {pid} ({cmd})\n"));
+            let _ = writeln!(msg, "  process:   pid {pid} ({cmd})");
         }
         msg.push_str(
             "\nThe mantis architecture is one daemon + many clients:\n  \
@@ -119,7 +120,7 @@ fn already_running_error(root: &Utf8Path, lock_dir: &Utf8Path) -> anyhow::Error 
              \nIf you really want to restart the daemon, stop the existing one first:",
         );
         if let Some((pid, _)) = &holder {
-            msg.push_str(&format!("\n  kill {pid}"));
+            let _ = write!(msg, "\n  kill {pid}");
         } else {
             msg.push_str("\n  pkill -x mantis-daemon");
         }
@@ -129,21 +130,23 @@ fn already_running_error(root: &Utf8Path, lock_dir: &Utf8Path) -> anyhow::Error 
         msg.push_str(
             "the workspace lock is held but no daemon is responding on the recorded endpoint\n",
         );
-        msg.push_str(&format!("  workspace: {root}\n"));
+        let _ = writeln!(msg, "  workspace: {root}");
         if let Some(endpoint) = &endpoint {
-            msg.push_str(&format!(
-                "  endpoint:  {endpoint}  (not responding to TCP connect)\n"
-            ));
+            let _ = writeln!(
+                msg,
+                "  endpoint:  {endpoint}  (not responding to TCP connect)"
+            );
         }
         match &holder {
             Some((pid, cmd)) => {
-                msg.push_str(&format!("  held by:   pid {pid} ({cmd})\n"));
-                msg.push_str(&format!(
+                let _ = writeln!(msg, "  held by:   pid {pid} ({cmd})");
+                let _ = write!(
+                    msg,
                     "\nThis usually means a previous mantis-daemon is stuck.\nKill it and retry:\n  kill {pid}"
-                ));
+                );
             }
             None => {
-                msg.push_str(&format!("  lock file: {lock_file}\n"));
+                let _ = writeln!(msg, "  lock file: {lock_file}");
                 msg.push_str(
                     "\nCould not identify the holder. Find and stop it:\n  \
                      lsof ",
