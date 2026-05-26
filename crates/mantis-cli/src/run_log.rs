@@ -229,7 +229,12 @@ fn format_tool_call(name: &str, input: Option<&serde_json::Value>, t_secs: f64) 
     out.push('\n');
     if let Some(input) = input {
         if let Ok(pretty) = serde_json::to_string_pretty(input) {
-            if pretty.len() > 80 && pretty.lines().count() > 1 {
+            // `.lines().count() > 1` was iterating the whole string just
+            // to find out if there's a newline anywhere — for a large
+            // pretty-printed JSON blob that's O(N) work to answer a
+            // yes/no question. `contains('\n')` short-circuits on the
+            // first newline via memchr.
+            if pretty.len() > 80 && pretty.contains('\n') {
                 out.push_str("\n  <details><summary>full input</summary>\n\n  ```json\n");
                 for line in pretty.lines() {
                     out.push_str("  ");

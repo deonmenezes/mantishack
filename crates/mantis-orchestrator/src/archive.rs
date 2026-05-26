@@ -170,7 +170,11 @@ pub fn write_archive(
                         );
                     }
                 }
-                if s.lines().count() <= 2 {
+                // Bound the line-count iteration: we only need to
+                // know if there are ≤ 2 lines, so `.take(3)` lets the
+                // count exit as soon as we hit 3. For a long auth-diff
+                // section this avoids scanning the whole string.
+                if s.lines().take(3).count() <= 2 {
                     s.push_str("_No divergence detected on any probed endpoint._\n");
                 }
                 s
