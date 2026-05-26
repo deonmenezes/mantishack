@@ -1,0 +1,16 @@
+[package]
+name = "mantis-notify"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Notification payload formatters for Mantis. Converts Mantis findings into Slack, Discord, and Microsoft Teams webhook-compatible JSON payloads. HTTP delivery is intentionally out of scope and is performed by the daemon's notification dispatcher through mantis-egress."
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

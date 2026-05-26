@@ -1,0 +1,23 @@
+[package]
+name = "mantis-mobile"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Static analysis for mobile applications. APK (Android) and IPA (iOS) artefacts are unpacked, the manifest / Info.plist is parsed, dangerous permissions are flagged, hard-coded secrets are scanned via regex, and insecure-config patterns (cleartext traffic, exported components, allowBackup, debuggable, ATS exceptions) are reported. Output uses the unified Finding type so the rest of mantis ingests mobile findings the same as web findings."
+
+[dependencies]
+mantis-static-scan = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+zip = { version = "0.6", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true

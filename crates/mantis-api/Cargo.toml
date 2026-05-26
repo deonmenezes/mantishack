@@ -1,0 +1,22 @@
+[package]
+name = "mantis-api"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "API-aware testing: OpenAPI/Swagger schema parsing → endpoint enumeration, GraphQL introspection + graphql-cop-style checks, gRPC reflection wrappers, and route-grammar-aware fuzz seed generation."
+
+[dependencies]
+mantis-payloads = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml_ng = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[lints]
+workspace = true

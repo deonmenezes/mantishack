@@ -120,7 +120,7 @@ fn str_field(v: &serde_json::Value, key: &str) -> String {
 /// Pure parser: take trivy's captured JSON document and flatten
 /// `Results[*].{Vulnerabilities, Misconfigurations, Secrets}` into
 /// individual [`Finding`]s.
-pub(crate) fn parse_trivy_output(raw: &str) -> Result<Vec<Finding>, ScanError> {
+pub fn parse_trivy_output(raw: &str) -> Result<Vec<Finding>, ScanError> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return Ok(Vec::new());

@@ -1,0 +1,17 @@
+[package]
+name = "mantis-secrets"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Regex + Shannon-entropy secret scanner for artifacts gathered during recon (JS bundles, response bodies, public files). Inspired by gitleaks; uses hand-rolled prefix matchers to avoid a regex runtime dep."
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

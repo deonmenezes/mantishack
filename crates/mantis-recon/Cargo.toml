@@ -1,0 +1,22 @@
+[package]
+name = "mantis-recon"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Native Rust recon primitives: passive subdomain enumeration via Certificate Transparency, httpx-style concurrent HTTP probe, and async DNS resolution. Companion to mantis-recon-tools (which shells out to projectdiscovery binaries when present)."
+
+[dependencies]
+mantis-payloads = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+futures = { workspace = true }
+
+[lints]
+workspace = true

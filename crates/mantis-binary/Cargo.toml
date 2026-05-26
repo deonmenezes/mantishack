@@ -1,0 +1,21 @@
+[package]
+name = "mantis-binary"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Binary analysis primitives via shell-out to radare2 (r2 -j). Surfaces functions, strings, imports, binary info, and signature checks for ELF/Mach-O/PE artefacts. No FFI: the radare2 binary is invoked as a subprocess so its LGPL-3 + exceptions licensing stays outside the mantis build product."
+
+[dependencies]
+mantis-static-scan = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[lints]
+workspace = true

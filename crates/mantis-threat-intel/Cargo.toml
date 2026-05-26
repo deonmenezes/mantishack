@@ -1,0 +1,17 @@
+[package]
+name = "mantis-threat-intel"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Threat intelligence feed ingestion for Mantis. Parses CISA KEV (Known Exploited Vulnerabilities) catalogs into a lookup table that prioritizes hypotheses and claims tied to actively exploited CVEs. Foundation for future NVD/CVE, GitHub Security Advisory, and ExploitDB modules."
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

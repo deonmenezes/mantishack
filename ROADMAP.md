@@ -108,16 +108,19 @@ Open-source pentesting tools and capabilities to integrate or take inspiration f
 ## Priority 4 — Ecosystem & Quality
 
 ### Threat intelligence feeds
-- CVE/NVD ingestion → automatic template generation
-- ExploitDB integration → primitive enrichment
-- GitHub Security Advisory feed
-- KEV (Known Exploited Vulnerabilities) prioritization
+Lives under [`mantis-threat-intel`](./crates/mantis-threat-intel). One crate, one module per feed source, behind a unified Mantis-facing API.
+
+- [x] **KEV (Known Exploited Vulnerabilities) prioritization** — `mantis_threat_intel::kev::KevCatalog` parses the CISA feed, exposes O(1) `is_kev` / `priority` / `lookup`, and scores ransomware-linked CVEs at 100/100.
+- [ ] CVE/NVD ingestion → automatic template generation (`mantis_threat_intel::nvd`)
+- [ ] ExploitDB integration → primitive enrichment (`mantis_threat_intel::exploitdb`)
+- [x] **GitHub Security Advisory feed** — `mantis_threat_intel::ghsa` parses OSV-format advisories with `Advisory::from_json`, picks the highest-version CVSS via `primary_cvss`, and supports many-advisory CVE → GHSA lookup through `AdvisoryIndex`.
 
 ### Reporting integrations
-- Jira / Linear ticket creation for findings
-- Slack / Discord / Teams notifications
-- GitHub Security tab integration (SARIF upload)
-- HackerOne / Bugcrowd direct submission (you already have these formats)
+
+- [x] **Slack / Discord / Teams notifications** — [`mantis-notify`](./crates/mantis-notify) ships provider-agnostic `Notification` + per-provider payload formatters (Slack Block Kit, Discord embed, Teams MessageCard). HTTP delivery is owned by the daemon's dispatcher so it routes through `mantis-egress`.
+- [ ] Jira / Linear ticket creation for findings
+- [ ] GitHub Security tab integration (SARIF upload)
+- [ ] HackerOne / Bugcrowd direct submission (you already have these formats)
 
 ### Operator experience
 - Web UI improvements (live scan visualization, evidence inspection)
@@ -126,10 +129,13 @@ Open-source pentesting tools and capabilities to integrate or take inspiration f
 - Resume-interrupted-scans with full state restoration
 
 ### Compliance & frameworks
-- MITRE ATT&CK mapping for every claim
-- CWE classification automation
-- PCI-DSS / SOC2 / HIPAA finding tagging
-- OWASP Top 10 / ASVS / MASVS coverage tracking
+Lives under [`mantis-compliance`](./crates/mantis-compliance). Static lookup tables + typed identifiers, no network.
+
+- [x] **CWE classification** — `mantis_compliance::Cwe` typed wrapper (parse / display / serde).
+- [x] **OWASP Top 10 (2021) coverage** — `mantis_compliance::OwaspTop10` enum + `owasp_for_cwe` mapping covering the Notable-CWEs sets from the 2021 release.
+- [x] **MITRE ATT&CK technique mapping** — `mantis_compliance::mitre` exposes `Technique`, `Tactic`, a curated catalog of common pentest-report techniques, and a `technique_for_cwe` heuristic mapper.
+- [ ] OWASP ASVS / MASVS coverage matrices (`mantis_compliance::asvs`, `mantis_compliance::masvs`)
+- [ ] PCI-DSS / SOC2 / HIPAA finding tagging (`mantis_compliance::regulatory`)
 
 ### Testing & validation
 - Automated regression testing against intentionally vulnerable targets:
