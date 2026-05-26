@@ -21,11 +21,24 @@ pub const DEFAULT_TTL_SECS: u64 = 30 * 60;
 /// Compute a stable, filename-safe cache key from the inputs.
 pub fn cache_key(target: &str, scope_hash: Option<&str>, depth_label: &str) -> String {
     let scope = scope_hash.unwrap_or("");
-    let hash = blake3::hash(format!("v{SCHEMA_VERSION}|{target}|{scope}|{depth_label}").as_bytes());
-    // Truncated 16-byte hex — collision-resistant enough for a
-    // local cache where the input set is tiny.
+    // Feed inputs into the hasher incrementally instead of allocating
+    // a fresh String via format! just to immediately discard it.
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"v");
+    hasher.update(SCHEMA_VERSION.to_string().as_bytes());
+    hasher.update(b"|");
+    hasher.update(target.as_bytes());
+    hasher.update(b"|");
+    hasher.update(scope.as_bytes());
+    hasher.update(b"|");
+    hasher.update(depth_label.as_bytes());
+    let hash = hasher.finalize();
     let h = hash.to_hex();
-    format!("{}", &h.as_str()[..32])
+    // Truncated 16-byte hex — collision-resistant enough for a
+    // local cache where the input set is tiny. `to_string()` on the
+    // sliced &str is cleaner and one fewer formatter pass than
+    // `format!("{}", &h.as_str()[..32])`.
+    h.as_str()[..32].to_string()
 }
 
 /// Read a cached bundle, returning `Ok(Some(bundle))` if a valid
