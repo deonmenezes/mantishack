@@ -308,7 +308,9 @@ fn scan_bodies_for_config(bodies: &[(String, String)], out: &mut DiscoveredAuthC
 const CACHE_TTL_SECS: u64 = 60 * 60 * 24;
 
 fn cache_dir() -> Option<std::path::PathBuf> {
-    let home = std::env::var_os("HOME")?;
+    // Unix sets HOME; Windows sets USERPROFILE. Falling back lets the cache
+    // work on all platforms without bringing in a `dirs` crate dependency.
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
     let dir = std::path::PathBuf::from(home)
         .join(".mantis")
         .join("discovery-cache");
