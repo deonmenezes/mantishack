@@ -293,7 +293,7 @@ pub const PLAYBOOKS: &[Playbook] = &[
 /// case-insensitive and substring-friendly so operator phrases
 /// like "find some XSS" map to the `xss` playbook even though the
 /// exact tag string isn't in the request.
-pub fn matching_playbooks<'a>(tags: &'a [String]) -> Vec<&'static Playbook> {
+pub fn matching_playbooks(tags: &[String]) -> Vec<&'static Playbook> {
     let mut hits: Vec<&'static Playbook> = Vec::new();
     let mut seen: std::collections::HashSet<&'static str> = std::collections::HashSet::new();
     for raw in tags {
@@ -329,7 +329,7 @@ const OOB_CLASSES: &[&str] = &[
 ];
 
 fn playbook_needs_oob(label: &str) -> bool {
-    OOB_CLASSES.iter().any(|c| *c == label)
+    OOB_CLASSES.contains(&label)
 }
 
 /// Compose the playbooks for a list of detected tags into a single

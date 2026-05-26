@@ -169,7 +169,7 @@ impl CoverageRow {
 /// Latest-by-key reducer. Replays the rows in arrival order and
 /// keeps the most recent row per key (highest `wall_clock_unix`
 /// breaks ties; identical timestamps keep insertion order).
-pub fn latest_by_key<'a>(rows: &'a [CoverageRow]) -> Vec<&'a CoverageRow> {
+pub fn latest_by_key(rows: &[CoverageRow]) -> Vec<&CoverageRow> {
     use std::collections::BTreeMap;
     let mut latest: BTreeMap<&CoverageKey, &CoverageRow> = BTreeMap::new();
     for row in rows {

@@ -1748,7 +1748,7 @@ impl MantisMcpServer {
         let info = engagement_status(&self.daemon_endpoint, &args.engagement_id).await?;
         let jsonl = export_events(&self.daemon_endpoint, &args.engagement_id).await?;
         let event_count = jsonl.lines().count();
-        let state = info.state.clone();
+        let state = info.state;
         json_ok(
             &json!({"engagement_id": args.engagement_id, "summary": info, "event_count": event_count, "state": state}),
         )

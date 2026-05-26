@@ -484,9 +484,7 @@ mod tests {
     #[tokio::test]
     async fn stream_chat_emits_tool_call() {
         use futures::StreamExt as _;
-        let sse = concat!(
-            "data: {\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"name\":\"lookup\",\"args\":{\"q\":\"mantis\"}}}]},\"finishReason\":\"STOP\"}]}\n\n",
-        );
+        let sse = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"name\":\"lookup\",\"args\":{\"q\":\"mantis\"}}}]},\"finishReason\":\"STOP\"}]}\n\n";
         let captured = Arc::new(Mutex::new(None));
         let base = mock_server_sse(sse.to_string(), captured.clone()).await;
         let adapter = GeminiAdapter::new("k").with_base_url(base);

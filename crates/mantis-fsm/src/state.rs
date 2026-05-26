@@ -93,17 +93,14 @@ impl fmt::Display for Phase {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum AuthStatus {
+    #[default]
     Pending,
     Authenticated,
     Unauthenticated,
 }
 
-impl Default for AuthStatus {
-    fn default() -> Self {
-        AuthStatus::Pending
-    }
-}
 
 /// Operator-supplied rationale for overriding a phase gate. Required
 /// to be ≥ 20 characters and only accepted for the specific edges
@@ -139,17 +136,11 @@ pub enum TransitionError {
 
 /// Compact reportability filter — applied at render time.
 #[derive(Debug, Clone, Copy)]
+#[derive(Default)]
 pub struct ReportabilityFilter {
     pub floor: SeverityFloor,
 }
 
-impl Default for ReportabilityFilter {
-    fn default() -> Self {
-        Self {
-            floor: SeverityFloor::default(),
-        }
-    }
-}
 
 impl ReportabilityFilter {
     pub fn new(floor: SeverityFloor) -> Self {
