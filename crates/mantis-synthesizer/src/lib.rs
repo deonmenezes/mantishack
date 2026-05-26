@@ -35,6 +35,7 @@ pub mod openai;
 pub mod retry;
 pub mod symbolic;
 
+use std::fmt::Write as _;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -223,7 +224,8 @@ fn flatten_messages_to_prompt(messages: &[ChatMessage]) -> String {
             }
             ChatRole::Tool => {
                 let id = m.tool_call_id.as_deref().unwrap_or("?");
-                out.push_str(&format!("[tool result {id}]: "));
+                let _ = write!(out, "[tool result {id}]: ");
+
                 out.push_str(&m.content);
                 out.push_str("\n\n");
             }

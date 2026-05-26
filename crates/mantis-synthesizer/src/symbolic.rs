@@ -22,6 +22,7 @@
 //! search is bounded: it inspects at most [`MAX_CANDIDATES`]
 //! candidates per call.
 
+use std::fmt::Write as _;
 use serde::{Deserialize, Serialize};
 
 /// Cap on the candidates the solver inspects per call. Keeps
@@ -177,7 +178,8 @@ fn url_percent_encode(s: &str) -> String {
                 out.push(*b as char);
             }
             _ => {
-                out.push_str(&format!("%{:02X}", b));
+                let _ = write!(out, "%{:02X}", b);
+
             }
         }
     }

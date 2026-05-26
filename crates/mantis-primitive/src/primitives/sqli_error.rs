@@ -9,6 +9,7 @@
 //! parameter is the standard first step a manual tester takes.
 //! It doesn't attempt UNION SELECT or any data-extraction payload.
 
+use std::fmt::Write as _;
 use async_trait::async_trait;
 use mantis_scanner_http::Surface;
 use reqwest::Client;
@@ -149,7 +150,8 @@ fn urlencoding(s: &str) -> String {
             out.push(c);
         } else {
             for b in c.to_string().bytes() {
-                out.push_str(&format!("%{b:02X}"));
+                let _ = write!(out, "%{b:02X}");
+
             }
         }
     }

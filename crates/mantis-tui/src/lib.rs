@@ -10,6 +10,7 @@
 //! same split used in the gRPC API: the UI is just another
 //! rendering of `EngagementInfo` + claim/event streams.
 
+use std::fmt::Write as _;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -149,7 +150,8 @@ impl ScreenModel {
         out.push('\n');
         out.push_str(" Log tail:\n");
         for line in self.log_lines.iter().rev().take(10) {
-            out.push_str(&format!("   {line}\n"));
+            let _ = writeln!(out, "   {line}");
+
         }
         out.push_str(&"=".repeat(width));
         out.push('\n');

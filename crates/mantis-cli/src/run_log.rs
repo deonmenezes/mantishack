@@ -15,6 +15,7 @@
 //! re-running `mantis hack` / `mantis prompt` appends a new "Run"
 //! header so multiple sessions accumulate in the same file.
 
+use std::fmt::Write as _;
 use anyhow::{Context, Result};
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -148,7 +149,8 @@ fn render_assistant(event: &serde_json::Value, t_secs: f64) -> Option<String> {
                     .unwrap_or("")
                     .trim();
                 if !txt.is_empty() {
-                    out.push_str(&format!("- `t={t_secs:6.1}s` · _assistant_:\n\n"));
+                    let _ = writeln!(out, "- `t={t_secs:6.1}s` · _assistant_:\n");
+
                     for line in txt.lines() {
                         out.push_str("  > ");
                         out.push_str(line);
@@ -626,7 +628,8 @@ mod tests {
         let tmp = tempfile::NamedTempFile::new().unwrap();
         let mut body = String::new();
         for i in 0..200 {
-            body.push_str(&format!("- line {i} with some padding text\n"));
+            let _ = writeln!(body, "- line {i} with some padding text");
+
         }
         std::fs::write(tmp.path(), &body).unwrap();
         let out = tail(tmp.path(), 256).unwrap();

@@ -24,6 +24,7 @@
 //! enforcement layer. Phase 0 unit tests omit the proxy and hit
 //! localhost mock servers directly.
 
+use std::fmt::Write as _;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -296,7 +297,8 @@ fn urlencode(s: &str) -> String {
             }
             _ => {
                 out.push('%');
-                out.push_str(&format!("{:02X}", b));
+                let _ = write!(out, "{:02X}", b);
+
             }
         }
     }
