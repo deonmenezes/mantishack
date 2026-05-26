@@ -527,26 +527,31 @@ fn match_sendgrid_key(text: &str) -> Vec<Match> {
     let bytes = text.as_bytes();
     let prefix = b"SG.";
     let mut out = Vec::new();
-    let mut i = 0;
-    while i + prefix.len() < bytes.len() {
-        if &bytes[i..i + prefix.len()] == prefix {
-            let start = i;
-            let mut j = i + prefix.len();
-            while j < bytes.len() && (alnum(bytes[j]) || bytes[j] == b'-' || bytes[j] == b'_' || bytes[j] == b'.') {
-                j += 1;
-            }
-            let body = &bytes[i + prefix.len()..j];
-            // Must contain exactly one `.` and be ≥ 60 chars.
-            if body.iter().filter(|&&c| c == b'.').count() == 1 && body.len() >= 60 {
-                let matched = text[start..j].to_string();
-                out.push(Match {
-                    matched,
-                    offset: start,
-                });
-            }
-            i = j;
+    // SIMD prefix scan via memmem instead of byte-by-byte compare.
+    let finder = memchr::memmem::Finder::new(prefix);
+    let mut from = 0;
+    while let Some(rel) = finder.find(&bytes[from..]) {
+        let start = from + rel;
+        let mut j = start + prefix.len();
+        while j < bytes.len()
+            && (alnum(bytes[j]) || bytes[j] == b'-' || bytes[j] == b'_' || bytes[j] == b'.')
+        {
+            j += 1;
+        }
+        let body = &bytes[start + prefix.len()..j];
+        // Must contain exactly one `.` and be ≥ 60 chars. Early-exit
+        // dot count via memchr — faster than iter().filter().count()
+        // and short-circuits once we know we've exceeded 1 dot.
+        let mut dot_iter = memchr::memchr_iter(b'.', body);
+        let exactly_one_dot = dot_iter.next().is_some() && dot_iter.next().is_none();
+        if exactly_one_dot && body.len() >= 60 {
+            out.push(Match {
+                matched: text[start..j].to_string(),
+                offset: start,
+            });
+            from = j;
         } else {
-            i += 1;
+            from = start + 1;
         }
     }
     out
