@@ -134,8 +134,9 @@ Lives under [`mantis-compliance`](./crates/mantis-compliance). Static lookup tab
 - [x] **CWE classification** — `mantis_compliance::Cwe` typed wrapper (parse / display / serde).
 - [x] **OWASP Top 10 (2021) coverage** — `mantis_compliance::OwaspTop10` enum + `owasp_for_cwe` mapping covering the Notable-CWEs sets from the 2021 release.
 - [x] **MITRE ATT&CK technique mapping** — `mantis_compliance::mitre` exposes `Technique`, `Tactic`, a curated catalog of common pentest-report techniques, and a `technique_for_cwe` heuristic mapper.
-- [ ] OWASP ASVS / MASVS coverage matrices (`mantis_compliance::asvs`, `mantis_compliance::masvs`)
-- [ ] PCI-DSS / SOC2 / HIPAA finding tagging (`mantis_compliance::regulatory`)
+- [x] **OWASP ASVS coverage matrix** — `mantis_compliance::asvs` ships the 14 V-chapter taxonomy + `asvs_for_cwe` mapping for primary CWE → chapter tagging.
+- [x] **OWASP MASVS coverage** — `mantis_compliance::masvs` ships the 7-category v2 taxonomy (STORAGE/CRYPTO/AUTH/NETWORK/PLATFORM/CODE/RESILIENCE) + CWE mapping for mobile findings.
+- [x] **PCI-DSS / SOC2 / HIPAA finding tagging** — `mantis_compliance::regulatory` provides `PciDssRequirement` (Req 1–12), `Soc2Criterion` (CC6/CC7/CC8, A1, C1, PI1, P), `HipaaSafeguard` (Admin/Physical/Technical) + a unified `regulatory_for_cwe → RegulatoryTags` triple.
 
 ### Testing & validation
 - Automated regression testing against intentionally vulnerable targets:

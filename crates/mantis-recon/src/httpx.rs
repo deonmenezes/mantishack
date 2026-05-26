@@ -114,14 +114,20 @@ async fn probe_one(
     input: &str,
     max_body: usize,
 ) -> HttpProbeResult {
-    let candidates = if input.starts_with("http://") || input.starts_with("https://") {
-        vec![input.to_string()]
-    } else {
-        vec![format!("https://{input}"), format!("http://{input}")]
-    };
+    // Build candidate URLs without intermediate Vec<String> allocations.
+    // The happy path tries exactly one URL; the prior `vec![format!(),
+    // format!()]` allocated both up front even when the first succeeded.
+    let already_scheme = input.starts_with("http://") || input.starts_with("https://");
 
     let mut last_err = None;
-    for url in candidates {
+    let schemes: &[&str] = if already_scheme { &[""] } else { &["https://", "http://"] };
+    for scheme in schemes {
+        // String built once per attempt instead of all up front.
+        let url = if scheme.is_empty() {
+            input.to_string()
+        } else {
+            format!("{scheme}{input}")
+        };
         match try_url(client, &url, max_body).await {
             Ok(r) => return r,
             Err(e) => last_err = Some(e),
@@ -157,12 +163,16 @@ async fn try_url(
         .filter_map(|(k, v)| v.to_str().ok().map(|s| (k.as_str().to_string(), s.to_string())))
         .collect();
 
-    let mut bytes = resp.bytes().await.map_err(|e| e.to_string())?.to_vec();
-    let content_length = bytes.len();
-    if bytes.len() > max_body {
-        bytes.truncate(max_body);
-    }
-    let body_text = String::from_utf8_lossy(&bytes);
+    // Avoid copying the response body into a Vec just to truncate it.
+    // `Bytes` is reference-counted; `slice()` creates a zero-copy view.
+    let body_bytes = resp.bytes().await.map_err(|e| e.to_string())?;
+    let content_length = body_bytes.len();
+    let truncated = if body_bytes.len() > max_body {
+        body_bytes.slice(0..max_body)
+    } else {
+        body_bytes
+    };
+    let body_text = String::from_utf8_lossy(&truncated);
 
     let title = extract_title(&body_text);
     let tech = fingerprint(&headers, &body_text);
