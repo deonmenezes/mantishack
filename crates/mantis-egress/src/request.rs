@@ -24,6 +24,13 @@ pub async fn read_connect_request(
     reader: &mut BufReader<&mut TcpStream>,
 ) -> Result<ConnectRequest, EgressError> {
     let mut buf: Vec<u8> = Vec::with_capacity(1024);
+    // Track where the previous CRLFCRLF scan stopped. The prior code
+    // did `buf.windows(4).any(...)` from the start every iteration —
+    // O(buf.len()) per loop, O(N²) over the full request. Scanning
+    // only the newly-arrived bytes (plus the 3 trailing bytes of the
+    // previous chunk so a boundary-straddling CRLFCRLF still matches)
+    // is O(N) total.
+    let mut scanned_to: usize = 0;
     loop {
         if buf.len() >= MAX_REQUEST_BYTES {
             return Err(EgressError::RequestTooLarge {
@@ -36,9 +43,11 @@ pub async fn read_connect_request(
             return Err(EgressError::PrematureClose);
         }
         buf.extend_from_slice(&chunk[..n]);
-        if buf.windows(4).any(|w| w == b"\r\n\r\n") {
+        let scan_from = scanned_to.saturating_sub(3);
+        if buf[scan_from..].windows(4).any(|w| w == b"\r\n\r\n") {
             break;
         }
+        scanned_to = buf.len();
     }
     parse_connect(&buf)
 }
