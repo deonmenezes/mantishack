@@ -41,19 +41,27 @@ pub fn merkle_root(leaves: &[[u8; 32]]) -> [u8; 32] {
     if leaves.is_empty() {
         return [0u8; 32];
     }
-    let mut layer: Vec<[u8; 32]> = leaves.to_vec();
-    while layer.len() > 1 {
-        let mut next: Vec<[u8; 32]> = Vec::with_capacity(layer.len().div_ceil(2));
-        let mut chunks = layer.chunks_exact(2);
+    if leaves.len() == 1 {
+        return leaves[0];
+    }
+    // Double-buffer between two pre-sized Vecs and swap. The prior
+    // implementation allocated a fresh `next` per layer — log2(N)
+    // allocations for N leaves. With swap, we allocate exactly two
+    // buffers total regardless of tree height.
+    let mut cur: Vec<[u8; 32]> = leaves.to_vec();
+    let mut next: Vec<[u8; 32]> = Vec::with_capacity(leaves.len().div_ceil(2));
+    while cur.len() > 1 {
+        next.clear();
+        let mut chunks = cur.chunks_exact(2);
         for pair in &mut chunks {
             next.push(node_hash(&pair[0], &pair[1]));
         }
         if let Some(odd) = chunks.remainder().first() {
             next.push(*odd);
         }
-        layer = next;
+        std::mem::swap(&mut cur, &mut next);
     }
-    layer[0]
+    cur[0]
 }
 
 /// Build the inclusion path (sibling hashes, bottom-up) for `leaf_index`
@@ -62,25 +70,27 @@ pub fn merkle_root(leaves: &[[u8; 32]]) -> [u8; 32] {
 /// level).
 #[must_use]
 pub fn inclusion_path(leaves: &[[u8; 32]], leaf_index: u64) -> Vec<[u8; 32]> {
-    let mut path = vec![];
-    let mut layer: Vec<[u8; 32]> = leaves.to_vec();
+    let mut path = Vec::with_capacity(64usize.saturating_sub(leaves.len().leading_zeros() as usize));
+    // Same double-buffer trick as merkle_root: 2 buffer allocations for
+    // the layers, plus one Vec for the path itself. Was log2(N)+1.
+    let mut cur: Vec<[u8; 32]> = leaves.to_vec();
+    let mut next: Vec<[u8; 32]> = Vec::with_capacity(leaves.len().div_ceil(2));
     let mut index = leaf_index as usize;
 
-    while layer.len() > 1 {
+    while cur.len() > 1 {
         let sibling = index ^ 1;
-        if sibling < layer.len() {
-            path.push(layer[sibling]);
+        if sibling < cur.len() {
+            path.push(cur[sibling]);
         }
-        // Compute the next layer.
-        let mut next: Vec<[u8; 32]> = Vec::with_capacity(layer.len().div_ceil(2));
-        let mut chunks = layer.chunks_exact(2);
+        next.clear();
+        let mut chunks = cur.chunks_exact(2);
         for pair in &mut chunks {
             next.push(node_hash(&pair[0], &pair[1]));
         }
         if let Some(odd) = chunks.remainder().first() {
             next.push(*odd);
         }
-        layer = next;
+        std::mem::swap(&mut cur, &mut next);
         index /= 2;
     }
     path
