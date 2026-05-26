@@ -56,12 +56,15 @@ pub async fn resolve_a(
 }
 
 async fn resolve_one(host: &str, timeout: Duration) -> DnsResolution {
-    let probe_host = if host.contains(':') {
-        host.to_string()
+    // Cow avoids the host.to_string() clone on the common path where
+    // `host` already carries a port suffix (e.g. "example.com:443").
+    // Only the no-port branch needs to allocate the ":0" variant.
+    let probe_host: std::borrow::Cow<'_, str> = if host.contains(':') {
+        std::borrow::Cow::Borrowed(host)
     } else {
-        format!("{host}:0")
+        std::borrow::Cow::Owned(format!("{host}:0"))
     };
-    let lookup = tokio::time::timeout(timeout, tokio::net::lookup_host(&probe_host)).await;
+    let lookup = tokio::time::timeout(timeout, tokio::net::lookup_host(probe_host.as_ref())).await;
     match lookup {
         Ok(Ok(iter)) => {
             let mut a = Vec::new();
