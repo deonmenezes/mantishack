@@ -14,6 +14,13 @@
 //!
 //! On developer machines without the right environment the test
 //! is silently skipped — no spurious failures.
+//!
+//! The entire test file is gated with `#[cfg(unix)]` because the
+//! `firecracker_backend` module it depends on is itself Unix-only
+//! (Firecracker requires KVM, which is Linux-only; the module is
+//! gated to avoid pulling in `tokio::net::UnixStream` on Windows).
+
+#![cfg(unix)]
 
 use std::path::PathBuf;
 
