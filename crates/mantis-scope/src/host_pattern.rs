@@ -23,22 +23,32 @@ impl HostPattern {
     /// span dots, so `*.example.com` matches `api.example.com` but not
     /// `a.b.example.com` and not `evil.example.com.attacker.tld`.
     pub fn matches(&self, host: &str) -> bool {
-        // Use glob_match_with_captures to allow per-component matching.
-        // glob-match's default matches across separators; we restrict
-        // by performing a label-by-label check when the pattern
-        // contains `*`.
+        // glob_match's default matcher matches across the whole string
+        // including `.` separators. We need label-by-label semantics,
+        // so we walk both pattern and host in lockstep through their
+        // dot-delimited labels.
         if self.0 == "*" {
             return true;
         }
-        let pattern_labels: Vec<&str> = self.0.split('.').collect();
-        let host_labels: Vec<&str> = host.split('.').collect();
-        if pattern_labels.len() != host_labels.len() {
-            return false;
+        // Single-pass label zip. Was: two `split('.').collect::<Vec<_>>()`
+        // calls per host check — two heap allocations per evaluator hit
+        // on the data-plane critical path (every CONNECT goes through
+        // here, and the evaluator may run multiple host patterns per
+        // check). Now: zero allocations.
+        let mut pat = self.0.split('.');
+        let mut hst = host.split('.');
+        loop {
+            match (pat.next(), hst.next()) {
+                (Some(p), Some(h)) => {
+                    if !glob_match::glob_match(p, h) {
+                        return false;
+                    }
+                }
+                (None, None) => return true,
+                // Label-count mismatch (one ran out before the other).
+                _ => return false,
+            }
         }
-        pattern_labels
-            .iter()
-            .zip(host_labels.iter())
-            .all(|(p, h)| glob_match::glob_match(p, h))
     }
 }
 
