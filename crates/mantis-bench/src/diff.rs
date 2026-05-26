@@ -4,6 +4,7 @@
 //! the scoreboard.
 
 use std::collections::HashMap;
+use std::fmt::Write as _;
 
 use serde::{Deserialize, Serialize};
 
@@ -52,50 +53,47 @@ impl RunDiff {
     pub fn to_markdown(&self) -> String {
         let mut s = String::new();
         s.push_str("# Mantis benchmark diff\n\n");
-        s.push_str(&format!(
-            "**Baseline:** {} / {} solved · **Candidate:** {} / {} solved · **Δ: {:+}**\n\n",
+        let _ = writeln!(
+            s,
+            "**Baseline:** {} / {} solved · **Candidate:** {} / {} solved · **Δ: {:+}**\n",
             self.baseline_solved,
             self.baseline_total,
             self.candidate_solved,
             self.candidate_total,
             self.solve_delta
-        ));
+        );
 
         if !self.improved.is_empty() {
-            s.push_str(&format!(
-                "## Improvements ({})\n\n",
-                self.improved.len()
-            ));
+            let _ = writeln!(s, "## Improvements ({})\n", self.improved.len());
             s.push_str("| benchmark | before | after |\n|---|---|---|\n");
             for r in &self.improved {
-                s.push_str(&format!(
-                    "| {} | {} | {} |\n",
+                let _ = writeln!(
+                    s,
+                    "| {} | {} | {} |",
                     r.benchmark,
                     r.baseline_status.as_deref().unwrap_or("(missing)"),
                     r.candidate_status.as_deref().unwrap_or("(missing)")
-                ));
+                );
             }
             s.push('\n');
         }
 
         if !self.regressed.is_empty() {
-            s.push_str(&format!(
-                "## Regressions ({}) ⚠️\n\n",
-                self.regressed.len()
-            ));
+            let _ = writeln!(s, "## Regressions ({}) ⚠️\n", self.regressed.len());
             s.push_str("| benchmark | before | after |\n|---|---|---|\n");
             for r in &self.regressed {
-                s.push_str(&format!(
-                    "| {} | {} | {} |\n",
+                let _ = writeln!(
+                    s,
+                    "| {} | {} | {} |",
                     r.benchmark,
                     r.baseline_status.as_deref().unwrap_or("(missing)"),
                     r.candidate_status.as_deref().unwrap_or("(missing)")
-                ));
+                );
             }
             s.push('\n');
         }
 
-        s.push_str(&format!("**Unchanged:** {}\n", self.unchanged));
+        let _ = writeln!(s, "**Unchanged:** {}", self.unchanged);
         s
     }
 }
