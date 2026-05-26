@@ -101,7 +101,6 @@ pub enum AuthStatus {
     Unauthenticated,
 }
 
-
 /// Operator-supplied rationale for overriding a phase gate. Required
 /// to be ≥ 20 characters and only accepted for the specific edges
 /// that explicitly permit overrides.
@@ -135,12 +134,10 @@ pub enum TransitionError {
 }
 
 /// Compact reportability filter — applied at render time.
-#[derive(Debug, Clone, Copy)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct ReportabilityFilter {
     pub floor: SeverityFloor,
 }
-
 
 impl ReportabilityFilter {
     pub fn new(floor: SeverityFloor) -> Self {

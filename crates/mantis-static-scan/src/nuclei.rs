@@ -429,8 +429,8 @@ mod tests {
         assert_eq!(f.severity, Severity::Info);
         assert_eq!(f.title, "Nginx Detected");
         // No classification block → no cve/cwe meta entries.
-        assert!(f.meta.get("cve").is_none());
-        assert!(f.meta.get("cwe").is_none());
+        assert!(!f.meta.contains_key("cve"));
+        assert!(!f.meta.contains_key("cwe"));
     }
 
     #[test]

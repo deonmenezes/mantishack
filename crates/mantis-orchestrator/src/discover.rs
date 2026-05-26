@@ -359,8 +359,7 @@ fn read_cache(target_url: &str) -> Option<DiscoveredAuthConfig> {
 }
 
 fn write_cache(target_url: &str, config: &DiscoveredAuthConfig) -> std::io::Result<()> {
-    let path = cache_path(target_url)
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "bad target url"))?;
+    let path = cache_path(target_url).ok_or_else(|| std::io::Error::other("bad target url"))?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }

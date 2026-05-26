@@ -21,10 +21,10 @@
 //! server, TLS via Let's Encrypt, callback persistence). The
 //! adapter:
 //!   1. Spawns `interactsh-client -json -v -server <server>`.
-//!    2. Reads the assigned listener URL from the first JSON line of
-//!       stdout (`{"url":"<id>.oast.fun"}`).
+//!   2. Reads the assigned listener URL from the first JSON line of
+//!      stdout (`{"url":"<id>.oast.fun"}`).
 //!   3. Polls until `poll_timeout` for callback events, emitting
-//!       each as a `Finding` with `kind: "oob_callback"`.
+//!      each as a `Finding` with `kind: "oob_callback"`.
 //!
 //! Install:
 //! ```text
@@ -142,15 +142,12 @@ impl InteractshAdapter {
             source: std::io::Error::other("interactsh stdout unavailable"),
         })?;
         let mut reader = BufReader::new(stdout);
-        let mut url = String::new();
-        let acquire =
-            tokio::time::timeout(Duration::from_secs(10), extract_listener_url(&mut reader))
-                .await
-                .map_err(|_| ScanError::Timeout {
-                    tool: BIN,
-                    seconds: 10,
-                })??;
-        url = acquire;
+        let url = tokio::time::timeout(Duration::from_secs(10), extract_listener_url(&mut reader))
+            .await
+            .map_err(|_| ScanError::Timeout {
+                tool: BIN,
+                seconds: 10,
+            })??;
 
         Ok(InteractshSession {
             child,
@@ -189,6 +186,7 @@ impl InteractshSession {
     ///   - `poll_timeout` total wall-clock has elapsed
     ///   - the listener has been idle for `idle_drain` AND we've
     ///     already received at least one callback
+    ///
     /// then shuts down the subprocess and returns the accumulated
     /// findings.
     pub async fn collect(mut self) -> Result<Vec<Finding>, ScanError> {

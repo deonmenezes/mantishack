@@ -199,7 +199,7 @@ mod tests {
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].target, "x.example.com");
         // input is absent so the meta key must not be inserted
-        assert!(findings[0].meta.get("input").is_none());
+        assert!(!findings[0].meta.contains_key("input"));
     }
 
     #[test]
