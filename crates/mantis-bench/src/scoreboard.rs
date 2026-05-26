@@ -158,7 +158,7 @@ impl Scoreboard {
         // Sort tags by total descending so "biggest dataset" tags
         // appear first in the rendered scoreboard.
         sb.by_tag = per_tag.into_values().collect();
-        sb.by_tag.sort_by(|a, b| b.total.cmp(&a.total));
+        sb.by_tag.sort_by_key(|t| std::cmp::Reverse(t.total));
 
         sb
     }
@@ -251,7 +251,7 @@ impl Scoreboard {
         s.push_str("## By vuln class\n\n");
         s.push_str("| tag | solved | no_flag | total | rate |\n|---|---:|---:|---:|---:|\n");
         let mut sorted: Vec<&TagStats> = self.by_tag.iter().collect();
-        sorted.sort_by(|a, b| b.total.cmp(&a.total));
+        sorted.sort_by_key(|t| std::cmp::Reverse(t.total));
         for st in sorted {
             let _ = writeln!(
                 s,

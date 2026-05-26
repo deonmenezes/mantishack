@@ -127,33 +127,40 @@ impl EvidencePack {
                 samples: self.representative_samples.len(),
             });
         }
+        // chars().count() walks the whole string; the prior code walked
+        // it once for the comparison + AGAIN for the `actual` field in
+        // the error, doubling work on the failing path. Cache the count.
         for sample in &self.representative_samples {
-            if sample.payload.chars().count() > MAX_TEXT_CHARS {
+            let count = sample.payload.chars().count();
+            if count > MAX_TEXT_CHARS {
                 return Err(EvidenceError::TextTooLong {
                     field: "representative_samples[].payload",
-                    actual: sample.payload.chars().count(),
+                    actual: count,
                     max: MAX_TEXT_CHARS,
                 });
             }
         }
-        if self.replay_summary.chars().count() > MAX_REPLAY_SUMMARY_CHARS {
+        let replay_count = self.replay_summary.chars().count();
+        if replay_count > MAX_REPLAY_SUMMARY_CHARS {
             return Err(EvidenceError::TextTooLong {
                 field: "replay_summary",
-                actual: self.replay_summary.chars().count(),
+                actual: replay_count,
                 max: MAX_REPLAY_SUMMARY_CHARS,
             });
         }
-        if self.redaction_notes.chars().count() > MAX_REDACTION_NOTES_CHARS {
+        let redaction_count = self.redaction_notes.chars().count();
+        if redaction_count > MAX_REDACTION_NOTES_CHARS {
             return Err(EvidenceError::TextTooLong {
                 field: "redaction_notes",
-                actual: self.redaction_notes.chars().count(),
+                actual: redaction_count,
                 max: MAX_REDACTION_NOTES_CHARS,
             });
         }
-        if self.report_snippet.chars().count() > MAX_TEXT_CHARS {
+        let snippet_count = self.report_snippet.chars().count();
+        if snippet_count > MAX_TEXT_CHARS {
             return Err(EvidenceError::TextTooLong {
                 field: "report_snippet",
-                actual: self.report_snippet.chars().count(),
+                actual: snippet_count,
                 max: MAX_TEXT_CHARS,
             });
         }
