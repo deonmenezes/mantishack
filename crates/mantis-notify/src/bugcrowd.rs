@@ -6,6 +6,7 @@
 //! submission to a target.
 
 use serde_json::{json, Value};
+use std::fmt::Write as _;
 
 use crate::notification::{Notification, Severity};
 
@@ -110,15 +111,15 @@ fn submission_body(n: &Notification) -> String {
         out.push_str(detail);
         out.push_str("\n\n");
     }
-    out.push_str(&format!("**Severity:** {}\n", n.severity.label()));
+    let _ = writeln!(out, "**Severity:** {}", n.severity.label());
     if let Some(cwe) = &n.cwe {
-        out.push_str(&format!("**CWE:** {cwe}\n"));
+        let _ = writeln!(out, "**CWE:** {cwe}");
     }
     if let Some(target) = &n.target {
-        out.push_str(&format!("**Target:** {target}\n"));
+        let _ = writeln!(out, "**Target:** {target}");
     }
     if let Some(eng) = &n.engagement_id {
-        out.push_str(&format!("\nSubmitted by Mantis engagement `{eng}`.\n"));
+        let _ = writeln!(out, "\nSubmitted by Mantis engagement `{eng}`.");
     }
     out
 }
