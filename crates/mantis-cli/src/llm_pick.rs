@@ -36,6 +36,7 @@
 //! - `MANTIS_LLM_PROVIDER=<id>` → force a specific provider
 //!   (any of the ids above); errors if unavailable.
 
+use std::fmt::Write as _;
 use mantis_synthesizer::{
     anthropic::AnthropicAdapter, claude_cli::ClaudeCliAdapter, gemini::GeminiAdapter,
     ollama::OllamaAdapter, openai::OpenAIAdapter, LlmAdapter,
@@ -444,7 +445,8 @@ mod tests {
     fn parse_paths_dedupes_and_caps() {
         let mut text = String::new();
         for i in 0..200 {
-            text.push_str(&format!("/api/x{i}\n"));
+            let _ = writeln!(text, "/api/x{i}");
+
         }
         let paths = parse_paths(&text);
         assert!(paths.len() <= MAX_LLM_PATHS);

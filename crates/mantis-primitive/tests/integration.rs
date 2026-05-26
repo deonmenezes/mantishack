@@ -5,6 +5,7 @@
 
 #![allow(clippy::unwrap_used)]
 
+use std::fmt::Write as _;
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -287,10 +288,12 @@ async fn spawn_cors_server(
                 let mut hdr = String::new();
                 // Realistic apps don't reflect the literal "null" origin.
                 if reflect_origin && !origin.is_empty() && origin != "null" {
-                    hdr.push_str(&format!("Access-Control-Allow-Origin: {origin}\r\n"));
+                    let _ = writeln!(hdr, "Access-Control-Allow-Origin: {origin}\r");
+
                 }
                 for (k, v) in response_headers {
-                    hdr.push_str(&format!("{k}: {v}\r\n"));
+                    let _ = writeln!(hdr, "{k}: {v}\r");
+
                 }
                 let body = "{\"ok\":true}";
                 let response = format!(

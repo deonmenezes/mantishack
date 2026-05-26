@@ -4,6 +4,7 @@
 //! with an access token. The binding's `remote_id` is the Matrix
 //! room id (`!abc:example.com`).
 
+use std::fmt::Write as _;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use async_trait::async_trait;

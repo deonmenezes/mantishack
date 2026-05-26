@@ -34,6 +34,7 @@
 //!   value of the process environment variable. Missing env vars
 //!   cause the tool call to fail with a clear error.
 
+use std::fmt::Write as _;
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
@@ -264,7 +265,8 @@ fn url_encode(input: &str) -> String {
         if unreserved {
             out.push(b as char);
         } else {
-            out.push_str(&format!("%{b:02X}"));
+            let _ = write!(out, "%{b:02X}");
+
         }
     }
     out

@@ -6,6 +6,7 @@
 //! short-circuits on the first known fingerprint match — it does
 //! not iterate every payload type.
 
+use std::fmt::Write as _;
 use async_trait::async_trait;
 use reqwest::Client;
 
@@ -107,7 +108,8 @@ fn urlencoding(s: &str) -> String {
             out.push(c);
         } else {
             for b in c.to_string().bytes() {
-                out.push_str(&format!("%{b:02X}"));
+                let _ = write!(out, "%{b:02X}");
+
             }
         }
     }

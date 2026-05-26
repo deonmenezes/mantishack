@@ -25,6 +25,7 @@
 //! `[binary attachment: <path> — <N> bytes]` instead of dumping
 //! garbage bytes that would blow the model's context.
 
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 /// Default cap on cumulative attachment byte size per turn. The
@@ -218,10 +219,10 @@ fn inline_one(path: &Path, budget: usize) -> std::io::Result<InlinedBlock> {
         block.push('\n');
     }
     if truncated {
-        block.push_str(&format!(
-            "\n[truncated to {} bytes — original was {} bytes]\n",
+        let _ = writeln!(block,
+            "\n[truncated to {} bytes — original was {} bytes]",
             budget, original_len
-        ));
+        );
     }
     block.push_str("```");
 
