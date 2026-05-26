@@ -173,16 +173,25 @@ impl HttpProbeScanner {
     /// from the profile override scanner defaults.
     fn request_with_auth(&self, target: &ProbeTarget) -> reqwest::RequestBuilder {
         let mut url = target.url();
-        // Append query parameters from the auth profile.
+        // Append query parameters from the auth profile directly into
+        // `url`. The prior implementation built a Vec<String> via map+
+        // collect, joined it, then format!-ed into a fresh String — at
+        // least 2 + 2*query.len() string allocations. This version
+        // makes the same number of urlencode allocations (unavoidable)
+        // but no intermediate Vec, no extra format! pass.
         if let Some(profile) = &self.auth_profile {
             if !profile.query.is_empty() {
-                let separator = if url.contains('?') { '&' } else { '?' };
-                let pairs: Vec<String> = profile
-                    .query
-                    .iter()
-                    .map(|(k, v)| format!("{}={}", urlencode(k.as_str()), urlencode(v.as_str())))
-                    .collect();
-                url = format!("{url}{separator}{}", pairs.join("&"));
+                url.push(if url.contains('?') { '&' } else { '?' });
+                let mut first = true;
+                for (k, v) in &profile.query {
+                    if !first {
+                        url.push('&');
+                    }
+                    first = false;
+                    url.push_str(&urlencode(k.as_str()));
+                    url.push('=');
+                    url.push_str(&urlencode(v.as_str()));
+                }
             }
         }
         let mut req = self.client.get(url);
@@ -191,12 +200,27 @@ impl HttpProbeScanner {
                 req = req.header(h.name.as_str(), h.value.as_str());
             }
             if !profile.cookies.is_empty() {
-                let cookie_header = profile
+                // Pre-size the header string to avoid mid-build realloc.
+                // Format is `name=value; name=value; …`; per cookie we
+                // need name + 1 ('=') + value + 2 ("; ") but the last
+                // skips the separator. Over-estimating slightly is
+                // cheaper than reallocing.
+                let cap: usize = profile
                     .cookies
                     .iter()
-                    .map(|c| format!("{}={}", c.name, c.value))
-                    .collect::<Vec<_>>()
-                    .join("; ");
+                    .map(|c| c.name.len() + c.value.len() + 3)
+                    .sum();
+                let mut cookie_header = String::with_capacity(cap);
+                let mut first = true;
+                for c in &profile.cookies {
+                    if !first {
+                        cookie_header.push_str("; ");
+                    }
+                    first = false;
+                    cookie_header.push_str(&c.name);
+                    cookie_header.push('=');
+                    cookie_header.push_str(&c.value);
+                }
                 req = req.header(reqwest::header::COOKIE, cookie_header);
             }
         }

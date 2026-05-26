@@ -32,9 +32,11 @@
 //! }
 //! ```
 
+pub mod baseline;
 pub mod diff;
 pub mod result;
 pub mod scoreboard;
+pub mod testbeds;
 
 pub use diff::{diff_runs, RunDiff};
 pub use result::{load_results, BenchmarkResult, Status};
