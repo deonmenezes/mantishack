@@ -11,6 +11,8 @@ mod project_config;
 mod run_log;
 mod setup;
 
+use std::fmt::Write as _;
+
 use anyhow::{Context, Result};
 use camino::Utf8PathBuf;
 use clap::{Parser, Subcommand};
@@ -4782,26 +4784,27 @@ fn build_findings_summary(
     elapsed: std::time::Duration,
 ) -> String {
     let mut s = String::new();
-    s.push_str(&format!("Target: {target}\n"));
-    s.push_str(&format!("Elapsed: {:.2}s\n", elapsed.as_secs_f64()));
-    s.push_str(&format!("Endpoints probed: {}\n", report.endpoints_probed));
-    s.push_str(&format!(
-        "Endpoints with findings: {}\n",
+    let _ = writeln!(s, "Target: {target}");
+    let _ = writeln!(s, "Elapsed: {:.2}s", elapsed.as_secs_f64());
+    let _ = writeln!(s, "Endpoints probed: {}", report.endpoints_probed);
+    let _ = writeln!(
+        s,
+        "Endpoints with findings: {}",
         report.endpoints_with_findings
-    ));
-    s.push_str(&format!("Findings total: {}\n", report.findings_total));
+    );
+    let _ = writeln!(s, "Findings total: {}", report.findings_total);
     if !report.findings_by_severity.is_empty() {
         s.push_str("By severity:\n");
         for sev in ["critical", "high", "medium", "low", "info"] {
             if let Some(n) = report.findings_by_severity.get(sev) {
-                s.push_str(&format!("  {sev}: {n}\n"));
+                let _ = writeln!(s, "  {sev}: {n}");
             }
         }
     }
     if !report.findings_by_class.is_empty() {
         s.push_str("By class:\n");
         for (k, v) in report.findings_by_class.iter().take(10) {
-            s.push_str(&format!("  {k}: {v}\n"));
+            let _ = writeln!(s, "  {k}: {v}");
         }
     }
     let with_hits: Vec<_> = report
@@ -4813,11 +4816,7 @@ fn build_findings_summary(
     if !with_hits.is_empty() {
         s.push_str("Top endpoints with findings:\n");
         for ep in &with_hits {
-            s.push_str(&format!(
-                "  {} ({} finding(s))\n",
-                ep.url,
-                ep.findings.len()
-            ));
+            let _ = writeln!(s, "  {} ({} finding(s))", ep.url, ep.findings.len());
         }
     }
     s
