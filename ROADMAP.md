@@ -111,16 +111,16 @@ Open-source pentesting tools and capabilities to integrate or take inspiration f
 Lives under [`mantis-threat-intel`](./crates/mantis-threat-intel). One crate, one module per feed source, behind a unified Mantis-facing API.
 
 - [x] **KEV (Known Exploited Vulnerabilities) prioritization** — `mantis_threat_intel::kev::KevCatalog` parses the CISA feed, exposes O(1) `is_kev` / `priority` / `lookup`, and scores ransomware-linked CVEs at 100/100.
-- [ ] CVE/NVD ingestion → automatic template generation (`mantis_threat_intel::nvd`)
-- [ ] ExploitDB integration → primitive enrichment (`mantis_threat_intel::exploitdb`)
+- [x] **CVE/NVD ingestion** — `mantis_threat_intel::nvd` parses NVD CVE 2.0 envelopes into `Cve` records with primary CVSS (v4 > v3.1 > v3.0 > v2), severity bucket, CWE list, and a `CveIndex` for many-CVE lookup.
+- [x] **ExploitDB integration** — `mantis_threat_intel::exploitdb` parses the `files_exploits.csv` catalog and exposes `exploits_for_cve` / `has_public_exploit` for primitive enrichment and hypothesis weighting.
 - [x] **GitHub Security Advisory feed** — `mantis_threat_intel::ghsa` parses OSV-format advisories with `Advisory::from_json`, picks the highest-version CVSS via `primary_cvss`, and supports many-advisory CVE → GHSA lookup through `AdvisoryIndex`.
 
 ### Reporting integrations
 
 - [x] **Slack / Discord / Teams notifications** — [`mantis-notify`](./crates/mantis-notify) ships provider-agnostic `Notification` + per-provider payload formatters (Slack Block Kit, Discord embed, Teams MessageCard). HTTP delivery is owned by the daemon's dispatcher so it routes through `mantis-egress`.
-- [ ] Jira / Linear ticket creation for findings
-- [ ] GitHub Security tab integration (SARIF upload)
-- [ ] HackerOne / Bugcrowd direct submission (you already have these formats)
+- [x] **Jira / Linear ticket creation** — `mantis_notify::jira` emits a Jira REST v3 create-issue body (ADF description, configurable project/issue type/priority/labels). `mantis_notify::linear` emits the `issueCreate` GraphQL mutation envelope with severity auto-mapped to Linear's 0–4 priority scale.
+- [x] **GitHub Security tab integration (SARIF upload)** — `mantis_notify::github_sarif` gzip+base64-encodes a SARIF document and wraps it in the `POST /repos/{owner}/{repo}/code-scanning/sarifs` envelope (commit_sha, ref, tool_name, checkout_uri, started_at).
+- [x] **HackerOne / Bugcrowd direct submission** — `mantis_notify::hackerone` emits the JSON:API `reports` create body (severity auto-mapped to H1 rating, weakness_id and structured_scope passthrough). `mantis_notify::bugcrowd` emits the `submissions` body with severity auto-mapped to VRT P1–P5 and target relationship.
 
 ### Operator experience
 - Web UI improvements (live scan visualization, evidence inspection)

@@ -6,12 +6,13 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Threat intelligence feed ingestion for Mantis. Parses CISA KEV (Known Exploited Vulnerabilities) catalogs into a lookup table that prioritizes hypotheses and claims tied to actively exploited CVEs. Foundation for future NVD/CVE, GitHub Security Advisory, and ExploitDB modules."
+description = "Threat intelligence feed ingestion for Mantis. Parses CISA KEV, GitHub Security Advisories (OSV), NVD CVE 2.0 feeds, and the Exploit-DB catalog into lookup tables that prioritize and enrich claims with real-world exploitation context."
 
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+csv = "1.3"
 
 [lints]
 workspace = true

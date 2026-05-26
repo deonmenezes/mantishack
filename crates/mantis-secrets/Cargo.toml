@@ -12,6 +12,10 @@ description = "Regex + Shannon-entropy secret scanner for artifacts gathered dur
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+# SIMD-accelerated multi-byte substring search. ~10-100x faster than a
+# byte-by-byte prefix loop on platforms with AVX2 / NEON, which is most
+# of our deploy targets.
+memchr = "2.7"
 
 [lints]
 workspace = true

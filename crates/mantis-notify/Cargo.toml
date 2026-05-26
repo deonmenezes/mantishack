@@ -6,11 +6,13 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Notification payload formatters for Mantis. Converts Mantis findings into Slack, Discord, and Microsoft Teams webhook-compatible JSON payloads. HTTP delivery is intentionally out of scope and is performed by the daemon's notification dispatcher through mantis-egress."
+description = "Notification & ticket payload formatters for Mantis. Converts Mantis findings into provider-shaped JSON: Slack/Discord/Teams (chat), Jira/Linear (tickets), HackerOne/Bugcrowd (bug bounty), and the GitHub code-scanning SARIF upload envelope. HTTP delivery is intentionally out of scope and is performed by the daemon's dispatcher through mantis-egress."
 
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+flate2 = "1.0"
+base64 = "0.22"
 
 [lints]
 workspace = true
