@@ -6350,6 +6350,23 @@ fn cmd_doctor(root: Option<Utf8PathBuf>, json: bool) -> Result<()> {
     println!("  keystore backend:  {}", report.keystore_backend);
     println!("  keystore working:  {}", report.keystore_available);
 
+    // Harness adapters (PRD §F1). Standalone is always healthy; AI CLI
+    // hosts show installed / host-present-plugin-missing / host-absent.
+    if !report.adapters.is_empty() {
+        let healthy = report.adapters.iter().filter(|a| a.is_healthy()).count();
+        let total = report.adapters.len();
+        println!();
+        println!("Harness adapters ({healthy}/{total} healthy):");
+        for adapter in &report.adapters {
+            let mark = if adapter.is_healthy() { "✓" } else { "·" };
+            println!(
+                "  {mark} {name:18} {detail}",
+                name = adapter.display_name,
+                detail = adapter.detail,
+            );
+        }
+    }
+
     // Optional recon tools — present or missing. Mantis runs without
     // any of these; their presence widens surface discovery.
     let installed = recon_inv.installed_count();

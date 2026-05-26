@@ -72,6 +72,8 @@ The installer:
    | Codex CLI   | `codex` on PATH or `~/.codex/` | `~/.codex/plugins/mantis/` |
    | OpenCode    | `opencode` on PATH or `~/.config/opencode/` | `~/.config/opencode/plugins/mantis/` |
 
+   Run `mantis doctor` at any time to see which harnesses are detected and whether the Mantis plugin is installed in each. The standalone CLI always reports healthy; AI-CLI hosts show `installed`, `host-present-plugin-missing`, or `host-absent`.
+
 After install you can drive Mantis from any of those CLIs:
 
 ```
@@ -189,6 +191,7 @@ crates/
 ├── mantis-video/              ffmpeg-based session video capture
 ├── mantis-benches/            criterion benchmarks vs PRD §11
 ├── mantis-plugin/             WASM 0.2 component-model plugin host
+├── mantis-adapters/           multi-harness adapter layer (claude-code/codex-cli/opencode/standalone)
 ├── mantis-verify/             standalone evidence-chain verifier (binary)
 ├── mantis-daemon/             tonic gRPC server + engagement loop (binary)
 └── mantis-cli/                operator CLI client (binary)

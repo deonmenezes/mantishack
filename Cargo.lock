@@ -2238,6 +2238,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mantis-adapters"
+version = "0.0.9"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "mantis-api"
 version = "0.0.9"
 dependencies = [
@@ -3142,6 +3151,7 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "keyring",
+ "mantis-adapters",
  "mantis-core",
  "rand 0.8.6",
  "serde",

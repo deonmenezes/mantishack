@@ -67,6 +67,7 @@ members = [
     "crates/mantis-threat-intel",
     "crates/mantis-compliance",
     "crates/mantis-notify",
+    "crates/mantis-adapters",
 ]
 
 [workspace.package]
@@ -142,6 +143,7 @@ mantis-api = { path = "crates/mantis-api" }
 mantis-threat-intel = { path = "crates/mantis-threat-intel" }
 mantis-compliance = { path = "crates/mantis-compliance" }
 mantis-notify = { path = "crates/mantis-notify" }
+mantis-adapters = { path = "crates/mantis-adapters" }
 core_affinity = "0.8"
 num_cpus = "1.16"
 criterion = { version = "0.5", default-features = false, features = ["plotters", "cargo_bench_support"] }

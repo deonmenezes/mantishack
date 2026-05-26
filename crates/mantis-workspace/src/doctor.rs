@@ -1,6 +1,7 @@
 //! Diagnostic report for `mantis doctor`.
 
 use camino::Utf8Path;
+use mantis_adapters::AdapterHealth;
 use serde::{Deserialize, Serialize};
 
 use crate::config::CONFIG_FILENAME;
@@ -19,6 +20,14 @@ pub struct DoctorReport {
     pub keystore_backend: String,
     pub keystore_available: bool,
     pub schema_version: Option<u32>,
+    /// Per-harness adapter health (PRD §F1). Sourced from
+    /// [`mantis_adapters::health_report`] on every run; an empty vec means
+    /// no adapters are registered, which the renderer surfaces verbatim.
+    /// `is_healthy()` deliberately does NOT consume this field — the
+    /// standalone CLI must stay green even when no AI harness is installed
+    /// (PRD §F1 acceptance criterion).
+    #[serde(default)]
+    pub adapters: Vec<AdapterHealth>,
 }
 
 impl DoctorReport {
@@ -34,6 +43,7 @@ pub fn run(
     let workspace_exists = workspace_root.join(CONFIG_FILENAME).exists();
     let keystore_available = keystore.is_available();
     let keystore_backend = keystore.backend_name().to_owned();
+    let adapters = mantis_adapters::health_report();
 
     if !workspace_exists {
         return Ok(DoctorReport {
@@ -46,6 +56,7 @@ pub fn run(
             keystore_backend,
             keystore_available,
             schema_version: None,
+            adapters,
         });
     }
 
@@ -62,5 +73,6 @@ pub fn run(
         keystore_backend,
         keystore_available,
         schema_version: Some(workspace.config().schema_version),
+        adapters,
     })
 }

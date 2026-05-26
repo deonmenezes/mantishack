@@ -233,6 +233,44 @@ fn doctor_reports_healthy_workspace() {
 }
 
 #[test]
+fn doctor_includes_adapter_health_with_standalone_always_present() {
+    // PRD §F1 acceptance: every doctor invocation must surface harness
+    // adapter health, and the standalone adapter must always be present.
+    let (_tmp, root) = temp_root();
+    let ks = InMemoryKeyStore::new();
+    let report = run_doctor(&root, &ks).unwrap();
+
+    assert!(
+        !report.adapters.is_empty(),
+        "adapters vec must be populated"
+    );
+    let standalone = report
+        .adapters
+        .iter()
+        .find(|a| a.id == mantis_adapters::AdapterId::Standalone)
+        .expect("standalone adapter must be present");
+    assert!(
+        standalone.is_healthy(),
+        "standalone adapter must always be healthy"
+    );
+}
+
+#[test]
+fn doctor_health_does_not_depend_on_adapter_status() {
+    // A failing harness adapter must not flip the workspace's
+    // is_healthy() bit — standalone CLI users have no AI host installed
+    // and that's a fine state.
+    let (_tmp, root) = temp_root();
+    let ks = InMemoryKeyStore::new();
+    let _ws = Workspace::init(&root, &ks).unwrap();
+
+    let report = run_doctor(&root, &ks).unwrap();
+    // Even if every AI-CLI adapter is HostAbsent (likely in CI), the
+    // workspace itself is still healthy.
+    assert!(report.is_healthy());
+}
+
+#[test]
 fn workspace_config_toml_is_human_readable() {
     let (_tmp, root) = temp_root();
     let ks = InMemoryKeyStore::new();

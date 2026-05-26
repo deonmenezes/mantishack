@@ -10,6 +10,7 @@ description = "Workspace layout, paths, and key management for Mantis."
 
 [dependencies]
 mantis-core = { workspace = true }
+mantis-adapters = { workspace = true }
 blake3 = { workspace = true }
 camino = { workspace = true }
 ed25519-dalek = { workspace = true }
