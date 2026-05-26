@@ -168,21 +168,27 @@ pub fn generate_candidates(seed_url: &str, config: &EnumerationConfig) -> Vec<St
     };
 
     push(parsed.canonical_root(), &mut out, &mut order);
+    // Iterate the default paths as &str. The prior version called
+    // .map(|s| (*s).to_string()) to convert each &'static str into an
+    // owned String before chaining with the extra paths — that
+    // allocated a String per default path even though with_path()
+    // accepts &str and builds the final url itself.
     let path_iter = DEFAULT_PATHS
         .iter()
-        .map(|s| (*s).to_string())
-        .chain(config.extra_paths.iter().cloned());
+        .copied()
+        .chain(config.extra_paths.iter().map(String::as_str));
     for path in path_iter {
-        push(parsed.with_path(&path), &mut out, &mut order);
+        push(parsed.with_path(path), &mut out, &mut order);
     }
 
     // 2. Subdomain expansion. Only when the host looks like a bare
     // apex (≤ 2 labels) and `expand_subdomains` is on.
     if config.expand_subdomains && parsed.is_bare_apex() {
+        // Same &str-iteration pattern for subdomains.
         let sub_iter = DEFAULT_SUBDOMAINS
             .iter()
-            .map(|s| (*s).to_string())
-            .chain(config.extra_subdomains.iter().cloned());
+            .copied()
+            .chain(config.extra_subdomains.iter().map(String::as_str));
         for sub in sub_iter {
             let sub_host = format!("{sub}.{}", parsed.host);
             push(
