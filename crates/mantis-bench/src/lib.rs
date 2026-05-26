@@ -34,6 +34,7 @@
 
 pub mod baseline;
 pub mod diff;
+pub mod reproducibility;
 pub mod result;
 pub mod scoreboard;
 pub mod testbeds;
