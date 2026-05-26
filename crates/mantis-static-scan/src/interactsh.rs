@@ -305,8 +305,18 @@ pub(crate) fn parse_interactsh_event(line: &str, listener_url: &str) -> Option<F
         "Out-of-band callback received via {protocol} from `{remote_addr}` at `{timestamp}`."
     );
     if let Some(req) = v.get("raw-request").and_then(|x| x.as_str()) {
-        let preview: String = req.lines().take(3).collect::<Vec<_>>().join(" | ");
-        desc.push_str(&format!(" Request preview: {preview}"));
+        // Build the preview directly into desc — skips the intermediate
+        // Vec<&str> + join + format!()-allocated " Request preview: …"
+        // String. push_str into the existing buffer is one fewer alloc.
+        desc.push_str(" Request preview: ");
+        let mut first = true;
+        for line in req.lines().take(3) {
+            if !first {
+                desc.push_str(" | ");
+            }
+            first = false;
+            desc.push_str(line);
+        }
     }
 
     let mut finding = Finding::new(
