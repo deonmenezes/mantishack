@@ -281,12 +281,11 @@ async fn event_loop(
                         }
                     }
                 }
-                Event::Paste(data) => {
-                    if !state.streaming {
+                Event::Paste(data)
+                    if !state.streaming => {
                         state.input.insert_str(&data);
                         state.refresh_slash_suggestions();
                     }
-                }
                 Event::Resize(_, _) => {}
                 _ => {}
             }

@@ -175,13 +175,21 @@ impl Cve {
     }
 
     fn from_raw(raw: RawCve) -> Self {
-        let description = raw
-            .descriptions
-            .iter()
-            .filter(|d| d.lang.eq_ignore_ascii_case("en"))
-            .map(|d| d.value.as_str())
-            .collect::<Vec<&str>>()
-            .join(" ");
+        // Concatenate the English descriptions directly into one
+        // String. The prior collect::<Vec<&str>>().join(" ") allocated
+        // an intermediate Vec just to feed join(); this version
+        // push_str's into the destination String in one pass.
+        let mut description = String::new();
+        let mut first = true;
+        for d in &raw.descriptions {
+            if d.lang.eq_ignore_ascii_case("en") {
+                if !first {
+                    description.push(' ');
+                }
+                first = false;
+                description.push_str(&d.value);
+            }
+        }
 
         let (base_score, severity) = best_metric(&raw.metrics);
 

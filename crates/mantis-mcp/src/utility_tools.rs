@@ -521,7 +521,7 @@ pub fn summarize_url(raw: &str) -> UrlSummary {
         out.host = Some(hostport.to_string());
     }
 
-    out.effective_port = out.port.or_else(|| match out.scheme.as_deref() {
+    out.effective_port = out.port.or(match out.scheme.as_deref() {
         Some("http") | Some("ws") => Some(80),
         Some("https") | Some("wss") => Some(443),
         Some("ftp") => Some(21),
@@ -1977,7 +1977,7 @@ fn scan_url_schemes(
                 })
                 .map(|e| abs + e)
                 .unwrap_or(blob.len());
-            let url = blob[abs..end].trim_end_matches(|c: char| matches!(c, '.' | '!' | '?'));
+            let url = blob[abs..end].trim_end_matches(['.', '!', '?']);
             if url.len() > needle.len() {
                 let (host, origin) = classify_link(url, kind, origin_host.as_deref());
                 found.entry(url.to_string()).or_insert(LinkMatch {
@@ -2089,13 +2089,12 @@ fn classify_link(url: &str, kind: &str, origin_host: Option<&str>) -> (Option<St
     // Extract host from the URL.
     let host = if let Some(after_scheme) = url.find("://") {
         let rest = &url[after_scheme + 3..];
-        rest.split(|c: char| matches!(c, '/' | '?' | '#'))
+        rest.split(['/', '?', '#'])
             .next()
             .map(|h| h.trim_start_matches("//").to_ascii_lowercase())
             .map(|h| h.split('@').next_back().unwrap().to_string())
-    } else if url.starts_with("//") {
-        let rest = &url[2..];
-        rest.split(|c: char| matches!(c, '/' | '?' | '#'))
+    } else if let Some(rest) = url.strip_prefix("//") {
+        rest.split(['/', '?', '#'])
             .next()
             .map(str::to_ascii_lowercase)
     } else {
