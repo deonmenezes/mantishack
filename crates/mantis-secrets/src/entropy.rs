@@ -205,7 +205,12 @@ mod tests {
 
     #[test]
     fn shannon_entropy_of_repeated_char_is_zero() {
-        assert_eq!(shannon_entropy("aaaaaaaaaa"), 0.0);
+        // The hot-path formula `log2(len) - sum_c_log2_c / len` produces a
+        // mathematically-zero result for a single-character string, but
+        // floating-point arithmetic introduces sub-ulp noise (~1e-16).
+        // Use a tolerance instead of strict equality.
+        let h = shannon_entropy("aaaaaaaaaa");
+        assert!(h.abs() < 1e-10, "expected ~0.0, got {h}");
     }
 
     #[test]
