@@ -93,6 +93,8 @@ impl FirecrackerApi {
 
         let mut buf = Vec::with_capacity(4096);
         let mut chunk = [0u8; 1024];
+        let mut headers_seen = false;
+        let mut scanned_to: usize = 0;
         loop {
             let n = stream
                 .read(&mut chunk)
@@ -102,7 +104,19 @@ impl FirecrackerApi {
                 break;
             }
             buf.extend_from_slice(&chunk[..n]);
-            if buf.windows(4).any(|w| w == b"\r\n\r\n") && buf.len() < 16_384 {
+            // Only scan for the CRLFCRLF header boundary until found.
+            // Once seen, additional reads collect body bytes without
+            // rescanning. Each scan covers only the newly-arrived bytes
+            // (plus 3 trailing bytes for a boundary that straddles a
+            // chunk): O(new bytes) per loop, not O(buf.len()).
+            if !headers_seen {
+                let scan_from = scanned_to.saturating_sub(3);
+                if buf[scan_from..].windows(4).any(|w| w == b"\r\n\r\n") {
+                    headers_seen = true;
+                }
+                scanned_to = buf.len();
+            }
+            if headers_seen && buf.len() < 16_384 {
                 // Got headers; try a bounded final read to capture
                 // body before close.
                 continue;
