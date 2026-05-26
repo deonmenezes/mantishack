@@ -117,10 +117,7 @@ pub(crate) fn is_introspection_enabled(body: &str) -> bool {
 
 /// Run the security audit. Each check is independent; failures are
 /// swallowed so a single broken check doesn't kill the audit.
-pub async fn security_audit(
-    client: &reqwest::Client,
-    endpoint: &str,
-) -> Vec<GraphqlFinding> {
+pub async fn security_audit(client: &reqwest::Client, endpoint: &str) -> Vec<GraphqlFinding> {
     let mut out = Vec::new();
     if let Ok(intro) = introspect(client, endpoint).await {
         if intro.enabled {
@@ -220,10 +217,7 @@ async fn check_alias_overloading(
     Ok(text.matches("\"a0\"").count() >= 1 && text.matches("\"a24\"").count() >= 1)
 }
 
-async fn check_debug_errors(
-    client: &reqwest::Client,
-    endpoint: &str,
-) -> Result<bool, ApiError> {
+async fn check_debug_errors(client: &reqwest::Client, endpoint: &str) -> Result<bool, ApiError> {
     let body = r#"{"query":"{ nonsense_field_that_should_not_exist_anywhere }"}"#;
     let resp = client
         .post(endpoint)
@@ -234,7 +228,13 @@ async fn check_debug_errors(
         .await?;
     let text = resp.text().await.unwrap_or_default();
     let lower = text.to_ascii_lowercase();
-    let leaks = ["traceback", "stack trace", "at line", "graphql-core", "apollo server"];
+    let leaks = [
+        "traceback",
+        "stack trace",
+        "at line",
+        "graphql-core",
+        "apollo server",
+    ];
     Ok(leaks.iter().any(|s| lower.contains(s)))
 }
 

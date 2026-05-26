@@ -131,8 +131,7 @@ impl GeminiAdapter {
                     })
                 })
                 .collect();
-            body["tools"] =
-                serde_json::json!([{ "functionDeclarations": decls }]);
+            body["tools"] = serde_json::json!([{ "functionDeclarations": decls }]);
         }
 
         body
@@ -193,9 +192,7 @@ impl LlmAdapter for GeminiAdapter {
                                 _ => None,
                             })
                         })
-                        .ok_or_else(|| {
-                            SynthError::Backend("gemini returned no text part".into())
-                        });
+                        .ok_or_else(|| SynthError::Backend("gemini returned no text part".into()));
                 }
                 RetryDecision::Retry(delay) => {
                     last_error = format!("gemini {status}: {text}");
@@ -230,9 +227,7 @@ impl LlmAdapter for GeminiAdapter {
             let body_bytes = match serde_json::to_vec(&body) {
                 Ok(b) => b,
                 Err(e) => {
-                    return vec![Err(SynthError::Backend(format!(
-                        "gemini serialize: {e}"
-                    )))];
+                    return vec![Err(SynthError::Backend(format!("gemini serialize: {e}")))];
                 }
             };
             let resp = match client
@@ -244,24 +239,18 @@ impl LlmAdapter for GeminiAdapter {
             {
                 Ok(r) => r,
                 Err(e) => {
-                    return vec![Err(SynthError::Backend(format!(
-                        "gemini request: {e}"
-                    )))];
+                    return vec![Err(SynthError::Backend(format!("gemini request: {e}")))];
                 }
             };
             let status = resp.status().as_u16();
             if !(200..300).contains(&status) {
                 let text = resp.text().await.unwrap_or_default();
-                return vec![Err(SynthError::Backend(format!(
-                    "gemini {status}: {text}"
-                )))];
+                return vec![Err(SynthError::Backend(format!("gemini {status}: {text}")))];
             }
             let body = match resp.bytes().await {
                 Ok(b) => b,
                 Err(e) => {
-                    return vec![Err(SynthError::Backend(format!(
-                        "gemini body: {e}"
-                    )))];
+                    return vec![Err(SynthError::Backend(format!("gemini body: {e}")))];
                 }
             };
             parse_sse_stream(&body)
@@ -489,9 +478,7 @@ mod tests {
         }
 
         let req = captured.lock().await.take().unwrap();
-        assert!(req
-            .headers_blob
-            .contains(":streamGenerateContent?alt=sse"));
+        assert!(req.headers_blob.contains(":streamGenerateContent?alt=sse"));
     }
 
     #[tokio::test]

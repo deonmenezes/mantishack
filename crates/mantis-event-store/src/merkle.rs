@@ -70,7 +70,8 @@ pub fn merkle_root(leaves: &[[u8; 32]]) -> [u8; 32] {
 /// level).
 #[must_use]
 pub fn inclusion_path(leaves: &[[u8; 32]], leaf_index: u64) -> Vec<[u8; 32]> {
-    let mut path = Vec::with_capacity(64usize.saturating_sub(leaves.len().leading_zeros() as usize));
+    let mut path =
+        Vec::with_capacity(64usize.saturating_sub(leaves.len().leading_zeros() as usize));
     // Same double-buffer trick as merkle_root: 2 buffer allocations for
     // the layers, plus one Vec for the path itself. Was log2(N)+1.
     let mut cur: Vec<[u8; 32]> = leaves.to_vec();

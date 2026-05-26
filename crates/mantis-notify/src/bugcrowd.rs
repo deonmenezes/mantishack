@@ -77,10 +77,7 @@ pub fn format(n: &Notification, cfg: &BugcrowdConfig<'_>) -> Value {
 
     let mut attributes = serde_json::Map::new();
     attributes.insert("title".into(), Value::String(n.title.clone()));
-    attributes.insert(
-        "description".into(),
-        Value::String(submission_body(n)),
-    );
+    attributes.insert("description".into(), Value::String(submission_body(n)));
     attributes.insert("priority".into(), Value::String(vrt.as_str().to_string()));
     if let Some(category) = cfg.vrt_category {
         attributes.insert("vrt_id".into(), Value::String(category.to_string()));
@@ -139,8 +136,14 @@ mod tests {
     fn relationships_link_to_target() {
         let n = Notification::new("t", Severity::High);
         let p = format(&n, &BugcrowdConfig::new("target-uuid"));
-        assert_eq!(p["data"]["relationships"]["target"]["data"]["type"], "target");
-        assert_eq!(p["data"]["relationships"]["target"]["data"]["id"], "target-uuid");
+        assert_eq!(
+            p["data"]["relationships"]["target"]["data"]["type"],
+            "target"
+        );
+        assert_eq!(
+            p["data"]["relationships"]["target"]["data"]["id"],
+            "target-uuid"
+        );
     }
 
     #[test]
@@ -154,7 +157,10 @@ mod tests {
         ] {
             let n = Notification::new("t", sev);
             let p = format(&n, &BugcrowdConfig::new("target-uuid"));
-            assert_eq!(p["data"]["attributes"]["priority"], expected, "severity {sev:?}");
+            assert_eq!(
+                p["data"]["attributes"]["priority"], expected,
+                "severity {sev:?}"
+            );
         }
     }
 

@@ -298,7 +298,6 @@ fn urlencode(s: &str) -> String {
             _ => {
                 out.push('%');
                 let _ = write!(out, "{:02X}", b);
-
             }
         }
     }

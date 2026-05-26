@@ -203,11 +203,7 @@ pub fn write_archive(
     tl.push_str("# Pipeline timeline\n\n");
     tl.push_str("| # | stage | summary |\n|---|---|---|\n");
     for (i, (filename, title, _)) in phases.iter().enumerate() {
-        let _ = writeln!(
-            tl,
-            "| {} | [{title}](phases/{filename}) | — |",
-            i + 1
-        );
+        let _ = writeln!(tl, "| {} | [{title}](phases/{filename}) | — |", i + 1);
     }
     tl.push_str("\n## Findings landed\n\n");
     if numbered.is_empty() {

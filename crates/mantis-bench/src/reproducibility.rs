@@ -270,10 +270,10 @@ mod tests {
             result("d", "solved", true),
         ];
         let right = vec![
-            result("a", "solved", true), // match
+            result("a", "solved", true),   // match
             result("b", "no_flag", false), // status drift
-            result("c", "solved", true), // match
-            result("d", "solved", false), // flag drift
+            result("c", "solved", true),   // match
+            result("d", "solved", false),  // flag drift
         ];
         let report = compare_runs(&left, &right);
         assert_eq!(report.matched, 2);
@@ -290,7 +290,11 @@ mod tests {
             result("mu", "solved", true),
         ];
         let report = compare_runs(&left, &left);
-        let ids: Vec<&str> = report.entries.iter().map(|e| e.benchmark.as_str()).collect();
+        let ids: Vec<&str> = report
+            .entries
+            .iter()
+            .map(|e| e.benchmark.as_str())
+            .collect();
         assert_eq!(ids, vec!["alpha", "mu", "zeta"]);
     }
 

@@ -120,10 +120,7 @@ async fn handle_connect(
     // log_decision (.to_owned()) — two allocations of the same string
     // per rejected connection. Now: one allocation, moved through.
     let (in_scope, reason): (bool, String) = match decision {
-        ScopeDecision::InScope => (
-            true,
-            format!("connect {}:{}", req.host, req.port),
-        ),
+        ScopeDecision::InScope => (true, format!("connect {}:{}", req.host, req.port)),
         ScopeDecision::OutOfScope { reason } => (false, reason),
     };
     log_decision(&cfg, &req, in_scope, reason).await?;

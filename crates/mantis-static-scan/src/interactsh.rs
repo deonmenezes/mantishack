@@ -124,17 +124,15 @@ impl InteractshAdapter {
         self.ensure_available().await?;
 
         let mut cmd = Command::new(&self.binary);
-        cmd.arg("-json")
-            .arg("-v")
-            .arg("-server")
-            .arg(&self.server);
+        cmd.arg("-json").arg("-v").arg("-server").arg(&self.server);
         cmd.stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .stdin(Stdio::null());
 
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| ScanError::Spawn { tool: BIN, source: e })?;
+        let mut child = cmd.spawn().map_err(|e| ScanError::Spawn {
+            tool: BIN,
+            source: e,
+        })?;
 
         // The first JSON line of stdout carries the registered URL.
         // We block briefly to acquire it; if it doesn't arrive
@@ -145,15 +143,13 @@ impl InteractshAdapter {
         })?;
         let mut reader = BufReader::new(stdout);
         let mut url = String::new();
-        let acquire = tokio::time::timeout(
-            Duration::from_secs(10),
-            extract_listener_url(&mut reader),
-        )
-        .await
-        .map_err(|_| ScanError::Timeout {
-            tool: BIN,
-            seconds: 10,
-        })??;
+        let acquire =
+            tokio::time::timeout(Duration::from_secs(10), extract_listener_url(&mut reader))
+                .await
+                .map_err(|_| ScanError::Timeout {
+                    tool: BIN,
+                    seconds: 10,
+                })??;
         url = acquire;
 
         Ok(InteractshSession {
@@ -213,11 +209,9 @@ impl InteractshSession {
             // can re-check budget often. interactsh-client emits
             // one JSON object per event on stdout.
             let mut line = String::new();
-            let read = tokio::time::timeout(
-                Duration::from_millis(500),
-                self.reader.read_line(&mut line),
-            )
-            .await;
+            let read =
+                tokio::time::timeout(Duration::from_millis(500), self.reader.read_line(&mut line))
+                    .await;
 
             match read {
                 Ok(Ok(0)) => break, // child exited
@@ -228,7 +222,10 @@ impl InteractshSession {
                     }
                 }
                 Ok(Err(e)) => {
-                    return Err(ScanError::Spawn { tool: BIN, source: e });
+                    return Err(ScanError::Spawn {
+                        tool: BIN,
+                        source: e,
+                    });
                 }
                 Err(_) => {
                     // Timeout on a single read — fine, loop again.
@@ -253,7 +250,10 @@ async fn extract_listener_url(
         let n = reader
             .read_line(&mut line)
             .await
-            .map_err(|e| ScanError::Spawn { tool: BIN, source: e })?;
+            .map_err(|e| ScanError::Spawn {
+                tool: BIN,
+                source: e,
+            })?;
         if n == 0 {
             return Err(ScanError::BadOutput(
                 "interactsh-client exited before registering listener".into(),
@@ -295,10 +295,7 @@ pub(crate) fn parse_interactsh_event(line: &str, listener_url: &str) -> Option<F
         .or_else(|| v.get("uniqueId"))
         .and_then(|x| x.as_str())
         .unwrap_or("");
-    let timestamp = v
-        .get("timestamp")
-        .and_then(|x| x.as_str())
-        .unwrap_or("");
+    let timestamp = v.get("timestamp").and_then(|x| x.as_str()).unwrap_or("");
 
     let title = format!("OOB {protocol} callback to {listener_url}");
     let mut desc = format!(
@@ -366,7 +363,10 @@ mod tests {
     fn parses_dns_callback() {
         let line = r#"{"protocol":"dns","unique-id":"xyz789","full-id":"xyz789aaa","timestamp":"2026-05-22T10:00:00Z","remote-address":"1.1.1.1"}"#;
         let finding = parse_interactsh_event(line, "xyz.oast.fun").unwrap();
-        assert_eq!(finding.meta.get("protocol").map(String::as_str), Some("dns"));
+        assert_eq!(
+            finding.meta.get("protocol").map(String::as_str),
+            Some("dns")
+        );
         assert_eq!(finding.severity, Severity::Critical);
     }
 

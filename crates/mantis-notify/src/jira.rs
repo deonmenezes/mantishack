@@ -41,14 +41,8 @@ impl<'a> JiraConfig<'a> {
 pub fn format(n: &Notification, cfg: &JiraConfig<'_>) -> Value {
     let mut fields = serde_json::Map::new();
 
-    fields.insert(
-        "project".into(),
-        json!({ "key": cfg.project_key }),
-    );
-    fields.insert(
-        "issuetype".into(),
-        json!({ "name": cfg.issue_type }),
-    );
+    fields.insert("project".into(), json!({ "key": cfg.project_key }));
+    fields.insert("issuetype".into(), json!({ "name": cfg.issue_type }));
     fields.insert(
         "summary".into(),
         Value::String(format!("[{}] {}", n.severity.label(), n.title)),
@@ -61,7 +55,12 @@ pub fn format(n: &Notification, cfg: &JiraConfig<'_>) -> Value {
     if !cfg.labels.is_empty() {
         fields.insert(
             "labels".into(),
-            Value::Array(cfg.labels.iter().map(|l| Value::String((*l).to_string())).collect()),
+            Value::Array(
+                cfg.labels
+                    .iter()
+                    .map(|l| Value::String((*l).to_string()))
+                    .collect(),
+            ),
         );
     }
 
@@ -148,8 +147,7 @@ mod tests {
         let content = p["fields"]["description"]["content"].as_array().unwrap();
         assert!(content
             .iter()
-            .any(|n| n["type"] == "paragraph"
-                && n["content"][0]["text"] == "body text"));
+            .any(|n| n["type"] == "paragraph" && n["content"][0]["text"] == "body text"));
     }
 
     #[test]

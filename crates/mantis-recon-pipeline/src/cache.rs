@@ -74,7 +74,11 @@ pub fn read_cached(
 /// Write a bundle to the cache. Best-effort — failures are logged
 /// but never propagated, since a missed write just means the next
 /// invocation reruns the pipeline.
-pub fn write_cached(cache_dir: &Path, key: &str, bundle: &ReconBundle) -> Result<(), PipelineError> {
+pub fn write_cached(
+    cache_dir: &Path,
+    key: &str,
+    bundle: &ReconBundle,
+) -> Result<(), PipelineError> {
     std::fs::create_dir_all(cache_dir)?;
     let path = cache_dir.join(format!("{key}.json"));
     let tmp = cache_dir.join(format!(".{key}.json.tmp"));

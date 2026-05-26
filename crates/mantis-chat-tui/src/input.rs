@@ -329,7 +329,10 @@ impl InputWidget {
 
     fn delete_to_line_start(&mut self) {
         self.exit_history_browse();
-        let start = self.buffer[..self.cursor].rfind('\n').map(|n| n + 1).unwrap_or(0);
+        let start = self.buffer[..self.cursor]
+            .rfind('\n')
+            .map(|n| n + 1)
+            .unwrap_or(0);
         self.buffer.replace_range(start..self.cursor, "");
         self.cursor = start;
     }
@@ -559,8 +562,7 @@ mod tests {
 
     #[test]
     fn up_arrow_loads_most_recent_history() {
-        let mut w = InputWidget::new()
-            .with_history(vec!["older".into(), "newer".into()]);
+        let mut w = InputWidget::new().with_history(vec!["older".into(), "newer".into()]);
         w.handle_key(k(KeyCode::Up));
         assert_eq!(w.buffer(), "newer");
         w.handle_key(k(KeyCode::Up));
@@ -572,8 +574,7 @@ mod tests {
 
     #[test]
     fn down_arrow_walks_forward_and_restores_live_buffer() {
-        let mut w = InputWidget::new()
-            .with_history(vec!["older".into(), "newer".into()]);
+        let mut w = InputWidget::new().with_history(vec!["older".into(), "newer".into()]);
         w.insert_str("draft");
         w.handle_key(k(KeyCode::Up));
         assert_eq!(w.buffer(), "newer");

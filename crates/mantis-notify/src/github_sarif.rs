@@ -87,7 +87,10 @@ pub fn encode_sarif(sarif_json: &str) -> Result<String, SarifUploadError> {
 pub fn format(sarif_json: &str, cfg: &SarifUploadConfig<'_>) -> Result<Value, SarifUploadError> {
     let encoded = encode_sarif(sarif_json)?;
     let mut body = serde_json::Map::new();
-    body.insert("commit_sha".into(), Value::String(cfg.commit_sha.to_string()));
+    body.insert(
+        "commit_sha".into(),
+        Value::String(cfg.commit_sha.to_string()),
+    );
     body.insert("ref".into(), Value::String(cfg.git_ref.to_string()));
     body.insert("sarif".into(), Value::String(encoded));
     if let Some(tool) = cfg.tool_name {

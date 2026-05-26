@@ -109,18 +109,18 @@ pub async fn probe(
     Ok(out)
 }
 
-async fn probe_one(
-    client: &reqwest::Client,
-    input: &str,
-    max_body: usize,
-) -> HttpProbeResult {
+async fn probe_one(client: &reqwest::Client, input: &str, max_body: usize) -> HttpProbeResult {
     // Build candidate URLs without intermediate Vec<String> allocations.
     // The happy path tries exactly one URL; the prior `vec![format!(),
     // format!()]` allocated both up front even when the first succeeded.
     let already_scheme = input.starts_with("http://") || input.starts_with("https://");
 
     let mut last_err = None;
-    let schemes: &[&str] = if already_scheme { &[""] } else { &["https://", "http://"] };
+    let schemes: &[&str] = if already_scheme {
+        &[""]
+    } else {
+        &["https://", "http://"]
+    };
     for scheme in schemes {
         // String built once per attempt instead of all up front.
         let url = if scheme.is_empty() {
@@ -150,17 +150,17 @@ async fn try_url(
     url: &str,
     max_body: usize,
 ) -> Result<HttpProbeResult, String> {
-    let resp = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+    let resp = client.get(url).send().await.map_err(|e| e.to_string())?;
     let status = resp.status().as_u16();
     let final_url = resp.url().to_string();
     let headers: Vec<(String, String)> = resp
         .headers()
         .iter()
-        .filter_map(|(k, v)| v.to_str().ok().map(|s| (k.as_str().to_string(), s.to_string())))
+        .filter_map(|(k, v)| {
+            v.to_str()
+                .ok()
+                .map(|s| (k.as_str().to_string(), s.to_string()))
+        })
         .collect();
 
     // Avoid copying the response body into a Vec just to truncate it.
@@ -215,7 +215,14 @@ pub fn fingerprint(headers: &[(String, String)], body: &str) -> Vec<String> {
         let lk = k.to_ascii_lowercase();
         let lv = v.to_ascii_lowercase();
         if lk == "server" {
-            for needle in ["nginx", "apache", "cloudfront", "envoy", "istio", "lighttpd"] {
+            for needle in [
+                "nginx",
+                "apache",
+                "cloudfront",
+                "envoy",
+                "istio",
+                "lighttpd",
+            ] {
                 if lv.contains(needle) {
                     out.insert(needle.into());
                 }

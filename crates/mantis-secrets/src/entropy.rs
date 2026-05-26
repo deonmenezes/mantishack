@@ -149,7 +149,10 @@ fn looks_like_non_secret(s: &str) -> bool {
     }
     // All-uppercase + digits at exactly 32 chars — looks like an
     // MD5 in upper-case form.
-    if s.len() == 32 && s.bytes().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()) {
+    if s.len() == 32
+        && s.bytes()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+    {
         return true;
     }
     // JWT payload segments — start with `eyJ` (`{"...`). Caught by

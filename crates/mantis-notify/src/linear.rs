@@ -64,7 +64,9 @@ const MUTATION: &str = r#"mutation Mantis_IssueCreate($input: IssueCreateInput!)
 pub fn format(n: &Notification, cfg: &LinearConfig<'_>) -> Value {
     let title = format!("[{}] {}", n.severity.label(), n.title);
     let description = description_markdown(n);
-    let priority = cfg.priority.unwrap_or_else(|| severity_to_priority(n.severity));
+    let priority = cfg
+        .priority
+        .unwrap_or_else(|| severity_to_priority(n.severity));
 
     let mut input = serde_json::Map::new();
     input.insert("teamId".into(), Value::String(cfg.team_id.to_string()));

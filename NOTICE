@@ -54,12 +54,16 @@ Cure
 
 Fully remediated on 2026-05-25 on `main`:
 
-  53d9b4f  Merge #18 — add LICENSE-APACHE + LICENSE-MIT on disk (§4(a)),
-           reproduce the upstream Hacker Bob NOTICE verbatim under a
-           clearly-labeled "Upstream NOTICE" section (§4(d)), and
-           correct prior NOTICE wording that downplayed the verbatim
-           port — agent and role prompts ARE verbatim ports with
-           tool-name renames, as already documented in CONTRAST.md.
+  53d9b4f  Merge #18 — add LICENSE-APACHE + LICENSE-MIT on disk (§4(a))
+           and correct prior NOTICE wording that downplayed the
+           verbatim port — agent and role prompts ARE verbatim ports
+           with tool-name renames, as already documented in CONTRAST.md.
+           §4(d) is vacuously satisfied: as of 2026-05-25 upstream
+           carries no NOTICE file (path 404 on `main`), so there is no
+           verbatim NOTICE text to reproduce. Mantis nevertheless
+           carries a courtesy attribution block under "Third-party
+           attributions" for the avoidance of doubt; that block is a
+           Mantis-authored summary, not a reproduction.
   c59fdba  Merge #19 — add §4(b) "prominent notice of changes"
            headers to 35 ported files in `plugin/claude-code/agents/`
            and `prompts/roles/`, naming the upstream URL, copyright

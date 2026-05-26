@@ -152,18 +152,16 @@ fn classify(snapshot: &Snapshot, now: u64, cfg: &ResumeConfig) -> ResumeCandidat
     };
 
     let reason = match classification {
-        ResumeClassification::Resumable => format!(
-            "active state '{}', snapshot age {}s",
-            snapshot.state, age
-        ),
+        ResumeClassification::Resumable => {
+            format!("active state '{}', snapshot age {}s", snapshot.state, age)
+        }
         ResumeClassification::Stale => format!(
             "snapshot age {}s exceeds threshold {}s",
             age, cfg.max_age_secs
         ),
-        ResumeClassification::Terminal => format!(
-            "engagement in terminal state '{}'",
-            snapshot.state
-        ),
+        ResumeClassification::Terminal => {
+            format!("engagement in terminal state '{}'", snapshot.state)
+        }
         ResumeClassification::Corrupt => unreachable!("Corrupt classified at load time"),
     };
 
@@ -315,7 +313,9 @@ mod tests {
         let now = 2_000_000_000;
         // Exactly at threshold age — should still be resumable (> not >=).
         let at_threshold = now - (7 * 24 * 60 * 60);
-        backend.store(&snapshot(id, "Active", at_threshold)).unwrap();
+        backend
+            .store(&snapshot(id, "Active", at_threshold))
+            .unwrap();
 
         let plan = build_resume_plan(&backend, cfg_with_now(now)).unwrap();
         assert_eq!(
@@ -350,7 +350,9 @@ mod tests {
         let path = camino::Utf8Path::from_path(dir.path()).unwrap();
         let backend = LocalDiskBackend::new(path).unwrap();
         let id = engagement(7);
-        backend.store(&snapshot(id, "Active", 1_000_000_000)).unwrap();
+        backend
+            .store(&snapshot(id, "Active", 1_000_000_000))
+            .unwrap();
         let plan = build_resume_plan(&backend, cfg_with_now(1_000_000_060)).unwrap();
         let json = serde_json::to_string(&plan).unwrap();
         assert!(json.contains("resumable"));

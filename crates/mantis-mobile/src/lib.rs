@@ -90,13 +90,25 @@ const DANGEROUS_ANDROID_PERMISSIONS: &[(&str, Severity)] = &[
     ("android.permission.RECORD_AUDIO", Severity::High),
     ("android.permission.CAMERA", Severity::Medium),
     ("android.permission.ACCESS_FINE_LOCATION", Severity::Medium),
-    ("android.permission.ACCESS_BACKGROUND_LOCATION", Severity::High),
+    (
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        Severity::High,
+    ),
     ("android.permission.READ_EXTERNAL_STORAGE", Severity::Low),
-    ("android.permission.WRITE_EXTERNAL_STORAGE", Severity::Medium),
+    (
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        Severity::Medium,
+    ),
     ("android.permission.SYSTEM_ALERT_WINDOW", Severity::High),
-    ("android.permission.REQUEST_INSTALL_PACKAGES", Severity::High),
+    (
+        "android.permission.REQUEST_INSTALL_PACKAGES",
+        Severity::High,
+    ),
     ("android.permission.WRITE_SETTINGS", Severity::High),
-    ("android.permission.BIND_ACCESSIBILITY_SERVICE", Severity::High),
+    (
+        "android.permission.BIND_ACCESSIBILITY_SERVICE",
+        Severity::High,
+    ),
 ];
 
 /// Secret patterns — substring matches against extracted text from
@@ -108,9 +120,21 @@ fn secret_patterns() -> &'static [(&'static str, &'static str, Severity)] {
     &[
         ("aws-access-key", "AKIA", Severity::High),
         ("google-api-key", "AIza", Severity::Medium),
-        ("private-key-pem", "-----BEGIN PRIVATE KEY-----", Severity::Critical),
-        ("rsa-key-pem", "-----BEGIN RSA PRIVATE KEY-----", Severity::Critical),
-        ("ec-key-pem", "-----BEGIN EC PRIVATE KEY-----", Severity::Critical),
+        (
+            "private-key-pem",
+            "-----BEGIN PRIVATE KEY-----",
+            Severity::Critical,
+        ),
+        (
+            "rsa-key-pem",
+            "-----BEGIN RSA PRIVATE KEY-----",
+            Severity::Critical,
+        ),
+        (
+            "ec-key-pem",
+            "-----BEGIN EC PRIVATE KEY-----",
+            Severity::Critical,
+        ),
         ("firebase-secret", "firebase-adminsdk", Severity::High),
         ("github-token", "ghp_", Severity::High),
         ("github-token", "gho_", Severity::High),
@@ -213,9 +237,31 @@ pub fn scan_bundle(path: &Path) -> Result<Vec<Finding>, MobileError> {
 /// shouldn't bother running text scans over.
 fn is_binary_extension(name: &str) -> bool {
     const BIN: &[&str] = &[
-        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".svgz", ".woff", ".woff2",
-        ".ttf", ".otf", ".eot", ".mp3", ".mp4", ".wav", ".ogg", ".aac", ".flac", ".so", ".dylib",
-        ".framework", ".class", ".jar", ".car",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".webp",
+        ".bmp",
+        ".ico",
+        ".svgz",
+        ".woff",
+        ".woff2",
+        ".ttf",
+        ".otf",
+        ".eot",
+        ".mp3",
+        ".mp4",
+        ".wav",
+        ".ogg",
+        ".aac",
+        ".flac",
+        ".so",
+        ".dylib",
+        ".framework",
+        ".class",
+        ".jar",
+        ".car",
     ];
     let lower = name.to_ascii_lowercase();
     BIN.iter().any(|ext| lower.ends_with(ext))
@@ -295,9 +341,7 @@ fn analyse_android_manifest(text: &str, name: &str, label: &str, out: &mut Vec<F
                 Severity::Medium,
                 "android:allowBackup=\"true\" enabled",
             )
-            .with_description(
-                "Allows adb backup to dump app private data on non-rooted devices.",
-            )
+            .with_description("Allows adb backup to dump app private data on non-rooted devices.")
             .with_meta("attribute", "android:allowBackup"),
         );
     }
@@ -319,7 +363,10 @@ fn analyse_android_manifest(text: &str, name: &str, label: &str, out: &mut Vec<F
 
     let permissions = extract_uses_permissions(text);
     for perm in &permissions {
-        if let Some((_, severity)) = DANGEROUS_ANDROID_PERMISSIONS.iter().find(|(p, _)| p == perm) {
+        if let Some((_, severity)) = DANGEROUS_ANDROID_PERMISSIONS
+            .iter()
+            .find(|(p, _)| p == perm)
+        {
             out.push(
                 Finding::new(
                     "mantis-mobile",
@@ -368,27 +415,23 @@ fn analyse_ios_plist(text: &str, name: &str, label: &str, out: &mut Vec<Finding>
         );
     }
     if has_plist_bool(text, "NSAllowsArbitraryLoadsInWebContent", true) {
-        out.push(
-            Finding::new(
-                "mantis-mobile",
-                "insecure-config",
-                target.clone(),
-                Severity::Medium,
-                "ATS disabled for WKWebView content",
-            ),
-        );
+        out.push(Finding::new(
+            "mantis-mobile",
+            "insecure-config",
+            target.clone(),
+            Severity::Medium,
+            "ATS disabled for WKWebView content",
+        ));
     }
     // UIFileSharingEnabled lets users pluck files out of /Documents.
     if has_plist_bool(text, "UIFileSharingEnabled", true) {
-        out.push(
-            Finding::new(
-                "mantis-mobile",
-                "insecure-config",
-                target,
-                Severity::Low,
-                "UIFileSharingEnabled — /Documents is visible in iTunes/Finder",
-            ),
-        );
+        out.push(Finding::new(
+            "mantis-mobile",
+            "insecure-config",
+            target,
+            Severity::Low,
+            "UIFileSharingEnabled — /Documents is visible in iTunes/Finder",
+        ));
     }
 }
 
@@ -545,8 +588,8 @@ mod tests {
     fn write_zip(path: &Path, entries: &[(&str, &[u8])]) {
         let file = File::create(path).unwrap();
         let mut zip = zip::ZipWriter::new(file);
-        let opts = zip::write::FileOptions::default()
-            .compression_method(zip::CompressionMethod::Stored);
+        let opts =
+            zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
         for (name, body) in entries {
             zip.start_file(*name, opts).unwrap();
             zip.write_all(body).unwrap();
@@ -556,7 +599,10 @@ mod tests {
 
     #[test]
     fn platform_inferred_from_extension() {
-        assert_eq!(Platform::from_path(Path::new("a.apk")), Some(Platform::Android));
+        assert_eq!(
+            Platform::from_path(Path::new("a.apk")),
+            Some(Platform::Android)
+        );
         assert_eq!(Platform::from_path(Path::new("a.ipa")), Some(Platform::Ios));
         assert_eq!(Platform::from_path(Path::new("a.tar")), None);
         assert_eq!(Platform::from_path(Path::new("noext")), None);
@@ -609,7 +655,10 @@ mod tests {
             </application>
         "#;
         let comps = extract_exported_components(xml);
-        let names: Vec<_> = comps.iter().map(|c| (c.kind.as_str(), c.name.as_str())).collect();
+        let names: Vec<_> = comps
+            .iter()
+            .map(|c| (c.kind.as_str(), c.name.as_str()))
+            .collect();
         assert!(names.contains(&("activity", ".Main")));
         assert!(names.contains(&("receiver", ".R")));
         assert!(names.contains(&("provider", ".P")));
@@ -659,11 +708,7 @@ mod tests {
 
     #[test]
     fn has_plist_bool_tolerates_whitespace_and_self_closing() {
-        assert!(has_plist_bool(
-            "<key>X</key>  <true/>",
-            "X",
-            true
-        ));
+        assert!(has_plist_bool("<key>X</key>  <true/>", "X", true));
         assert!(has_plist_bool("<key>X</key><true />", "X", true));
         assert!(!has_plist_bool("<key>X</key><false/>", "X", true));
     }

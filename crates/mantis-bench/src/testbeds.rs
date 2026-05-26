@@ -161,8 +161,16 @@ mod tests {
     #[test]
     fn all_testbeds_have_docker_image_and_url() {
         for tb in ALL {
-            assert!(!tb.docker_image.is_empty(), "{} missing docker_image", tb.id);
-            assert!(!tb.upstream_url.is_empty(), "{} missing upstream_url", tb.id);
+            assert!(
+                !tb.docker_image.is_empty(),
+                "{} missing docker_image",
+                tb.id
+            );
+            assert!(
+                !tb.upstream_url.is_empty(),
+                "{} missing upstream_url",
+                tb.id
+            );
         }
     }
 

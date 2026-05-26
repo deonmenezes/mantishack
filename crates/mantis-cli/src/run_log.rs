@@ -15,8 +15,8 @@
 //! re-running `mantis hack` / `mantis prompt` appends a new "Run"
 //! header so multiple sessions accumulate in the same file.
 
-use std::fmt::Write as _;
 use anyhow::{Context, Result};
+use std::fmt::Write as _;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -629,7 +629,6 @@ mod tests {
         let mut body = String::new();
         for i in 0..200 {
             let _ = writeln!(body, "- line {i} with some padding text");
-
         }
         std::fs::write(tmp.path(), &body).unwrap();
         let out = tail(tmp.path(), 256).unwrap();

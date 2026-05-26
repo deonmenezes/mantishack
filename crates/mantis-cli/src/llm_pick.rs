@@ -36,11 +36,11 @@
 //! - `MANTIS_LLM_PROVIDER=<id>` → force a specific provider
 //!   (any of the ids above); errors if unavailable.
 
-use std::fmt::Write as _;
 use mantis_synthesizer::{
     anthropic::AnthropicAdapter, claude_cli::ClaudeCliAdapter, gemini::GeminiAdapter,
     ollama::OllamaAdapter, openai::OpenAIAdapter, LlmAdapter,
 };
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -159,7 +159,10 @@ pub(crate) fn pick() -> Option<(Arc<dyn LlmAdapter>, PickedProvider)> {
         return Some((openai_compat(key, XAI_BASE), PickedProvider::XAi));
     }
     if let Some(key) = nonempty_env("OPENROUTER_API_KEY") {
-        return Some((openai_compat(key, OPENROUTER_BASE), PickedProvider::OpenRouter));
+        return Some((
+            openai_compat(key, OPENROUTER_BASE),
+            PickedProvider::OpenRouter,
+        ));
     }
     if let Some(key) = nonempty_env("DASHSCOPE_API_KEY") {
         return Some((openai_compat(key, QWEN_BASE), PickedProvider::Qwen));
@@ -206,10 +209,15 @@ fn force(id: &str) -> Option<(Arc<dyn LlmAdapter>, PickedProvider)> {
             .map(|k| (openai_compat(k, GROQ_BASE), PickedProvider::Groq)),
         "mistral" => nonempty_env("MISTRAL_API_KEY")
             .map(|k| (openai_compat(k, MISTRAL_BASE), PickedProvider::Mistral)),
-        "xai" | "grok" => nonempty_env("XAI_API_KEY")
-            .map(|k| (openai_compat(k, XAI_BASE), PickedProvider::XAi)),
-        "openrouter" => nonempty_env("OPENROUTER_API_KEY")
-            .map(|k| (openai_compat(k, OPENROUTER_BASE), PickedProvider::OpenRouter)),
+        "xai" | "grok" => {
+            nonempty_env("XAI_API_KEY").map(|k| (openai_compat(k, XAI_BASE), PickedProvider::XAi))
+        }
+        "openrouter" => nonempty_env("OPENROUTER_API_KEY").map(|k| {
+            (
+                openai_compat(k, OPENROUTER_BASE),
+                PickedProvider::OpenRouter,
+            )
+        }),
         "qwen" | "dashscope" => nonempty_env("DASHSCOPE_API_KEY")
             .map(|k| (openai_compat(k, QWEN_BASE), PickedProvider::Qwen)),
         "zhipu" | "glm" => nonempty_env("ZHIPU_API_KEY")
@@ -218,9 +226,7 @@ fn force(id: &str) -> Option<(Arc<dyn LlmAdapter>, PickedProvider)> {
             nonempty_env("AWS_BEDROCK_PROXY_URL"),
             nonempty_env("AWS_BEDROCK_API_KEY"),
         ) {
-            (Some(proxy), Some(key)) => {
-                Some((openai_compat(key, &proxy), PickedProvider::Bedrock))
-            }
+            (Some(proxy), Some(key)) => Some((openai_compat(key, &proxy), PickedProvider::Bedrock)),
             _ => {
                 eprintln!(
                     "[mantis] bedrock requires AWS_BEDROCK_PROXY_URL + AWS_BEDROCK_API_KEY \
@@ -446,7 +452,6 @@ mod tests {
         let mut text = String::new();
         for i in 0..200 {
             let _ = writeln!(text, "/api/x{i}");
-
         }
         let paths = parse_paths(&text);
         assert!(paths.len() <= MAX_LLM_PATHS);

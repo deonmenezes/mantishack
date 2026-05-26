@@ -103,7 +103,11 @@ fn parse_openapi3(doc: &serde_json::Value) -> Result<Vec<ApiEndpoint>, ApiError>
         let path_params = item_obj
             .get("parameters")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(extract_openapi3_parameter).collect::<Vec<_>>())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(extract_openapi3_parameter)
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_default();
         for method in HTTP_METHODS {
             let op = match item_obj.get(*method).and_then(|v| v.as_object()) {
@@ -179,7 +183,11 @@ fn parse_swagger2(doc: &serde_json::Value) -> Result<Vec<ApiEndpoint>, ApiError>
         let path_params = item_obj
             .get("parameters")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(extract_swagger2_parameter).collect::<Vec<_>>())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(extract_swagger2_parameter)
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_default();
         for method in HTTP_METHODS {
             let op = match item_obj.get(*method).and_then(|v| v.as_object()) {
@@ -273,7 +281,10 @@ fn extract_swagger2_parameter(p: &serde_json::Value) -> Option<ApiParameter> {
         Some(name) => parse_type(name, fmt),
         None => ParameterType::Unknown,
     };
-    let example = obj.get("example").and_then(|v| v.as_str()).map(String::from);
+    let example = obj
+        .get("example")
+        .and_then(|v| v.as_str())
+        .map(String::from);
     Some(ApiParameter {
         name,
         location,
@@ -315,7 +326,9 @@ fn parse_type(t: &str, fmt: Option<&str>) -> ParameterType {
     }
 }
 
-const HTTP_METHODS: &[&str] = &["get", "put", "post", "delete", "options", "head", "patch", "trace"];
+const HTTP_METHODS: &[&str] = &[
+    "get", "put", "post", "delete", "options", "head", "patch", "trace",
+];
 
 #[cfg(test)]
 mod tests {
@@ -530,7 +543,10 @@ paths:
     #[test]
     fn parse_type_format_overrides_base_type() {
         assert_eq!(parse_type("string", Some("uuid")), ParameterType::Uuid);
-        assert_eq!(parse_type("string", Some("date-time")), ParameterType::DateTime);
+        assert_eq!(
+            parse_type("string", Some("date-time")),
+            ParameterType::DateTime
+        );
         assert_eq!(parse_type("string", Some("email")), ParameterType::Email);
         assert_eq!(parse_type("string", None), ParameterType::String);
         assert_eq!(parse_type("integer", None), ParameterType::Integer);

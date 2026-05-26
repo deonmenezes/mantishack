@@ -231,10 +231,7 @@ mod tests {
 
     #[test]
     fn sqli_maps_to_t1190() {
-        assert_eq!(
-            technique_for_cwe(Cwe(89)).map(|t| t.id),
-            Some("T1190")
-        );
+        assert_eq!(technique_for_cwe(Cwe(89)).map(|t| t.id), Some("T1190"));
     }
 
     #[test]
@@ -246,10 +243,7 @@ mod tests {
 
     #[test]
     fn ssrf_maps_to_t1190() {
-        assert_eq!(
-            technique_for_cwe(Cwe(918)).map(|t| t.id),
-            Some("T1190")
-        );
+        assert_eq!(technique_for_cwe(Cwe(918)).map(|t| t.id), Some("T1190"));
     }
 
     #[test]

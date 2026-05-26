@@ -100,10 +100,7 @@ pub async fn enumerate_passive(
         .collect()
 }
 
-async fn query_crtsh(
-    client: &reqwest::Client,
-    apex: &str,
-) -> Result<BTreeSet<String>, ReconError> {
+async fn query_crtsh(client: &reqwest::Client, apex: &str) -> Result<BTreeSet<String>, ReconError> {
     let url = format!("https://crt.sh/?q=%25.{apex}&output=json");
     let resp = client
         .get(&url)
@@ -121,12 +118,9 @@ async fn query_crtsh(
     parse_crtsh_response(&body, apex)
 }
 
-pub(crate) fn parse_crtsh_response(
-    body: &str,
-    apex: &str,
-) -> Result<BTreeSet<String>, ReconError> {
-    let docs: Vec<serde_json::Value> = serde_json::from_str(body)
-        .map_err(|e| ReconError::Parse(format!("crt.sh json: {e}")))?;
+pub(crate) fn parse_crtsh_response(body: &str, apex: &str) -> Result<BTreeSet<String>, ReconError> {
+    let docs: Vec<serde_json::Value> =
+        serde_json::from_str(body).map_err(|e| ReconError::Parse(format!("crt.sh json: {e}")))?;
     let mut out = BTreeSet::new();
     let suffix = format!(".{apex}");
     for doc in docs {
@@ -134,10 +128,7 @@ pub(crate) fn parse_crtsh_response(
             if let Some(s) = doc.get(field).and_then(|v| v.as_str()) {
                 // crt.sh sometimes returns multiple names joined by \n
                 for line in s.split('\n') {
-                    let host = line
-                        .trim()
-                        .trim_start_matches("*.")
-                        .to_ascii_lowercase();
+                    let host = line.trim().trim_start_matches("*.").to_ascii_lowercase();
                     if (host == apex || host.ends_with(&suffix)) && valid_hostname(&host) {
                         out.insert(host);
                     }
@@ -173,7 +164,12 @@ pub(crate) fn parse_hackertarget_response(body: &str, apex: &str) -> BTreeSet<St
     let mut out = BTreeSet::new();
     let suffix = format!(".{apex}");
     for line in body.lines() {
-        let host = line.split(',').next().unwrap_or("").trim().to_ascii_lowercase();
+        let host = line
+            .split(',')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase();
         if host.is_empty() {
             continue;
         }
@@ -307,7 +303,8 @@ mod tests {
 
     #[test]
     fn parse_hackertarget_response_extracts_hostname_column() {
-        let body = "www.example.com,93.184.216.34\nadmin.example.com,1.2.3.4\nout.of.scope.org,5.6.7.8\n";
+        let body =
+            "www.example.com,93.184.216.34\nadmin.example.com,1.2.3.4\nout.of.scope.org,5.6.7.8\n";
         let out = parse_hackertarget_response(body, "example.com");
         assert!(out.contains("www.example.com"));
         assert!(out.contains("admin.example.com"));

@@ -26,10 +26,7 @@ pub fn build_router(config: ServerConfig) -> Result<Router> {
         .route("/chat", post(chat::handle_chat))
         .route("/engagements", get(engagements::list_engagements))
         .route("/scan", post(engagements::create_scan))
-        .route(
-            "/findings/:engagement_id",
-            get(engagements::list_findings),
-        )
+        .route("/findings/:engagement_id", get(engagements::list_findings))
         .with_state(app_state.clone());
 
     let v1 = if config.require_auth {

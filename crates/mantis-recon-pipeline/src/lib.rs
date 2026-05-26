@@ -43,7 +43,7 @@ pub mod orchestrator;
 
 pub use anomaly::{Anomaly, AnomalyKind};
 pub use bundle::{HttpSurface, ReconBundle, ScannerStats};
-pub use orchestrator::{run_pipeline, PipelineOptions, PipelineDepth};
+pub use orchestrator::{run_pipeline, PipelineDepth, PipelineOptions};
 
 use thiserror::Error;
 

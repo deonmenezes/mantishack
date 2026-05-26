@@ -94,10 +94,7 @@ mod tests {
         let n = Notification::new("t", Severity::Low).with_detail("Full reproducer details");
         let payload = format(&n);
         let blocks = payload["attachments"][0]["blocks"].as_array().unwrap();
-        let sections: Vec<&Value> = blocks
-            .iter()
-            .filter(|b| b["type"] == "section")
-            .collect();
+        let sections: Vec<&Value> = blocks.iter().filter(|b| b["type"] == "section").collect();
         // One section for fields, one for the detail text.
         assert_eq!(sections.len(), 2);
         assert!(payload.to_string().contains("Full reproducer details"));
@@ -108,10 +105,7 @@ mod tests {
         let n = Notification::new("t", Severity::Low);
         let payload = format(&n);
         let blocks = payload["attachments"][0]["blocks"].as_array().unwrap();
-        let sections: Vec<&Value> = blocks
-            .iter()
-            .filter(|b| b["type"] == "section")
-            .collect();
+        let sections: Vec<&Value> = blocks.iter().filter(|b| b["type"] == "section").collect();
         assert_eq!(sections.len(), 1);
     }
 

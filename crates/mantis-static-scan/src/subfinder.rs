@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use tokio::process::Command;
 
-use crate::{Finding, ScanError, Severity, binary_available};
+use crate::{binary_available, Finding, ScanError, Severity};
 
 const BIN: &str = "subfinder";
 const INSTALL_HINT: &str =
@@ -90,7 +90,12 @@ impl SubfinderAdapter {
                     stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
                 });
             }
-            Ok(Err(e)) => return Err(ScanError::Spawn { tool: BIN, source: e }),
+            Ok(Err(e)) => {
+                return Err(ScanError::Spawn {
+                    tool: BIN,
+                    source: e,
+                })
+            }
             Err(_) => {
                 return Err(ScanError::Timeout {
                     tool: BIN,
@@ -171,15 +176,25 @@ mod tests {
         assert_eq!(findings[0].target, "a.example.com");
         assert_eq!(findings[0].severity, Severity::Info);
         assert_eq!(findings[0].title, "subdomain: a.example.com");
-        assert_eq!(findings[0].meta.get("input").map(String::as_str), Some("example.com"));
-        assert_eq!(findings[0].meta.get("source").map(String::as_str), Some("crtsh"));
+        assert_eq!(
+            findings[0].meta.get("input").map(String::as_str),
+            Some("example.com")
+        );
+        assert_eq!(
+            findings[0].meta.get("source").map(String::as_str),
+            Some("crtsh")
+        );
         assert_eq!(findings[1].target, "b.example.com");
-        assert_eq!(findings[1].meta.get("source").map(String::as_str), Some("virustotal"));
+        assert_eq!(
+            findings[1].meta.get("source").map(String::as_str),
+            Some("virustotal")
+        );
     }
 
     #[test]
     fn skips_blank_and_hostless_lines() {
-        let raw = "\n   \n{\"host\":\"x.example.com\",\"source\":\"crtsh\"}\n{\"source\":\"crtsh\"}\n";
+        let raw =
+            "\n   \n{\"host\":\"x.example.com\",\"source\":\"crtsh\"}\n{\"source\":\"crtsh\"}\n";
         let findings = parse_subfinder_output(raw).expect("parse ok");
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].target, "x.example.com");

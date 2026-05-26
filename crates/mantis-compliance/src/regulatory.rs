@@ -164,7 +164,9 @@ pub const fn pci_dss_for_cwe(cwe: Cwe) -> Option<PciDssRequirement> {
             R6SecureDevelopment
         }
         // Req 7 — Access restriction (IDOR, missing access control)
-        264 | 269 | 275 | 276 | 284 | 285 | 425 | 552 | 639 | 668 | 862 | 863 => R7AccessRestriction,
+        264 | 269 | 275 | 276 | 284 | 285 | 425 | 552 | 639 | 668 | 862 | 863 => {
+            R7AccessRestriction
+        }
         // Req 8 — Authentication
         255 | 259 | 287 | 290 | 294 | 295 | 297 | 306 | 307 | 384 | 521 | 798 => R8Authentication,
         // Req 4 — Transmission protection (TLS)
@@ -243,7 +245,10 @@ mod tests {
     #[test]
     fn hipaa_cfr_sections_match() {
         assert_eq!(HipaaSafeguard::Technical.cfr_section(), "45 CFR §164.312");
-        assert_eq!(HipaaSafeguard::Administrative.cfr_section(), "45 CFR §164.308");
+        assert_eq!(
+            HipaaSafeguard::Administrative.cfr_section(),
+            "45 CFR §164.308"
+        );
     }
 
     #[test]

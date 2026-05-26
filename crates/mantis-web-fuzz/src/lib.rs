@@ -329,10 +329,7 @@ async fn probe(
 
 /// Build the concrete URL + per-request header overrides for a
 /// candidate. Pulled out for testability.
-pub fn build_request(
-    req: &FuzzRequest,
-    candidate: &str,
-) -> Result<(String, HeaderMap), FuzzError> {
+pub fn build_request(req: &FuzzRequest, candidate: &str) -> Result<(String, HeaderMap), FuzzError> {
     let mut headers = HeaderMap::new();
     let url = match req.mode {
         FuzzMode::Path => req.template.replace(FUZZ_TOKEN, candidate),
@@ -346,10 +343,8 @@ pub fn build_request(
         FuzzMode::Header => {
             let name = HeaderName::from_bytes(candidate.as_bytes())
                 .map_err(|_| FuzzError::InvalidCandidate(candidate.to_string()))?;
-            let value = HeaderValue::from_str(
-                req.header_value.as_deref().unwrap_or("mantis-fuzz"),
-            )
-            .map_err(|_| FuzzError::InvalidCandidate(candidate.to_string()))?;
+            let value = HeaderValue::from_str(req.header_value.as_deref().unwrap_or("mantis-fuzz"))
+                .map_err(|_| FuzzError::InvalidCandidate(candidate.to_string()))?;
             headers.insert(name, value);
             req.template.clone()
         }

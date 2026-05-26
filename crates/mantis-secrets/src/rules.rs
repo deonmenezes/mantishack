@@ -957,7 +957,11 @@ mod tests {
 
     #[test]
     fn slack_bot_token_matches() {
-        let body = concat!("Authorization: Bearer ", "xoxb", "-1234567890-1234567890123-AaBbCcDdEeFfGg");
+        let body = concat!(
+            "Authorization: Bearer ",
+            "xoxb",
+            "-1234567890-1234567890123-AaBbCcDdEeFfGg"
+        );
         let r = match_slack_token(body);
         assert_eq!(r.len(), 1);
         assert!(r[0].matched.starts_with("xoxb-"));
@@ -965,7 +969,11 @@ mod tests {
 
     #[test]
     fn slack_webhook_matches_full_url() {
-        let body = concat!("post to https://hooks.", "slack.com/services/", "T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX please");
+        let body = concat!(
+            "post to https://hooks.",
+            "slack.com/services/",
+            "T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX please"
+        );
         let r = match_slack_webhook(body);
         assert_eq!(r.len(), 1);
     }
@@ -981,8 +989,12 @@ mod tests {
     #[test]
     fn openai_and_anthropic_do_not_collide() {
         let body = concat!(
-            "openai ", "sk-", "abcdefghijklmnopqrstuvwxyz0123456789AB",
-            " and anthropic ", "sk-ant-", "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGH"
+            "openai ",
+            "sk-",
+            "abcdefghijklmnopqrstuvwxyz0123456789AB",
+            " and anthropic ",
+            "sk-ant-",
+            "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGH"
         );
         let oai = match_openai_key(body);
         let ant = match_anthropic_key(body);
@@ -1010,7 +1022,10 @@ mod tests {
 
     #[test]
     fn sendgrid_key_requires_one_dot_in_body() {
-        let body = concat!("SG", ".aBcDeFgHiJkLmNoPqRsTuV.aBcDeFgHiJkLmNoPqRsTuVwXyZ012345678901234567xyz");
+        let body = concat!(
+            "SG",
+            ".aBcDeFgHiJkLmNoPqRsTuV.aBcDeFgHiJkLmNoPqRsTuVwXyZ012345678901234567xyz"
+        );
         let r = match_sendgrid_key(body);
         assert_eq!(r.len(), 1);
     }
@@ -1029,7 +1044,8 @@ mod tests {
 
     #[test]
     fn jwt_matches_three_segment_token() {
-        let body = "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIn0.signature";
+        let body =
+            "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIn0.signature";
         let r = match_jwt(body);
         assert_eq!(r.len(), 1);
         assert!(r[0].matched.starts_with("eyJ"));
@@ -1060,7 +1076,10 @@ mod tests {
     fn cloudflare_token_requires_context() {
         let without = "x".repeat(40);
         assert!(match_cloudflare_token(&without).is_empty());
-        let with = format!("cloudflare_api_token={}", "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcd");
+        let with = format!(
+            "cloudflare_api_token={}",
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcd"
+        );
         assert_eq!(match_cloudflare_token(&with).len(), 1);
     }
 
@@ -1086,10 +1105,22 @@ mod tests {
         let rs = RuleSet::built_in();
         // AKIA + 16 uppercase-alnum, then space; ghp_ + 36 alnum, then space.
         // Split with concat!() so push protection doesn't trip on these test fixtures.
-        let body = concat!("aws ", "AKIA", "IOSFODNN7EXAMPL3 gh ", "ghp", "_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 done");
+        let body = concat!(
+            "aws ",
+            "AKIA",
+            "IOSFODNN7EXAMPL3 gh ",
+            "ghp",
+            "_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 done"
+        );
         let f = rs.scan(body);
-        assert!(f.iter().any(|x| x.rule_id == "aws-access-key-id"), "no aws hit in {f:?}");
-        assert!(f.iter().any(|x| x.rule_id == "github-pat"), "no gh hit in {f:?}");
+        assert!(
+            f.iter().any(|x| x.rule_id == "aws-access-key-id"),
+            "no aws hit in {f:?}"
+        );
+        assert!(
+            f.iter().any(|x| x.rule_id == "github-pat"),
+            "no gh hit in {f:?}"
+        );
     }
 
     #[test]

