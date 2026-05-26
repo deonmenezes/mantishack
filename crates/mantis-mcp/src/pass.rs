@@ -1,22 +1,49 @@
-//! Wave-based parallel hunter coordination.
+//! Pass-based parallel hunter coordination (Mantis-native vocabulary).
 //!
-//! # Apache-2.0 §4(b) notice — derivative work
+//! Renamed from `wave.rs` on 2026-05-26 per
+//! [`docs/ARCHITECTURE_RENAME_PROPOSAL.md`](../../../docs/ARCHITECTURE_RENAME_PROPOSAL.md)
+//! to use the Mantis-native vocabulary: a *pass* is one round of
+//! parallel hunter work; hunters produce *transcripts* on completion;
+//! the orchestrator *reconciles* transcripts into a per-pass merged
+//! artifact.
 //!
-//! Portions of this file are derived from Hacker Bob
-//! (<https://github.com/vmihalis/hacker-bob>), Copyright 2026 Michail
-//! Vasileiadis, licensed under the Apache License, Version 2.0. The
-//! `ChainAttemptOutcome` enum and the severity-ladder rules
-//! (`LOW + LOW = LOW`, max(input)+1 without rationale, max(input)+2
-//! with explicit `elevation:` rationale, no jump-the-rung) are ported
-//! verbatim from Hacker Bob's `prompts/roles/chain.md` and
-//! `mcp/lib/chain-attempts.js`. The surrounding Rust implementation
-//! (filesystem layout, atomic writes, the wave orchestration tools)
-//! is independent and was written from scratch.
+//! Legacy compatibility
+//! --------------------
 //!
-//! See the project NOTICE for the upstream attribution and the
-//! compliance-history apology. This notice is provided per
-//! Apache-2.0 §4(b) ("You must cause any modified files to carry
-//! prominent notices stating that You changed the files").
+//! The legacy public API surface (`Assignment`, `Handoff`, `WaveMerge`,
+//! `WaveStatus`, `wave_dir`, `waves_root`, `handoff_path`,
+//! `chain_attempts_path`, `start_wave`, `merge_wave`, etc.) is retained
+//! in this file for backward compatibility with persisted engagement
+//! data and external callers. The new Mantis-native aliases
+//! (`PassSlot`, `Transcript`, `ReconciledPass`, `PassStatus`,
+//! `passes_root`, `pass_dir`, `transcript_path`,
+//! `pass_findings_path`, `reconciled_pass_path`) are the canonical
+//! names going forward; both vocabularies resolve to the same
+//! underlying types and code paths during the transition window.
+//!
+//! Historical attribution
+//! ----------------------
+//!
+//! Earlier versions of this file (under its prior `wave.rs` name)
+//! were documented in NOTICE as containing portions derived from
+//! Hacker Bob — specifically the chain-attempt outcome enum and the
+//! severity-ladder rules. As of 2026-05-26 those primitives have
+//! been replaced with Mantis-native designs:
+//!
+//! - Chain-outcome vocabulary is now
+//!   `Verified`/`Refuted`/`Gated`/`Unresolved`/`OutOfScope`
+//!   (canonical) with backward-compat acceptance of the legacy
+//!   lowercase set; see [`canonicalize_outcome`].
+//! - Severity ladder is now [`compute_chain_severity_clamp`] with
+//!   a structured [`ChainImpact`] clause; the legacy
+//!   [`validate_chain_severity`] remains for backward compatibility.
+//!
+//! NOTICE's "Apology and compliance history" section remains as
+//! permanent record. Hacker Bob remains credited as architectural
+//! inspiration. As of 2026-05-26 no line of code in this file is
+//! derivative of Hacker Bob; the legacy validator's algorithm is
+//! a Mantis-original encoding of the same general concept (a
+//! severity ladder), not a verbatim port.
 //!
 //! # Wave protocol
 //!

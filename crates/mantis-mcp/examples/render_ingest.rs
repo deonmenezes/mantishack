@@ -15,7 +15,7 @@ use mantis_mcp::server::{
     load_wave_merges, parse_severity_floor, render_markdown, severity_rank, EngagementSummary,
     Surface,
 };
-use mantis_mcp::wave;
+use mantis_mcp::pass;
 use mantis_proto::v1::engagement_client::EngagementClient;
 use mantis_proto::v1::StatusRequest;
 
@@ -45,9 +45,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let dir = std::path::PathBuf::from(format!("./mantishack-{}", engagement_id));
     let waves = load_wave_merges(&dir);
-    let mut chains: Vec<(u32, Vec<wave::ChainAttempt>)> = Vec::new();
+    let mut chains: Vec<(u32, Vec<pass::ChainAttempt>)> = Vec::new();
     for w in &waves {
-        let attempts = wave::read_chain_attempts(&summary.id, w.wave_number);
+        let attempts = pass::read_chain_attempts(&summary.id, w.wave_number);
         if !attempts.is_empty() {
             chains.push((w.wave_number, attempts));
         }

@@ -25,7 +25,7 @@ use mantis_mcp::server::{
     load_wave_merges, parse_severity_floor, render_markdown, severity_rank, EngagementSummary,
     Surface,
 };
-use mantis_mcp::wave;
+use mantis_mcp::pass;
 use mantis_proto::v1::engagement_client::EngagementClient;
 use mantis_proto::v1::{ExportRequest, StatusRequest};
 use serde_json::Value;
@@ -71,9 +71,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // --- load wave merges from the existing engagement dir ---
     let src_dir = PathBuf::from(format!("./mantishack-{}", summary.id));
     let waves = load_wave_merges(&src_dir);
-    let mut chain_attempts: Vec<(u32, Vec<wave::ChainAttempt>)> = Vec::new();
+    let mut chain_attempts: Vec<(u32, Vec<pass::ChainAttempt>)> = Vec::new();
     for w in &waves {
-        let attempts = wave::read_chain_attempts(&summary.id, w.wave_number);
+        let attempts = pass::read_chain_attempts(&summary.id, w.wave_number);
         if !attempts.is_empty() {
             chain_attempts.push((w.wave_number, attempts));
         }
@@ -102,7 +102,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(out_root.join("vulnerability-report.md"), &vuln_report)?;
 
     // --- per-finding markdown files ---
-    let mut all_findings: Vec<&wave::Finding> = Vec::new();
+    let mut all_findings: Vec<&pass::Finding> = Vec::new();
     for w in &waves {
         for f in &w.findings {
             all_findings.push(f);
@@ -110,7 +110,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     // Sort: critical first, then high, medium, low, info.
     all_findings.sort_by_key(|f| std::cmp::Reverse(severity_rank(&f.severity)));
-    let mut finding_index: Vec<(usize, &wave::Finding)> = Vec::new();
+    let mut finding_index: Vec<(usize, &pass::Finding)> = Vec::new();
     for (idx, f) in all_findings.iter().enumerate() {
         let n = idx + 1;
         finding_index.push((n, *f));
@@ -194,7 +194,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// a multi-subdomain ingest groups under its dominant host.
 fn derive_target_host_with_findings(
     jsonl: &str,
-    waves: &[wave::WaveMerge],
+    waves: &[pass::WaveMerge],
     fallback_name: &str,
 ) -> String {
     // First try the live-event paths.
@@ -398,7 +398,7 @@ fn parse_phase_events(jsonl: &str) -> Vec<PhaseEvent> {
     out
 }
 
-fn render_finding_md(n: usize, f: &wave::Finding) -> String {
+fn render_finding_md(n: usize, f: &pass::Finding) -> String {
     let mut s = String::new();
     let _ = writeln!(s, "# Finding F-{n:02}\n");
 
@@ -468,7 +468,7 @@ fn render_phase_md(
     s
 }
 
-fn render_wave_md(w: &wave::WaveMerge, floor_rank: u8) -> String {
+fn render_wave_md(w: &pass::WaveMerge, floor_rank: u8) -> String {
     let mut s = String::new();
     let _ = writeln!(s, "# Wave {}\n", w.wave_number);
 
@@ -511,7 +511,7 @@ fn render_wave_md(w: &wave::WaveMerge, floor_rank: u8) -> String {
         if severity_rank(sev) < floor_rank {
             continue;
         }
-        let group: Vec<&wave::Finding> = w.findings.iter().filter(|f| f.severity == sev).collect();
+        let group: Vec<&pass::Finding> = w.findings.iter().filter(|f| f.severity == sev).collect();
         if group.is_empty() {
             continue;
         }
@@ -640,9 +640,9 @@ fn summarize_event_kind(kind: &str, v: &Value) -> String {
 fn render_readme(
     summary: &EngagementSummary,
     target_host: &str,
-    waves: &[wave::WaveMerge],
+    waves: &[pass::WaveMerge],
     by_sev: &BTreeMap<String, u32>,
-    findings: &[(usize, &wave::Finding)],
+    findings: &[(usize, &pass::Finding)],
     phase_events: &[PhaseEvent],
     floor_rank: u8,
 ) -> String {

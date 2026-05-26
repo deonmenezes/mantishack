@@ -45,7 +45,7 @@ use mantis_proto::v1::{
 
 use crate::daemon;
 use crate::scope::build_signed_scope_json;
-use crate::wave;
+use crate::pass;
 
 #[derive(Debug, Clone)]
 pub struct MantisMcpServer {
@@ -421,10 +421,10 @@ pub struct WriteHandoffArgs {
     pub hunter: String,
     /// Findings the hunter is reporting. May be empty.
     #[serde(default)]
-    pub findings: Vec<wave::Finding>,
+    pub findings: Vec<pass::Finding>,
     /// Techniques the hunter tried that did not pan out.
     #[serde(default)]
-    pub dead_ends: Vec<wave::DeadEnd>,
+    pub dead_ends: Vec<pass::DeadEnd>,
     /// Coverage notes — list of techniques attempted.
     #[serde(default)]
     pub coverage: Vec<String>,
@@ -1121,11 +1121,11 @@ impl MantisMcpServer {
         Parameters(args): Parameters<ReadWaveHandoffsArgs>,
     ) -> Result<CallToolResult, McpError> {
         let info = engagement_status(&self.daemon_endpoint, &args.engagement_id).await?;
-        let assignments = wave::read_assignments(&info.id, args.wave_number)
+        let assignments = pass::read_assignments(&info.id, args.wave_number)
             .map_err(|e| to_invalid("read_assignments", e))?;
         let mut handoffs: Vec<serde_json::Value> = Vec::new();
         for a in &assignments {
-            match wave::read_handoff(&info.id, args.wave_number, &a.id) {
+            match pass::read_handoff(&info.id, args.wave_number, &a.id) {
                 Some(h) => handoffs.push(json!({
                     "assignment_id": a.id,
                     "received": true,
@@ -1284,17 +1284,17 @@ impl MantisMcpServer {
                 None,
             ));
         }
-        let assignments: Vec<wave::Assignment> = args
+        let assignments: Vec<pass::Assignment> = args
             .assignments
             .into_iter()
-            .map(|a| wave::Assignment {
+            .map(|a| pass::Assignment {
                 id: ulid::Ulid::new().to_string(),
                 surfaces: a.surfaces,
                 vuln_classes: a.vuln_classes,
                 notes: a.notes,
             })
             .collect();
-        let wave_number = wave::start_wave(&args.engagement_id, &assignments)
+        let wave_number = pass::start_wave(&args.engagement_id, &assignments)
             .map_err(|e| to_internal("start_wave", e))?;
         json_ok(&json!({
             "engagement_id": args.engagement_id,
@@ -1314,7 +1314,7 @@ impl MantisMcpServer {
         &self,
         Parameters(args): Parameters<WaveIdArgs>,
     ) -> Result<CallToolResult, McpError> {
-        let status = wave::wave_status(&args.engagement_id, args.wave_number)
+        let status = pass::wave_status(&args.engagement_id, args.wave_number)
             .map_err(|e| to_invalid("wave_status", e))?;
         json_ok(&status)
     }
@@ -1335,7 +1335,7 @@ impl MantisMcpServer {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        let handoff = wave::Handoff {
+        let handoff = pass::Handoff {
             assignment_id: args.assignment_id.clone(),
             hunter: args.hunter,
             started_at_unix: now, // best-effort; hunters can report better via notes
@@ -1344,7 +1344,7 @@ impl MantisMcpServer {
             dead_ends: args.dead_ends,
             coverage: args.coverage,
         };
-        wave::write_handoff(&args.engagement_id, args.wave_number, &handoff)
+        pass::write_handoff(&args.engagement_id, args.wave_number, &handoff)
             .map_err(|e| to_invalid("write_handoff", e))?;
         json_ok(&json!({
             "engagement_id": args.engagement_id,
@@ -1369,8 +1369,8 @@ impl MantisMcpServer {
         &self,
         Parameters(args): Parameters<RecordChainAttemptArgs>,
     ) -> Result<CallToolResult, McpError> {
-        wave::validate_chain_outcome(&args.outcome).map_err(|e| to_invalid("chain outcome", e))?;
-        wave::validate_chain_severity(
+        pass::validate_chain_outcome(&args.outcome).map_err(|e| to_invalid("chain outcome", e))?;
+        pass::validate_chain_severity(
             &args.severity,
             &args.input_severities,
             args.severity_elevation_rationale.as_deref(),
@@ -1380,7 +1380,7 @@ impl MantisMcpServer {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        let attempt = wave::ChainAttempt {
+        let attempt = pass::ChainAttempt {
             id: ulid::Ulid::new().to_string(),
             finding_titles: args.finding_titles,
             surfaces: args.surfaces,
@@ -1392,7 +1392,7 @@ impl MantisMcpServer {
             severity_elevation_rationale: args.severity_elevation_rationale,
             recorded_at_unix: now,
         };
-        wave::record_chain_attempt(&args.engagement_id, args.wave_number, &attempt)
+        pass::record_chain_attempt(&args.engagement_id, args.wave_number, &attempt)
             .map_err(|e| to_internal("record_chain_attempt", e))?;
         json_ok(&attempt)
     }
@@ -1408,7 +1408,7 @@ impl MantisMcpServer {
         &self,
         Parameters(args): Parameters<WaveIdArgs>,
     ) -> Result<CallToolResult, McpError> {
-        let attempts = wave::read_chain_attempts(&args.engagement_id, args.wave_number);
+        let attempts = pass::read_chain_attempts(&args.engagement_id, args.wave_number);
         json_ok(&attempts)
     }
 
@@ -1424,7 +1424,7 @@ impl MantisMcpServer {
         &self,
         Parameters(args): Parameters<WaveIdArgs>,
     ) -> Result<CallToolResult, McpError> {
-        let merge = wave::merge_wave(&args.engagement_id, args.wave_number)
+        let merge = pass::merge_wave(&args.engagement_id, args.wave_number)
             .map_err(|e| to_invalid("merge_wave", e))?;
         json_ok(&merge)
     }
@@ -1684,9 +1684,9 @@ impl MantisMcpServer {
         // Read chain attempts from every wave directory so the report
         // includes the chain narratives alongside their atomized
         // findings.
-        let mut chains: Vec<(u32, Vec<wave::ChainAttempt>)> = Vec::new();
+        let mut chains: Vec<(u32, Vec<pass::ChainAttempt>)> = Vec::new();
         for w in &waves {
-            let attempts = wave::read_chain_attempts(&info.id, w.wave_number);
+            let attempts = pass::read_chain_attempts(&info.id, w.wave_number);
             if !attempts.is_empty() {
                 chains.push((w.wave_number, attempts));
             }
@@ -3162,7 +3162,7 @@ fn parse_surfaces(jsonl: &str) -> Vec<Surface> {
 /// Scan `<dir>/waves/<n>/merged.json` files and return one `WaveMerge`
 /// per wave, sorted by wave_number. Missing or unreadable files are
 /// skipped silently — the report still renders without them.
-pub fn load_wave_merges(dir: &std::path::Path) -> Vec<wave::WaveMerge> {
+pub fn load_wave_merges(dir: &std::path::Path) -> Vec<pass::WaveMerge> {
     let waves_dir = dir.join("waves");
     let Ok(entries) = std::fs::read_dir(&waves_dir) else {
         return Vec::new();
@@ -3176,7 +3176,7 @@ pub fn load_wave_merges(dir: &std::path::Path) -> Vec<wave::WaveMerge> {
         let Ok(bytes) = std::fs::read(&merged) else {
             continue;
         };
-        let Ok(m) = serde_json::from_slice::<wave::WaveMerge>(&bytes) else {
+        let Ok(m) = serde_json::from_slice::<pass::WaveMerge>(&bytes) else {
             continue;
         };
         out.push(m);
@@ -3256,8 +3256,8 @@ pub fn severity_rank(sev: &str) -> u8 {
 pub fn render_markdown(
     info: &EngagementSummary,
     surfaces: &[Surface],
-    waves: &[wave::WaveMerge],
-    chains: &[(u32, Vec<wave::ChainAttempt>)],
+    waves: &[pass::WaveMerge],
+    chains: &[(u32, Vec<pass::ChainAttempt>)],
     severity_floor_rank: u8,
 ) -> String {
     render_markdown_with_evidence(
@@ -3283,8 +3283,8 @@ pub fn render_markdown(
 pub fn render_markdown_with_evidence(
     info: &EngagementSummary,
     surfaces: &[Surface],
-    waves: &[wave::WaveMerge],
-    chains: &[(u32, Vec<wave::ChainAttempt>)],
+    waves: &[pass::WaveMerge],
+    chains: &[(u32, Vec<pass::ChainAttempt>)],
     severity_floor_rank: u8,
     verification_rounds: &std::collections::BTreeMap<String, serde_json::Value>,
     evidence_packs: Option<&serde_json::Value>,
@@ -3477,8 +3477,8 @@ fn render_grade_verdict_section(grade: &serde_json::Value) -> String {
 fn render_markdown_core(
     info: &EngagementSummary,
     surfaces: &[Surface],
-    waves: &[wave::WaveMerge],
-    chains: &[(u32, Vec<wave::ChainAttempt>)],
+    waves: &[pass::WaveMerge],
+    chains: &[(u32, Vec<pass::ChainAttempt>)],
     severity_floor_rank: u8,
 ) -> String {
     let mut s = String::new();
@@ -3603,7 +3603,7 @@ fn render_markdown_core(
                 if severity_rank(sev) < severity_floor_rank {
                     continue;
                 }
-                let group: Vec<&wave::Finding> =
+                let group: Vec<&pass::Finding> =
                     w.findings.iter().filter(|f| f.severity == sev).collect();
                 if group.is_empty() {
                     continue;
@@ -3741,7 +3741,7 @@ mod tests {
         let mut by_sev = std::collections::BTreeMap::new();
         by_sev.insert("high".into(), 1u32);
         by_sev.insert("low".into(), 2u32);
-        let waves = vec![wave::WaveMerge {
+        let waves = vec![pass::WaveMerge {
             wave_number: 1,
             merged_at_unix: 0,
             assignments_total: 3,
@@ -3752,19 +3752,19 @@ mod tests {
             dead_ends_total: 5,
             coverage_total: 10,
             findings: vec![
-                wave::Finding {
+                pass::Finding {
                     title: "Source map exposed".into(),
                     surface: "https://x.example/bundle.js.map".into(),
                     severity: "high".into(),
                     evidence: "GET /bundle.js.map -> 200".into(),
                 },
-                wave::Finding {
+                pass::Finding {
                     title: "HSTS preload missing".into(),
                     surface: "https://x.example/".into(),
                     severity: "low".into(),
                     evidence: "max-age=31536000 lacks preload".into(),
                 },
-                wave::Finding {
+                pass::Finding {
                     title: "Server banner disclosed".into(),
                     surface: "https://x.example/".into(),
                     severity: "low".into(),
@@ -3797,7 +3797,7 @@ mod tests {
         let mut by_sev = std::collections::BTreeMap::new();
         by_sev.insert("high".into(), 1u32);
         by_sev.insert("info".into(), 102u32); // the tenkara-shaped noise floor
-        let waves = vec![wave::WaveMerge {
+        let waves = vec![pass::WaveMerge {
             wave_number: 1,
             merged_at_unix: 0,
             assignments_total: 6,
@@ -3808,13 +3808,13 @@ mod tests {
             dead_ends_total: 21,
             coverage_total: 41,
             findings: vec![
-                wave::Finding {
+                pass::Finding {
                     title: "Source map exposed".into(),
                     surface: "https://x.example/bundle.js.map".into(),
                     severity: "high".into(),
                     evidence: "GET /bundle.js.map -> 200".into(),
                 },
-                wave::Finding {
+                pass::Finding {
                     title: "TLS 1.2 supported".into(),
                     surface: "https://x.example/".into(),
                     severity: "info".into(),
