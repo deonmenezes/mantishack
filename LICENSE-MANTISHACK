@@ -1,0 +1,45 @@
+MIT License
+
+Copyright (c) 2026 Deon Menezes
+
+This licence applies to the mantishack-fork-specific modifications and
+additions layered on top of RAPTOR (https://github.com/gadievron/raptor),
+including but not limited to:
+
+  - The mantishack branding assets under docs/assets/, Formula/, and
+    .claude-plugin/marketplace.json
+  - The /mantis-* slash-command vocabulary and renames under
+    .claude/commands/
+  - The renamed Python entrypoints (mantishack.py and siblings) and
+    libexec/mantishack-* / packages/sca/scripts/mantishack-* scripts
+  - The auth + logging audit Semgrep rules under
+    engine/semgrep/rules/auth/jwt-misuse.yaml,
+    engine/semgrep/rules/auth/cookie-security.yaml, and
+    engine/semgrep/rules/logging/missing-auth-audit.yaml
+  - The pytest auth-audit fixtures in conftest.py
+  - The mantishack-native README.md and NOTICE file
+
+The unmodified upstream RAPTOR code in this repository remains
+covered by the original RAPTOR MIT licence in LICENSE (Copyright (c)
+2025-2026 Gadi Evron, Daniel Cuthbert, Thomas Dullien (Halvar Flake),
+Michael Bargury, John Cartwright). This file does not supersede that
+licence; it sits alongside it and covers only the fork-specific
+modifications.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

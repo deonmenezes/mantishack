@@ -1,0 +1,22 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "mantishack",
+  "description": "Mantis offensive-security daemon — Claude Code plugin with /mantishack one-shot pentest and engagement-lifecycle slash commands.",
+  "owner": {
+    "name": "Deon Menezes"
+  },
+  "plugins": [
+    {
+      "name": "mantis",
+      "description": "Daemon-driven evidence-grade offensive-security platform. /mantishack drives the full pipeline (recon -> hypothesis -> verify -> synthesize -> report) against URLs, domains, or packaged apps in one command.",
+      "category": "security",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/deonmenezes/mantishack.git",
+        "path": "plugin/claude-code",
+        "ref": "main"
+      },
+      "homepage": "https://github.com/deonmenezes/mantishack"
+    }
+  ]
+}

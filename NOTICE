@@ -1,0 +1,81 @@
+Mantishack
+==========
+
+This repository (https://github.com/deonmenezes/mantishack) is a fork built on
+top of RAPTOR.
+
+Upstream project
+----------------
+RAPTOR — Recursive Autonomous Penetration Testing and Observation Robot
+https://github.com/gadievron/raptor
+
+Authors of RAPTOR:
+  Gadi Evron       (@gadievron)
+  Daniel Cuthbert  (@danielcuthbert)
+  Thomas Dullien   (Halvar Flake, @thomasdullien)
+  Michael Bargury  (@mbrg)
+  John Cartwright  (@grokjc)
+
+Licence
+-------
+This repository ships under MIT with two coexisting copyrights:
+
+  1. Upstream RAPTOR code — Copyright (c) 2025-2026 Gadi Evron,
+     Daniel Cuthbert, Thomas Dullien (Halvar Flake), Michael Bargury,
+     and John Cartwright. See LICENSE.
+
+  2. Fork-specific modifications (mantishack branding, /mantis-*
+     command rename, auth + logging audit rules, pytest fixtures,
+     README/NOTICE) — Copyright (c) 2026 Deon Menezes. See
+     LICENSE-MANTISHACK.
+
+Both files are MIT. The fork-specific licence does not supersede the
+upstream RAPTOR licence; it sits alongside it. The MIT licence
+requires that the copyright notice and permission notice below be
+included in all copies or substantial portions of the Software,
+which this NOTICE preserves verbatim alongside the LICENSE file.
+
+    MIT License
+
+    Copyright (c) 2025-2026 Gadi Evron, Daniel Cuthbert,
+    Thomas Dullien (Halvar Flake), Michael Bargury, and John Cartwright
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+
+Bundled third-party components
+------------------------------
+RAPTOR bundles or integrates with additional tools and rule sets that carry
+their own licences, including (non-exhaustive):
+
+  - CodeQL (GitHub) — non-commercial licence; review before commercial use.
+  - Semgrep registry packs cached under engine/semgrep/rules/registry-cache/.
+  - Python dependencies listed in requirements.txt / requirements-dev.txt.
+
+Consult each component's upstream licence before redistribution or commercial
+use. CodeQL specifically does not permit commercial use under its default
+licence.
+
+Modifications
+-------------
+Mantishack ships the RAPTOR source tree, augmented with mantishack branding
+assets (docs/assets/mascot/hero.png, Formula/mantishack.rb,
+.claude-plugin/marketplace.json) and a top-level README that identifies this
+repository as a fork. The RAPTOR LICENSE, CITATION.cff, CLAUDE.md, agent
+prompts, skills, and source files are preserved unmodified relative to the
+upstream commit that this fork is based on.
