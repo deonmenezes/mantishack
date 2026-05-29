@@ -57,8 +57,11 @@ packaging==25.0
 # Optional: For SMT-based constraint analysis (one-gadget feasibility, etc.)
 # z3-solver==4.15.4.0  # see requirements-dev.txt for bookworm/aarch64 cap
 
-# Optional: For web scanning package
-# beautifulsoup4>=4.12.0
+# Web scanning (/mantis-web): beautifulsoup4 is REQUIRED — the crawler's HTML
+# parser imports it (packages/web/crawler.py). Without it the crawl degrades to
+# 0 links/forms/params and the scan returns a misleading empty result. Pinned to
+# match requirements-dev.txt. playwright stays optional (JS rendering for SPAs).
+beautifulsoup4==4.14.3
 # playwright>=1.40.0
 
 # Note: For local LLM support via Ollama, install the openai package
