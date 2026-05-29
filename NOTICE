@@ -73,9 +73,16 @@ licence.
 
 Modifications
 -------------
-Mantishack ships the RAPTOR source tree, augmented with mantishack branding
-assets (docs/assets/mascot/hero.png, Formula/mantishack.rb,
-.claude-plugin/marketplace.json) and a top-level README that identifies this
-repository as a fork. The RAPTOR LICENSE, CITATION.cff, CLAUDE.md, agent
-prompts, skills, and source files are preserved unmodified relative to the
-upstream commit that this fork is based on.
+Mantishack ships the RAPTOR source tree with a repository-wide rebrand
+(raptor -> mantishack / mantis across file names, identifiers, and prose),
+the slash commands renamed to the /mantis-* namespace, a new authentication
+and security-logging Semgrep audit lane (engine/semgrep/rules/auth/*.yaml,
+engine/semgrep/rules/logging/missing-auth-audit.yaml, plus the pytest
+auth_audit fixtures), and a mascot asset (docs/assets/mascot/hero.png).
+
+The upstream LICENSE and CITATION.cff are preserved byte-for-byte and still
+credit the RAPTOR authors. Other files — including CLAUDE.md, agent prompts,
+skills, and source modules — were modified by the rebrand and are NOT
+preserved unmodified relative to the upstream commit. Attribution to RAPTOR
+is retained through this NOTICE, the LICENSE file, CITATION.cff, and the
+top-level README, which identifies this repository as a fork.

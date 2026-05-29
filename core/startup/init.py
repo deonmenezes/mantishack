@@ -456,7 +456,7 @@ def check_env(unavailable_features: set) -> tuple[list, list]:
         free_bytes = stat.f_bavail * stat.f_frsize
         free_gb = free_bytes / (1024 ** 3)
         parts.append(f"disk {free_gb:.0f} GB free" if free_gb >= 1 else f"disk {free_bytes / (1024**2):.0f} MB free")
-        if free_gb < 5 and "/fuzz" not in unavailable_features:
+        if free_gb < 5 and "/mantis-fuzz" not in unavailable_features:
             warnings.append(f"Low disk space ({free_gb:.1f} GB) — fuzzing may fail")
     except OSError:
         pass
@@ -476,7 +476,7 @@ def check_env(unavailable_features: set) -> tuple[list, list]:
         parts.append(f"MANTISHACK_CONFIG={escape_nonprintable(config_env)}")
 
     if not os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
-        warnings.append("/oss-forensics unavailable — BigQuery not configured")
+        warnings.append("/mantis-oss-forensics unavailable — BigQuery not configured")
 
     # Subprocess sandboxing. Layers reported per-platform:
     #   Linux: net + mount + landlock + seccomp (any combination — see

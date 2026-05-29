@@ -158,10 +158,7 @@ def test_login_logs_failure(client, assert_audit_log_emitted):
 Run the standalone audit:
 
 ```bash
-python3 mantishack.py scan --repo /path/to/code \
-  --rules engine/semgrep/rules/auth \
-  --rules engine/semgrep/rules/logging \
-  --tag auth-audit
+python3 mantishack.py scan --repo /path/to/code --policy-groups auth,logging
 ```
 
 ---

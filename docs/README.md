@@ -1,4 +1,8 @@
-# MANTISHACK: Recursive Autonomous Penetration Testing and Observation Robot
+# MANTISHACK — Autonomous Offensive/Defensive Research Framework
+
+> A fork of [RAPTOR](https://github.com/gadievron/raptor) (Recursive Autonomous
+> Penetration Testing and Observation Robot). See the root README.md and NOTICE
+> for attribution.
 
 **Version**: 2.0 (Modular)
 **Purpose**: Autonomous security testing for codebases and binaries
@@ -426,10 +430,12 @@ Phase 4: Output
 - [ ] Automatic patch generation for binary vulnerabilities
 
 ### Other Components
-- [ ] Web application scanning (`packages/web/`)
-- [ ] Software Composition Analysis (`packages/sca/`)
+- [ ] Web application scanning (`packages/web/`) — alpha; expect false positives
 - [ ] Reconnaissance module (`packages/recon/`)
 - [ ] Integration with CI/CD pipelines
+
+> Note: Software Composition Analysis (`packages/sca/`) is now functional — see
+> `/mantis-sca` in the root README.
 
 ### Known Limitations
 - Local Ollama models produce non-compilable exploit code (use Anthropic Claude or OpenAI GPT-4 for production)
@@ -508,7 +514,7 @@ Phase 4: Output
 ### Prerequisites
 
 **Required**:
-- Python 3.9 or later
+- Python 3.10 or later (the code uses PEP 604 `X | Y` annotations at definition time)
 - Git
 
 **For Source Code Analysis**:

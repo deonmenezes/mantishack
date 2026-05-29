@@ -4,36 +4,36 @@ This directory contains custom slash commands that let you use MANTISHACK with p
 
 ## Available Slash Commands
 
-### `/mantishack` - General MANTISHACK Assistant
+### `/mantis-agentic` - General MANTISHACK Assistant
 The main command that helps you decide which MANTISHACK mode to use.
 
 **Examples:**
-- "Hey Claude, /mantishack - scan my code for vulnerabilities"
-- "/mantishack - I need to fuzz a binary"
-- "/mantishack - test my web application"
+- "Hey Claude, /mantis-agentic - scan my code for vulnerabilities"
+- "/mantis-agentic - I need to fuzz a binary"
+- "/mantis-agentic - test my web application"
 
-### `/mantishack-scan` - Code Scanning
+### `/mantis-scan` - Code Scanning
 Runs MANTISHACK's autonomous code scanning (Semgrep + CodeQL + LLM analysis).
 
 **Examples:**
-- "/mantishack-scan - scan the current directory"
-- "/mantishack-scan - check this repository for security issues"
-- "/mantishack-scan - find vulnerabilities in /path/to/my/app"
+- "/mantis-scan - scan the current directory"
+- "/mantis-scan - check this repository for security issues"
+- "/mantis-scan - find vulnerabilities in /path/to/my/app"
 
-### `/mantishack-fuzz` - Binary Fuzzing
+### `/mantis-fuzz` - Binary Fuzzing
 Fuzzes binaries with AFL++ and generates exploits from crashes.
 
 **Examples:**
-- "/mantishack-fuzz - fuzz ./my_binary for 10 minutes"
-- "/mantishack-fuzz - test /usr/local/bin/myapp for crashes"
-- "/mantishack-fuzz - find bugs in this binary"
+- "/mantis-fuzz - fuzz ./my_binary for 10 minutes"
+- "/mantis-fuzz - test /usr/local/bin/myapp for crashes"
+- "/mantis-fuzz - find bugs in this binary"
 
-### `/mantishack-web` - Web Application Testing
+### `/mantis-web` - Web Application Testing
 Scans web applications for OWASP Top 10 vulnerabilities.
 
 **Examples:**
-- "/mantishack-web - scan https://myapp.com"
-- "/mantishack-web - test my website for XSS and SQLi"
+- "/mantis-web - scan https://myapp.com"
+- "/mantis-web - test my website for XSS and SQLi"
 
 ## How to Use
 
@@ -50,7 +50,7 @@ Scans web applications for OWASP Top 10 vulnerabilities.
 ## Example Workflow
 
 ```
-You: /mantishack-scan - scan this directory for secrets and vulnerabilities
+You: /mantis-scan - scan this directory for secrets and vulnerabilities
 
 Claude: I'll run a comprehensive security scan on the current directory.
         Let me start by running MANTISHACK in agentic mode...
@@ -119,4 +119,4 @@ Claude will understand your intent and run the appropriate MANTISHACK command!
 
 ---
 
-**Start using MANTISHACK with natural language now!** Just type `/mantishack` and tell Claude what you want to test.
+**Start using MANTISHACK with natural language now!** Just type `/mantis-agentic` and tell Claude what you want to test.

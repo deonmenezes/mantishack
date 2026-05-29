@@ -58,21 +58,21 @@ class MantishackConfig:
     # severity: "required" = feature unavailable, "degrades" = feature limited
     # group: tools in same group need at least one present
     TOOL_DEPS = {
-        "afl++":        {"binary": "afl-fuzz",  "severity": "required", "affects": "/fuzz"},
-        "codeql":       {"binary": "codeql",    "group": "scanner",     "affects": "/codeql, /agentic"},
+        "afl++":        {"binary": "afl-fuzz",  "severity": "required", "affects": "/mantis-fuzz"},
+        "codeql":       {"binary": "codeql",    "group": "scanner",     "affects": "/mantis-codeql, /mantis-agentic"},
         # Coccinelle (spatch) is required for source_intel's verdict-
         # active axes (1-7). Without spatch, source_intel falls back
         # to UNCERTAIN on most findings — informational-only axes
         # (axis 1 alias scan, axis 6 build flags, axis 8 validation-
         # after-overflow) still work via pure-Python paths.
         "coccinelle":   {"binary": "spatch",    "severity": "degrades", "affects": "source_intel (axes 1-7 verdict-active)"},
-        "gdb":          {"binary": "gdb",       "severity": "required", "affects": "/crash-analysis, /fuzz"},
-        "rr":           {"binary": "rr",        "severity": "degrades", "affects": "/crash-analysis"},
-        "semgrep":      {"binary": "semgrep",   "group": "scanner",     "affects": "/scan, /agentic"},
+        "gdb":          {"binary": "gdb",       "severity": "required", "affects": "/mantis-crash-analysis, /mantis-fuzz"},
+        "rr":           {"binary": "rr",        "severity": "degrades", "affects": "/mantis-crash-analysis"},
+        "semgrep":      {"binary": "semgrep",   "group": "scanner",     "affects": "/mantis-scan, /mantis-agentic"},
     }
 
     TOOL_GROUPS = {
-        "scanner": {"min_required": 1, "affects": "/scan, /agentic"},
+        "scanner": {"min_required": 1, "affects": "/mantis-scan, /mantis-agentic"},
     }
 
     # Path Configuration

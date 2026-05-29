@@ -1,5 +1,11 @@
 # MANTISHACK - Autonomous Offensive/Defensive Research Framework
 
+> Mantishack is a fork of [RAPTOR](https://github.com/gadievron/raptor) (MIT) by
+> Gadi Evron, Daniel Cuthbert, Thomas Dullien, Michael Bargury, and John Cartwright.
+> The scan/analysis engine, agentic workflow, and validation methodology all come
+> from RAPTOR; the fork rebrands it and adds the auth/logging audit lane. See
+> README.md, NOTICE, and LICENSE for full attribution.
+
 Safe operations (install, scan, read, generate): DO IT.
 Dangerous operations (apply patches, delete, git push): ASK FIRST.
 
@@ -10,7 +16,7 @@ Dangerous operations (apply patches, delete, git push): ASK FIRST.
 **On first message:**
 VERY IMPORTANT: follow these steps in order.
 1. Read `.startup-output` using the Read tool, then output its contents verbatim as a fenced code block (``` with no language tag). Do NOT paraphrase or reformat. (The SessionStart hook generates this file automatically before your first message.)
-2. On a single line, output "Quick commands:" then list the /agentic, /scan, /fuzz, /web commands (don't explain what they do) and note /commands for the full list.
+2. On a single line, output "Quick commands:" then list the /mantis-agentic, /mantis-scan, /mantis-fuzz, /mantis-web commands (don't explain what they do) and note /commands for the full list.
 3. If the `sage_inception` tool is present in your available MCP tools, load `core/sage/CLAUDE.md` (persistent-memory workflow). If absent, SAGE is not installed — skip silently and do not mention it.
 
 ---
@@ -26,48 +32,48 @@ Exception: when the skill itself shows the modification (e.g. a documented `| te
 
 ## COMMANDS
 
-/project - Project management: create, list, status, coverage, findings, diff, merge, report, clean, export
-/scan /fuzz /web /agentic /codeql /analyze - Security testing
-/exploit /patch - Generate PoCs and fixes (beta)
-/validate - Exploitability validation pipeline (see below)
-/understand - Code understanding: map attack surface, trace flows, hunt variants (see below)
-/diagram - Generate Mermaid visual maps from /understand or /validate output (see below)
-/annotate - Per-function prose annotations (manual or LLM-emitted) attached to source files
+/mantis-project - Project management: create, list, status, coverage, findings, diff, merge, report, clean, export
+/mantis-scan /mantis-fuzz /mantis-web /mantis-agentic /mantis-codeql /mantis-analyze - Security testing
+/mantis-exploit /mantis-patch - Generate PoCs and fixes (beta)
+/mantis-validate - Exploitability validation pipeline (see below)
+/mantis-understand - Code understanding: map attack surface, trace flows, hunt variants (see below)
+/mantis-diagram - Generate Mermaid visual maps from /mantis-understand or /mantis-validate output (see below)
+/mantis-annotate - Per-function prose annotations (manual or LLM-emitted) attached to source files
 
 **Coverage:** When asked about coverage, run `libexec/mantishack-coverage-summary` (no args = active project). Use `--detailed` for per-file table, `--gaps` for unreviewed functions. See `.claude/skills/coverage.md` for mark/unmark and the full API.
 
-**Note:** `/agentic` runs scan → dedup → prep → analysis (with validation methodology). Use `--sequential` to bypass parallel orchestration. Use `--understand` to pre-map the codebase before scanning, and `--validate` to run the full validation pipeline on exploitable findings afterwards. Both flags are opt-in. Multi-model: `--model` is repeatable — multiple models each independently analyse every finding, then results are correlated; `--consensus`, `--judge`, and `--aggregate` add optional review/synthesis models.
-/crash-analysis - Autonomous crash root-cause analysis (see below)
-/oss-forensics - GitHub forensic investigation (see below)
-/scorecard - Inspect per-model reliability across decision classes; ask natural-language questions about which model is good at what (see below)
-/create-skill - Save approaches (alpha)
+**Note:** `/mantis-agentic` runs scan → dedup → prep → analysis (with validation methodology). Use `--sequential` to bypass parallel orchestration. Use `--understand` to pre-map the codebase before scanning, and `--validate` to run the full validation pipeline on exploitable findings afterwards. Both flags are opt-in. Multi-model: `--model` is repeatable — multiple models each independently analyse every finding, then results are correlated; `--consensus`, `--judge`, and `--aggregate` add optional review/synthesis models.
+/mantis-crash-analysis - Autonomous crash root-cause analysis (see below)
+/mantis-oss-forensics - GitHub forensic investigation (see below)
+/mantis-scorecard - Inspect per-model reliability across decision classes; ask natural-language questions about which model is good at what (see below)
+/mantis-create-skill - Save approaches (alpha)
 
 ---
 
 ## PROJECTS
 
-Projects are opt-in named workspaces that corral analysis runs into a shared directory. Commands with `--project <name>` or after `/project use <name>` write output to the project directory. Without a project, commands behave as before (timestamped dirs under `out/`).
+Projects are opt-in named workspaces that corral analysis runs into a shared directory. Commands with `--project <name>` or after `/mantis-project use <name>` write output to the project directory. Without a project, commands behave as before (timestamped dirs under `out/`).
 
 ```
-/project create myapp --target /path/to/code -d "Description"
-/project use myapp
-/scan                          # output goes to project dir
-/project status                # shows all runs
-/project findings              # shows merged findings across runs
-/project coverage              # shows tool coverage summary
-/project report                # merged view across all runs
-/project correlate             # cross-run finding correlation
-/project clean --keep 3        # delete old runs
-/project none                  # clear active project
+/mantis-project create myapp --target /path/to/code -d "Description"
+/mantis-project use myapp
+/mantis-scan                          # output goes to project dir
+/mantis-project status                # shows all runs
+/mantis-project findings              # shows merged findings across runs
+/mantis-project coverage              # shows tool coverage summary
+/mantis-project report                # merged view across all runs
+/mantis-project correlate             # cross-run finding correlation
+/mantis-project clean --keep 3        # delete old runs
+/mantis-project none                  # clear active project
 ```
 
-See `/project help` for full command list.
+See `/mantis-project help` for full command list.
 
 ---
 
 ## DEFAULT TARGET DIRECTORY
 
-When a command like `/scan`, `/agentic`, `/validate`, `/codeql`, or `/fuzz` is run **without a path argument**, resolve the default target in this order:
+When a command like `/mantis-scan`, `/mantis-agentic`, `/mantis-validate`, `/mantis-codeql`, or `/mantis-fuzz` is run **without a path argument**, resolve the default target in this order:
 
 1. **Active project target:** the run lifecycle script reads the `.active` symlink to find the project target automatically
 2. **Caller's directory:** if `$MANTISHACK_CALLER_DIR` is set (launcher saves the user's cwd before switching to the MANTISHACK repo dir), use it
@@ -79,7 +85,7 @@ Do not use the current working directory as a fallback — it is always the MANT
 
 ## RUN LIFECYCLE
 
-When running any analysis command (`/scan`, `/validate`, `/understand`, `/codeql`, `/fuzz`, `/web`), use the run lifecycle stubs to create the output directory and track status:
+When running any analysis command (`/mantis-scan`, `/mantis-validate`, `/mantis-understand`, `/mantis-codeql`, `/mantis-fuzz`, `/mantis-web`), use the run lifecycle stubs to create the output directory and track status:
 
 **Before starting work:**
 ```bash
@@ -101,7 +107,7 @@ The `start` command automatically resolves the output directory using the active
 
 **If `start` fails (non-zero exit):** STOP. Report the error to the user. Do not proceed with the command.
 
-**Note:** `/validate` uses `libexec/mantishack-validation-helper 0` instead of `mantishack-run-lifecycle` — it bundles lifecycle management with inventory building.
+**Note:** `/mantis-validate` uses `libexec/mantishack-validation-helper 0` instead of `mantishack-run-lifecycle` — it bundles lifecycle management with inventory building.
 
 Commands run via `python3 mantishack.py` (scan, agentic, codeql, fuzz, web) manage lifecycle internally — do not call the stubs separately for those.
 
@@ -135,9 +141,9 @@ When scanning untrusted repositories:
 
 ## CRASH ANALYSIS
 
-The `/crash-analysis` command provides autonomous root-cause analysis for C/C++ crashes.
+The `/mantis-crash-analysis` command provides autonomous root-cause analysis for C/C++ crashes.
 
-**Usage:** `/crash-analysis <bug-tracker-url> <git-repo-url>`
+**Usage:** `/mantis-crash-analysis <bug-tracker-url> <git-repo-url>`
 
 **Agents:**
 - `crash-analysis-agent` - Main orchestrator
@@ -158,9 +164,9 @@ The `/crash-analysis` command provides autonomous root-cause analysis for C/C++ 
 
 ## OSS FORENSICS
 
-The `/oss-forensics` command provides evidence-backed forensic investigation for public GitHub repositories.
+The `/mantis-oss-forensics` command provides evidence-backed forensic investigation for public GitHub repositories.
 
-**Usage:** `/oss-forensics <prompt> [--max-followups 3] [--max-retries 3]`
+**Usage:** `/mantis-oss-forensics <prompt> [--max-followups 3] [--max-retries 3]`
 
 **Agents:**
 - `oss-forensics-agent` - Main orchestrator
@@ -188,9 +194,9 @@ The `/oss-forensics` command provides evidence-backed forensic investigation for
 
 ## EXPLOITABILITY VALIDATION
 
-The `/validate` command validates that vulnerability findings are real, reachable, and exploitable.
+The `/mantis-validate` command validates that vulnerability findings are real, reachable, and exploitable.
 
-**Usage:** `/validate <target_path> [--vuln-type <type>] [--findings <file>]`
+**Usage:** `/mantis-validate <target_path> [--vuln-type <type>] [--findings <file>]`
 
 **Stages:** 0 → A → B → C → D → E → F → 1 (see `.claude/skills/exploitability-validation/PIPELINE.md`)
 
@@ -201,15 +207,15 @@ The `/validate` command validates that vulnerability findings are real, reachabl
 
 **Output:** `out/exploitability-validation-<timestamp>/validation-report.md`
 
-**Pipeline handoff:** For `/understand` → `/validate` workflows, use the same `--out` directory so `context-map.json`, `checklist.json`, and `flow-trace-*.json` are shared automatically.
+**Pipeline handoff:** For `/mantis-understand` → `/mantis-validate` workflows, use the same `--out` directory so `context-map.json`, `checklist.json`, and `flow-trace-*.json` are shared automatically.
 
 ---
 
 ## CODE UNDERSTANDING
 
-The `/understand` command provides deep, adversarial code comprehension for security research.
+The `/mantis-understand` command provides deep, adversarial code comprehension for security research.
 
-**Usage:** `/understand <target> [--map] [--trace <entry>] [--hunt <pattern>] [--teach <subject>] [--out <dir>]`
+**Usage:** `/mantis-understand <target> [--map] [--trace <entry>] [--hunt <pattern>] [--teach <subject>] [--out <dir>]`
 
 **Modes:**
 - `--map` — Build context: entry points, trust boundaries, sinks → `context-map.json`
@@ -226,16 +232,16 @@ The `/understand` command provides deep, adversarial code comprehension for secu
 
 **Output:** Resolved by `libexec/mantishack-run-lifecycle start understand` (project dir or `out/understand_<timestamp>/`)
 
-**Pipeline integration:** `/validate` Stage 0 automatically imports `/understand` output via the bridge (`core/orchestration/understand_bridge.py`). No `--out` alignment needed — the bridge searches: (1) co-located files, (2) project siblings, (3) global `out/` by target path + SHA-256 freshness. When found, it pre-populates `attack-surface.json`, imports flow traces as attack paths, and marks entry points/sinks as high-priority in the checklist.
+**Pipeline integration:** `/mantis-validate` Stage 0 automatically imports `/mantis-understand` output via the bridge (`core/orchestration/understand_bridge.py`). No `--out` alignment needed — the bridge searches: (1) co-located files, (2) project siblings, (3) global `out/` by target path + SHA-256 freshness. When found, it pre-populates `attack-surface.json`, imports flow traces as attack paths, and marks entry points/sinks as high-priority in the checklist.
 
 ---
 
 ## DIAGRAM GENERATION
 
-The `/diagram` command generates Mermaid visual maps from `/understand` and `/validate` JSON outputs, giving researchers a visual representation of code flows, sources, sinks, trust boundaries, attack trees, and attack paths. Consider this 
+The `/mantis-diagram` command generates Mermaid visual maps from `/mantis-understand` and `/mantis-validate` JSON outputs, giving researchers a visual representation of code flows, sources, sinks, trust boundaries, attack trees, and attack paths. Consider this 
 very much a WIP but it could be of use for those wanting to see relationships and flows better. 
 
-**Usage:** `/diagram <out-dir> [--target <name>] [--type context-map|flow-trace|attack-tree|attack-paths|all]`
+**Usage:** `/mantis-diagram <out-dir> [--target <name>] [--type context-map|flow-trace|attack-tree|attack-paths|all]`
 
 **What gets rendered:**
 - `context-map.json` → flowchart LR: entry points → trust boundaries → sinks; unchecked flows as dashed edges
@@ -248,34 +254,34 @@ very much a WIP but it could be of use for those wanting to see relationships an
 
 **Implementation:** `libexec/mantishack-render-diagrams <out-dir> [--target <name>]`
 
-**When to run:** Diagrams are auto-generated at the end of `/validate` and `/understand --map`/`--trace`. Use `/diagram <dir>` to re-render after manual edits to JSON outputs.
+**When to run:** Diagrams are auto-generated at the end of `/mantis-validate` and `/mantis-understand --map`/`--trace`. Use `/mantis-diagram <dir>` to re-render after manual edits to JSON outputs.
 
 ---
 
 ## ANNOTATIONS
 
-The `/annotate` command attaches free-form prose to individual functions, stored as markdown mirroring the source tree. Operators write manual review notes; LLM passes (`/agentic`, `/understand`) emit per-function annotations automatically.
+The `/mantis-annotate` command attaches free-form prose to individual functions, stored as markdown mirroring the source tree. Operators write manual review notes; LLM passes (`/mantis-agentic`, `/mantis-understand`) emit per-function annotations automatically.
 
 **Storage:** `<base>/<source_path>.md` — one annotation file per source file, with `## function_name` sections, an HTML-comment metadata line, and a free-form prose body. The base directory defaults to the active project's `<output_dir>/annotations`.
 
 **Status enum:** `clean` (reviewed, no concern) / `suspicious` (real bug, not exploitable) / `finding` (exploitable) / `entry_point` / `sink` / `trust_boundary` / `flow_step` / `unchecked_flow` / `error`.
 
-**Source attribution:** Every annotation carries `metadata.source=human` or `metadata.source=llm`. LLM-driven writes pass `overwrite=respect-manual` so a manual operator note is never silently clobbered. Operators using `/annotate add` set `source=human` by default.
+**Source attribution:** Every annotation carries `metadata.source=human` or `metadata.source=llm`. LLM-driven writes pass `overwrite=respect-manual` so a manual operator note is never silently clobbered. Operators using `/mantis-annotate add` set `source=human` by default.
 
-**Staleness:** Annotations stamped with `--lines N-M` carry a `metadata.hash` short prefix of the function's source. `/annotate stale` re-computes and lists annotations whose source has drifted.
+**Staleness:** Annotations stamped with `--lines N-M` carry a `metadata.hash` short prefix of the function's source. `/mantis-annotate stale` re-computes and lists annotations whose source has drifted.
 
 **Where annotations come from:**
-- `/agentic` — emits one annotation per analysed finding under `<run_output_dir>/annotations/`. Status mapped from the LLM's `is_true_positive` × `is_exploitable`. Body is the LLM's `reasoning`.
-- `/understand --map` / `--trace` — post-processor synthesises annotations for entry points, sinks, trust boundaries, unchecked flows, and per-step trace records.
-- `/annotate add` — operator-driven manual entry.
+- `/mantis-agentic` — emits one annotation per analysed finding under `<run_output_dir>/annotations/`. Status mapped from the LLM's `is_true_positive` × `is_exploitable`. Body is the LLM's `reasoning`.
+- `/mantis-understand --map` / `--trace` — post-processor synthesises annotations for entry points, sinks, trust boundaries, unchecked flows, and per-step trace records.
+- `/mantis-annotate add` — operator-driven manual entry.
 
 **Operator workflow:**
 ```
-/annotate add src/auth.py check_pw --status clean -m "Constant-time compare, no taint"
-/annotate ls --status finding              # cross-run view in active project
-/annotate show src/auth.py check_pw
-/annotate edit src/auth.py check_pw        # opens .md in $EDITOR
-/annotate stale --target ~/repos/myproj    # source drifted since note written
+/mantis-annotate add src/auth.py check_pw --status clean -m "Constant-time compare, no taint"
+/mantis-annotate ls --status finding              # cross-run view in active project
+/mantis-annotate show src/auth.py check_pw
+/mantis-annotate edit src/auth.py check_pw        # opens .md in $EDITOR
+/mantis-annotate stale --target ~/repos/myproj    # source drifted since note written
 ```
 
 **Substrate:** `core/annotations/` — atomic write via tempfile + rename, path-traversal defended (rejects `..` segments and absolute paths), function-name and metadata-value validation prevents on-disk format corruption.
@@ -290,7 +296,7 @@ The `/annotate` command attaches free-form prose to individual functions, stored
 **When developing exploits:** Load `tiers/exploit-guidance.md` (constraints, techniques)
 **When errors occur:** Load `tiers/recovery.md` (recovery protocol)
 **When requested:** Load `tiers/personas/[name].md` (expert personas)
-**When running /understand:** Load `.claude/skills/code-understanding/SKILL.md` (gates, config) plus the relevant mode file: `map.md`, `trace.md`, `hunt.md`, or `teach.md`
+**When running /mantis-understand:** Load `.claude/skills/code-understanding/SKILL.md` (gates, config) plus the relevant mode file: `map.md`, `trace.md`, `hunt.md`, or `teach.md`
 
 ---
 

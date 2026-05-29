@@ -8,7 +8,7 @@ You are helping the user run Mantishack's automatic authentication + security-lo
 
 ## What it checks
 
-Semgrep rules under `engine/semgrep/rules/auth/` and `engine/semgrep/rules/logging/` are filtered by the `mantis_capability: auth-audit` tag. The current rule pack covers:
+Semgrep rules live under `engine/semgrep/rules/auth/` and `engine/semgrep/rules/logging/`. They are selected by passing those directory names as policy groups (`--policy-groups auth,logging`); each rule is also tagged `mantis_capability: auth-audit` in its metadata for downstream grouping. The current rule pack covers:
 
 | Family | Rule | Severity |
 |---|---|---|
@@ -29,18 +29,15 @@ Semgrep rules under `engine/semgrep/rules/auth/` and `engine/semgrep/rules/loggi
 
 1. **Identify the target**: ask which directory / repository to audit if not specified.
 
-2. **Run the auth audit**:
+2. **Run the auth audit** (the `auth` and `logging` policy groups map to the
+   `engine/semgrep/rules/auth/` and `engine/semgrep/rules/logging/` rule dirs):
    ```bash
-   python3 mantishack.py scan --repo <path> \
-     --rules engine/semgrep/rules/auth \
-     --rules engine/semgrep/rules/logging \
-     --policy-group jwt \
-     --tag auth-audit
+   python3 mantishack.py scan --repo <path> --policy-groups auth,logging
    ```
 
-3. **Then run the LLM validation pass** so the findings get exploitability triage (not just lint output):
-   ```bash
-   python3 mantishack.py validate --repo <path> --tag auth-audit
+3. **Then run the LLM validation pass** so the findings get exploitability triage (not just lint output). Use the `/mantis-validate` command on the same target:
+   ```
+   /mantis-validate <path>
    ```
 
 4. **Report**:
@@ -51,16 +48,20 @@ Semgrep rules under `engine/semgrep/rules/auth/` and `engine/semgrep/rules/loggi
 
 5. **Help fix issues**: offer to generate patches for the HIGH findings using `/mantis-patch` and to add the missing audit log lines.
 
-## Automatic invocation
+## Relationship to `/mantis-agentic`
 
-`/mantis-agentic` runs this audit as **step 2.5** of its pipeline by default — you do not need to call `/mantis-auth-audit` separately when running the full agentic workflow. Use this command when you only want the auth + logging subset (faster, more targeted).
+`/mantis-agentic` runs the full scan → dedup → prep → analysis pipeline. To make
+the agentic run cover the same auth + logging rules, include them in its policy
+groups (`--policy-groups auth,logging`, or add them to your existing group list).
+Use `/mantis-auth-audit` when you only want the auth + logging subset on its own
+(faster, more targeted).
 
 ## Example invocations
 
 ```bash
-# Audit a single repo
+# Audit a single repo (auth + logging rule packs only)
 /mantis-auth-audit /path/to/code
 
-# Audit + validate + auto-patch in one shot
-/mantis-agentic /path/to/code --auth-audit --validate
+# Full agentic run that includes the auth/logging packs, then validates
+/mantis-agentic /path/to/code --policy-groups auth,logging --validate
 ```
