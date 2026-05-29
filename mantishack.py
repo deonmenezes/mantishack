@@ -693,6 +693,18 @@ def mode_llm_analysis(args: list) -> int:
     return _run_script(llm_script, args)
 
 
+def mode_fullsend(args: list) -> int:
+    """Prepare (and optionally send) a responsible-disclosure email.
+
+    Reads an existing run's report — it does not produce a scan run — so it
+    skips ``_run_with_lifecycle`` and runs in-process, mirroring ``mode_doctor``.
+    Pure Python (no LLM, no untrusted-repo execution); the actual SMTP send is
+    gated inside the CLI behind ``--send`` + environment credentials.
+    """
+    from core.disclosure.cli import main as fullsend_main
+    return fullsend_main(args)
+
+
 def mode_doctor(args: list) -> int:
     """Run the on-demand status report.
 
@@ -775,6 +787,7 @@ Available Modes:
   agentic     - Full autonomous workflow (Semgrep + CodeQL + LLM analysis)
   codeql      - CodeQL-only analysis
   analyze     - LLM-powered vulnerability analysis (requires SARIF input)
+  fullsend    - Email a finished report to the target's security contact
   doctor      - Status report for local setup (no claude needed)
 
 Examples:
@@ -795,6 +808,10 @@ Examples:
 
   # LLM analysis of existing SARIF
   python3 mantishack.py analyze --repo /path/to/code --sarif findings.sarif
+
+  # Email the newest report to the target's security contact (dry run first)
+  python3 mantishack.py fullsend example.com
+  python3 mantishack.py fullsend example.com --send   # actually send (SMTP env)
 
 Sandbox isolation (mode-level flags — pass them AFTER the mode name,
 not before; the top-level parser does not declare them directly):
@@ -877,9 +894,10 @@ def main():
         'agentic': mode_agentic,
         'codeql': mode_codeql,
         'analyze': mode_llm_analysis,
+        'fullsend': mode_fullsend,
         'doctor': mode_doctor,
     }
-    
+
     if mode not in mode_handlers:
         print(f"✗ Unknown mode: {mode}", file=sys.stderr)
         # Suggest the closest match — typos like ``agantic`` for
