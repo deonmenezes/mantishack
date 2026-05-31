@@ -33,6 +33,11 @@ Each maps a classic adversarial "war-game" lens to a vuln-hunting mission:
 | `threat-landscape-shift` | emerging attacks that break today's defenses | desync, dep-confusion, prompt-injection & tool-abuse |
 | `assumption-pressure-test` | attack every implicit trust assumption | confused-deputy, parser differentials, mass-assignment, 2nd-order injection |
 | `skeptical-auditor-teardown` | refute "it's secure" (false-positive killer) | adversarial verification of findings + controls |
+| `llm-agent-abuse` | coerce the AI/agent surface | prompt injection (direct + indirect/RAG), tool-call hijack, model-output→eval/SQL/shell, secret leakage |
+| `workflow-abuse-economist` | abuse business logic, not the bug | price/coupon/quota/refund tampering, free-trial re-abuse, state-machine skips |
+| `federated-identity-breaker` | break the SSO handshake, not the JWT | OAuth redirect_uri/state theft, PKCE downgrade, SAML XSW, account-linking takeover |
+| `http-edge-desync` | make two HTTP hops disagree | request smuggling (CL.TE/TE.CL/CL.0), cache poisoning, cache deception |
+| `supply-chain-saboteur` | own the build, own everything | poisoned-pipeline execution, runner secret exfil, dependency confusion, container escape |
 | `red-team-report` | synthesize | kill-chain stitching, CVSS, TOP-3 critical report |
 
 ### CWE strategy packs — `core/llm/cwe_strategies/strategies/`
@@ -46,6 +51,11 @@ Web/app-tier coverage (the existing strategies skew toward C/kernel memory bugs)
 - `template_injection.yml` — CWE-1336/917 SSTI + expression-language injection
 - `auth_token_confusion.yml` — CWE-347/287/345 JWT/token confusion, alg:none, key confusion
 - `toctou_race.yml` — CWE-367/362 web-tier check-then-act races, double-spend, idempotency gaps
+- `ai_tool_abuse.yml` — CWE-1427/94/77 LLM prompt injection, tool-call abuse, unsafe model output → eval/SQL/shell
+- `business_logic.yml` — CWE-840/841/770 price/coupon/quota/refund tampering, state-machine sequencing
+- `oauth_saml_oidc.yml` — CWE-1275/352/347 OAuth/OIDC/SAML flow attacks, XSW, account-linking takeover
+- `request_smuggling_cache_poisoning.yml` — CWE-444/525/348 HTTP desync, web cache poisoning + deception
+- `cicd_supply_chain.yml` — CWE-1395/94/250 poisoned-pipeline execution, dependency confusion, container/IaC escape
 
 ## Usage
 
@@ -57,8 +67,9 @@ Web/app-tier coverage (the existing strategies skew toward C/kernel memory bugs)
 
 Individual personas are also launchable directly via the Task tool when you want a single lens.
 
-## Roadmap (next packs)
+## Coverage
 
-Surfaced by the completeness critic as the highest-value gaps for modern web/app + AI targets:
-LLM/agent-abuse (prompt injection, tool-abuse), business-logic abuse (price/coupon/quota tampering),
-OAuth/OIDC/SAML flow attacks, HTTP desync + cache poisoning, and CI/CD + container supply-chain.
+12 personas + 11 CWE strategy packs across the full modern web/app + AI attack surface: kill-chains,
+authorization, trust assumptions, deserialization, SSRF, SSTI, JWT, TOCTOU, **LLM/agent abuse,
+business-logic abuse, OAuth/OIDC/SAML flows, HTTP desync + cache poisoning, and CI/CD + container
+supply-chain** — the five gap classes the completeness critic flagged are now closed.

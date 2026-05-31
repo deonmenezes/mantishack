@@ -61,10 +61,11 @@ the agents' starting corpus, **not their ceiling.**
 
 ## Phase 1 — 🐲 RED-TEAM WAR GAME  *(parallel agent swarm — the core power feature)*
 
-Spawn the five **hunting** personas concurrently via the **Task tool**, in a single message (they run
+Spawn the **ten hunting** personas concurrently via the **Task tool**, in a single message (they run
 in parallel). Each gets: the target path, the Phase 0 seed corpus, and `context-map.json`. Each is a
 different attacker mindset and finds the bugs deterministic scanners structurally cannot (logic flaws,
-broken authorization, trust-assumption breaks, multi-step chains):
+broken authorization, trust-assumption breaks, multi-step chains). Skip any whose surface the target
+lacks (e.g. no CI config → skip `supply-chain-saboteur`):
 
 | Persona (Task subagent) | War-game lens | Primarily surfaces |
 |---|---|---|
@@ -73,6 +74,11 @@ broken authorization, trust-assumption breaks, multi-step chains):
 | `single-point-of-compromise` | "where does ONE bug = total compromise" | secret stores, auth middleware, deserializers, SSRF egress |
 | `threat-landscape-shift` | "what emerging attack breaks today's defenses" | desync/smuggling, dep-confusion, prompt-injection & tool-abuse |
 | `assumption-pressure-test` | "attack every implicit trust assumption" | confused-deputy, parser differentials, mass-assignment, 2nd-order injection |
+| `llm-agent-abuse` | "coerce the AI/agent surface" | prompt injection (direct + indirect/RAG), tool-call hijack, model-output → eval/SQL/shell, secret leakage |
+| `workflow-abuse-economist` | "abuse the business logic, not the bug" | price/coupon/quota/refund tampering, free-trial re-abuse, state-machine skips |
+| `federated-identity-breaker` | "break the SSO handshake, not the JWT" | OAuth redirect_uri/state theft, PKCE downgrade, SAML XSW, account-linking takeover |
+| `http-edge-desync` | "make two HTTP hops disagree" | request smuggling (CL.TE/TE.CL/CL.0), cache poisoning, cache deception |
+| `supply-chain-saboteur` | "own the build, own everything" | poisoned-pipeline execution, runner secret exfil, dependency confusion, container escape |
 
 Each persona returns findings in the standard block (`## [SEVERITY] … Location / Type / Attack vector
 / Impact / PoC / Reachability / Remediation`).
