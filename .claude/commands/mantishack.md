@@ -106,6 +106,37 @@ every still-`unexplored` unit as residual risk. Never let a truncated run read a
 
 ---
 
+## Phase 1B — 🔨 ACTIVE TAMPER & FUZZ  *(live targets only — sends real requests)*
+
+Runs **only when the target is a reachable host/URL** and the authorization gate confirmed scope. This
+is the *live-fire* lane: where Phase 1 reasons about code, Phase 1B **actually mutates every port,
+page, and API input and watches for a behavioral oracle**. Skip entirely for local-repo-only runs.
+
+**Load the `tamper-fuzzing` skill** (the tamper-everything-until-it-breaks loop engine) and spawn these
+three operators concurrently via the **Task tool**, seeded with the Phase 0 crawl/recon surface:
+
+| Operator (Task subagent) | Tampers | Oracle |
+|---|---|---|
+| `surface-tamper-operator` | every open port/service, page, form, param, header, cookie, method — full mutation matrix (injection, type-juggle, boundary, verb, param-pollution, IDOR sweep, traversal, SSRF callback) | differential response / timing / OOB callback / reflected canary / error leak |
+| `api-abuse-fuzzer` | REST + GraphQL: BOLA/IDOR id-enumeration, BFLA (privileged verbs as low-priv), mass-assignment, GraphQL introspection + alias/batch abuse, token swap, rate-limit/idempotency bypass | auth-state change / data exposure / 200-where-403-expected |
+| `prompt-injection-probe` | **every LLM-backed surface** (chat, AI search, summarizers, agent tools, RAG over user content): direct + indirect/stored injection, system-prompt & secret extraction, tool-call hijack, markdown/image data-exfil, jailbreak-to-action | the model obeys the injected instruction, leaks its prompt, or calls a tool it shouldn't |
+
+Compose the repo's real machinery: `mantishack.py web --url`, the crawler + `ffuf` + fuzzer
+(`packages/web/{crawler,ffuf,fuzzer}.py`), and `packages/recon` for service enumeration. Drive
+one-off mutations with `curl`.
+
+**Tamper loop (via `tamper-fuzzing` + `redteam-hunting`):** maintain a ledger of every
+`(endpoint, input)` pair; mutate each through the matrix, rotating mutation classes per round; a tamper
+counts as a finding **only when an oracle fires**. Converge only when **K dry rounds AND zero untested
+`(endpoint, input)` pairs** remain — otherwise report the residual untested pairs.
+
+**Safety (enforced by every operator):** authorized scope only; **non-destructive by default** (no data
+deletion, DoS, spam, or destructive state changes); throttle requests; **ASK before** any state-changing
+or exploit step; out-of-scope host → refuse. Findings use the same block (with `Tamper:` / `Evidence:`
+/ `Reproduce:` fields) and flow into Phase 2.
+
+---
+
 ## Phase 2 — Validate & prove  *(Stages 0→A→B→C→D→E→F)*
 
 Every candidate — pipeline seeds **and** war-game findings — must survive the exploitability-validation
