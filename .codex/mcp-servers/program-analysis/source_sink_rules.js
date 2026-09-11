@@ -79,6 +79,27 @@ const RULES = [
     pattern: /\b(node-serialize|serialize\.unserialize)\s*\(/g,
     cwe: "CWE-502",
   },
+  // SQL injection (CWE-89) was previously only tagged for Java
+  // (java.statement.execute) even though dynamic query construction is just
+  // as common -- and just as dangerous -- in Node backends. These two rules
+  // key on the actually-risky shape (a query/execute call built from a
+  // template literal or string that is concatenated), not on `.query(`
+  // itself, since parameterized calls like `db.query(sql, [id])` are safe
+  // and would otherwise dominate the findings with noise.
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.sql.query_template_literal",
+    pattern: /\.(query|execute)\s*\(\s*`[^`]*\$\{[^}]*\}[^`]*`/g,
+    cwe: "CWE-89",
+  },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.sql.query_string_concat",
+    pattern: /\.(query|execute)\s*\(\s*(['"])[^'"]*\2\s*\+/g,
+    cwe: "CWE-89",
+  },
 
   // Python
   {
@@ -129,6 +150,30 @@ const RULES = [
     pattern: /\byaml\.load\s*\((?!.*Loader=yaml\.SafeLoader)/g,
     cwe: "CWE-502",
   },
+  // Same CWE-89 coverage gap as JS above: DB-API cursor.execute() with an
+  // f-string, %-formatted, or concatenated query is the classic Python SQLi
+  // shape (vs. the safe `cursor.execute(sql, params)` parameterized form).
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.sql.execute_fstring",
+    pattern: /\.execute\s*\(\s*f(['"])/g,
+    cwe: "CWE-89",
+  },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.sql.execute_percent_format",
+    pattern: /\.execute\s*\(\s*(['"])[^'"]*\1\s*%\s*[\w(]/g,
+    cwe: "CWE-89",
+  },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.sql.execute_string_concat",
+    pattern: /\.execute\s*\(\s*(['"])[^'"]*\1\s*\+/g,
+    cwe: "CWE-89",
+  },
 
   // Go
   {
@@ -151,6 +196,23 @@ const RULES = [
     id: "go.template.html",
     pattern: /\btemplate\.HTML\s*\(/g,
     cwe: "CWE-79",
+  },
+  // Same CWE-89 gap for Go's database/sql: Query/QueryRow/Exec built via
+  // fmt.Sprintf or string concatenation instead of a placeholder + args.
+  {
+    lang: "go",
+    kind: "sink",
+    id: "go.sql.query_sprintf",
+    pattern: /\b(Query|QueryRow|QueryContext|Exec)\s*\(\s*fmt\.Sprintf\s*\(/g,
+    cwe: "CWE-89",
+  },
+  {
+    lang: "go",
+    kind: "sink",
+    id: "go.sql.query_string_concat",
+    pattern:
+      /\b(Query|QueryRow|QueryContext|Exec)\s*\(\s*(['"`])[^'"`]*\2\s*\+/g,
+    cwe: "CWE-89",
   },
 
   // Java
