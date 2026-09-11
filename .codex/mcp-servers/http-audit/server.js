@@ -49,6 +49,14 @@ const SECRET_VALUE_PATTERNS = [
     /\b(token|api[_-]?key|access[_-]?token|refresh[_-]?token|secret|password|passwd|auth|session[_-]?id|sig|signature)=([^&\s]+)/gi,
     (_match, name) => `${name}=[REDACTED]`,
   ],
+  // Same generically-named fields, but in a JSON body ("key": "value") instead
+  // of a query/form string -- most modern APIs carry these fields as JSON, and
+  // the `key=value` pattern above never matches that shape, so a raw password
+  // or token would otherwise survive straight into the body preview.
+  [
+    /"(token|api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|secret|password|passwd|auth|authorization|session[_-]?id|sig|signature|private[_-]?key)"\s*:\s*"([^"]*)"/gi,
+    (_match, name) => `"${name}":"[REDACTED]"`,
+  ],
 ];
 
 const MAX_BODY_PREVIEW = 512;
@@ -159,30 +167,38 @@ function auditExchange({ request, response }) {
   return pack;
 }
 
-createServer({
-  name: "mantis-http-audit",
-  version: "0.1.0",
-  tools: [
-    {
-      name: "http_audit",
-      description:
-        "Turn a raw HTTP request and/or response into a bounded, redacted evidence pack with a stable request-ref hash. Use during Validate/DAST to attach reproducible HTTP evidence to a finding WITHOUT storing raw secrets, cookies, or full bodies. Pure function; no network is made -- you pass in captured text.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          request: {
-            type: "string",
-            description:
-              "Raw HTTP request text (request line + headers + optional body).",
-          },
-          response: {
-            type: "string",
-            description:
-              "Raw HTTP response text (status line + headers + optional body).",
+function main() {
+  createServer({
+    name: "mantis-http-audit",
+    version: "0.1.0",
+    tools: [
+      {
+        name: "http_audit",
+        description:
+          "Turn a raw HTTP request and/or response into a bounded, redacted evidence pack with a stable request-ref hash. Use during Validate/DAST to attach reproducible HTTP evidence to a finding WITHOUT storing raw secrets, cookies, or full bodies. Pure function; no network is made -- you pass in captured text.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            request: {
+              type: "string",
+              description:
+                "Raw HTTP request text (request line + headers + optional body).",
+            },
+            response: {
+              type: "string",
+              description:
+                "Raw HTTP response text (status line + headers + optional body).",
+            },
           },
         },
+        handler: auditExchange,
       },
-      handler: auditExchange,
-    },
-  ],
-});
+    ],
+  });
+}
+
+if (require.main === module) {
+  main();
+}
+
+module.exports = { auditExchange, redactValue, parseHttpMessage };
