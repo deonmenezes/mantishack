@@ -79,6 +79,21 @@ const RULES = [
     pattern: /\b(node-serialize|serialize\.unserialize)\s*\(/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.prototype_pollution.merge",
+    pattern:
+      /\b(_\.(merge|mergeWith|defaultsDeep|assignIn)|deepmerge(?:\.all)?|jQuery\.extend|Object\.assign)\s*\(|\$\.extend\s*\(/g,
+    cwe: "CWE-1321",
+  },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.prototype_pollution.dunder_proto",
+    pattern: /\[\s*["']__proto__["']\s*\]\s*=|\.__proto__\s*(\[|=|\.)/g,
+    cwe: "CWE-1321",
+  },
 
   // Python
   {
