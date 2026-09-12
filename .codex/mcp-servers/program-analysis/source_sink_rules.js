@@ -82,22 +82,25 @@ const RULES = [
   {
     lang: "js",
     kind: "sink",
-    id: "js.ssrf.axios",
-    pattern: /\baxios(?:\.(?:get|post|put|delete|patch|head|request))?\s*\(/g,
+    id: "js.ssrf.fetch_source",
+    pattern:
+      /\bfetch\s*\([^)]*\b(req\.(query|body|params|headers|cookies)|location\.(hash|search|href))\b/g,
     cwe: "CWE-918",
   },
   {
     lang: "js",
     kind: "sink",
-    id: "js.ssrf.fetch",
-    pattern: /\bfetch\s*\(/g,
+    id: "js.ssrf.axios_source",
+    pattern:
+      /\baxios\.(get|post|put|delete|patch|request)\s*\([^)]*\breq\.(query|body|params|headers|cookies)\b/g,
     cwe: "CWE-918",
   },
   {
     lang: "js",
     kind: "sink",
-    id: "js.ssrf.node_http",
-    pattern: /\b(?:http|https)\.(?:get|request)\s*\(/g,
+    id: "js.ssrf.http_request_source",
+    pattern:
+      /\bhttps?\.(get|request)\s*\([^)]*\breq\.(query|body|params|headers|cookies)\b/g,
     cwe: "CWE-918",
   },
 
@@ -153,22 +156,16 @@ const RULES = [
   {
     lang: "py",
     kind: "sink",
-    id: "py.ssrf.requests",
-    pattern: /\brequests\.(?:get|post|put|delete|patch|head|request)\s*\(/g,
+    id: "py.ssrf.requests_source",
+    pattern:
+      /\brequests\.(get|post|put|delete|head|patch)\s*\([^)]*\brequest\.(args|form|values|json|GET|POST)\b/g,
     cwe: "CWE-918",
   },
   {
     lang: "py",
     kind: "sink",
-    id: "py.ssrf.urllib",
-    pattern: /\burllib(?:2)?\.request\.urlopen\s*\(|\burlopen\s*\(/g,
-    cwe: "CWE-918",
-  },
-  {
-    lang: "py",
-    kind: "sink",
-    id: "py.ssrf.httpx",
-    pattern: /\bhttpx\.(?:get|post|put|delete|patch|head|request)\s*\(/g,
+    id: "py.ssrf.urlopen_source",
+    pattern: /\burlopen\s*\([^)]*\brequest\.(args|form|values|json)\b/g,
     cwe: "CWE-918",
   },
 
@@ -197,8 +194,9 @@ const RULES = [
   {
     lang: "go",
     kind: "sink",
-    id: "go.ssrf.net_http",
-    pattern: /\bhttp\.(?:Get|Post|PostForm|Head|NewRequest)\s*\(/g,
+    id: "go.ssrf.http_get_source",
+    pattern:
+      /\bhttp\.(Get|Post|Head)\s*\([^)]*\br\.(URL\.Query\(\)|FormValue|PostFormValue)\b/g,
     cwe: "CWE-918",
   },
 
@@ -240,8 +238,8 @@ const RULES = [
   {
     lang: "java",
     kind: "sink",
-    id: "java.ssrf.url_connection",
-    pattern: /\.openConnection\s*\(|newHttpClient\s*\(\s*\)\s*\.\s*send/g,
+    id: "java.ssrf.url_connection_param",
+    pattern: /\bnew\s+URL\s*\([^)]*\brequest\.getParameter\s*\(/g,
     cwe: "CWE-918",
   },
 ];
