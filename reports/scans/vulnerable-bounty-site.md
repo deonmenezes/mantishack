@@ -12,7 +12,7 @@ Scope: discovery-only (no active exploitation, no destructive requests).
 ## 2026-07-13T00:08Z — blocked at the network layer, no scan performed
 
 Every outbound HTTPS request from this session's environment — to the
-target *and* to unrelated control domains (`example.com`, `vercel.app`,
+target _and_ to unrelated control domains (`example.com`, `vercel.app`,
 `nextjs.org`) — was rejected at the egress proxy with `connect_rejected`,
 `gateway answered 403 to CONNECT (policy denial or upstream failure)`.
 
@@ -111,7 +111,7 @@ opened a large number of open, unmerged PRs against `main` (18+ as of this
 run) across its "detection improvement" half, and several of them overlap
 significantly — e.g. four separate PRs touching `http-audit`/`findings`
 secret redaction (#129, #130, #143, #148) and two separate PRs adding SQL
-injection sink rules (#139, #142). Each run currently opens a *new* branch
+injection sink rules (#139, #142). Each run currently opens a _new_ branch
 without checking what's already open, so duplicate effort compounds every
 4 hours. This run updated this existing branch/PR
 (`mantis-routine/2026-07-14-scan-log`, #136) in place instead of opening a
@@ -122,7 +122,7 @@ much further.
 
 ## 2026-07-18T16:11Z — still blocked at the network layer, no scan performed (5th run, same-day repeat)
 
-Fifth consecutive run with the same result — and the second time *today*
+Fifth consecutive run with the same result — and the second time _today_
 (previous entry above was this same day at 12:09Z). Re-verified independently:
 
 - `curl -sS -m 15 https://vulnerable-bounty-site.vercel.app` →
@@ -176,3 +176,49 @@ human hasn't started triaging yet. **Recommended next step, in order:**
 independently mergeable), (2) only then let the routine keep proposing new
 ones — otherwise every future run will keep re-discovering the same handful
 of gaps.
+
+## 2026-09-12T04:32Z — still blocked at the network layer, ~2 months after the last check-in
+
+First run to touch this file since 2026-07-18T16:11Z — a roughly 8-week gap
+in the routine actually firing or producing a logged attempt. Re-verified
+independently with two different tools:
+
+- `curl -sS -m 15 https://vulnerable-bounty-site.vercel.app` →
+  `curl: (56) CONNECT tunnel failed, response 403`
+- `curl -sS -m 15 https://example.com` (unrelated control domain) → identical
+  `CONNECT tunnel failed, response 403`
+- `$HTTPS_PROXY/__agentproxy/status` → `recentRelayFailures` shows fresh
+  `connect_rejected` entries for both hosts timestamped this run
+  (`2026-09-12T04:32:11Z`); `noProxy` allowlist is unchanged from every prior
+  check (Anthropic domains, package registries, git hosts, RFC1918 ranges
+  only — no exception for this target, no general internet egress)
+- `WebFetch` against the target → `EGRESS_BLOCKED: Access to
+vulnerable-bounty-site.vercel.app is blocked by the network egress proxy`
+  (a different, more explicit denial shape than July's raw 403, but the same
+  outcome: request never reaches the target)
+
+No request has ever reached `vulnerable-bounty-site.vercel.app` across six
+now-logged attempts spanning 2026-07-13 through 2026-09-12. Nothing to diff;
+no findings to report from the target itself. The repository's own
+scanning tools (`http_audit`, `source_sink_scan`, etc.) still have never
+been exercised against a live target because none has ever been reachable
+from this environment.
+
+**Backlog update:** **55 open PRs** against `main` as of this run (up
+slightly from 52 at the last check-in eight weeks ago), still essentially
+none merged. The duplicate map from the 2026-07-18T16:11Z entry above is
+still accurate today — spot-checked #152 (SQLi, opened since) and #148
+(secret-DLP parity) and both are still open and still overlap the same
+gaps listed there. This run added one new detection PR
+(#155, Zip Slip / CWE-22 archive-extraction sink coverage in
+`source_sink_scan`) after confirming — by reading the full diffs of the two
+most plausibly-overlapping open PRs (#132 path-traversal, #152 SQLi), not
+just titles — that no open PR already covers unchecked archive extraction.
+
+**Unchanged recommendation:** the network-egress policy and the PR backlog
+are both still exactly where they were in July. Every future run will keep
+re-confirming "still blocked" and the backlog will keep growing by
+~0.5-1 PR/run unless a human (1) allows outbound HTTPS to this target (or
+adds a scoped exception) so the scan half of this routine can finally do
+something, and (2) spends a pass merging or closing the ~15+ small,
+independently-mergeable detection/DLP fixes already sitting open.
