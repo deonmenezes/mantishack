@@ -79,6 +79,13 @@ const RULES = [
     pattern: /\b(node-serialize|serialize\.unserialize)\s*\(/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.header_injection.set_header",
+    pattern: /\b(?:res|response)\.(?:setHeader|set|header)\s*\(/g,
+    cwe: "CWE-113",
+  },
 
   // Python
   {
@@ -129,6 +136,13 @@ const RULES = [
     pattern: /\byaml\.load\s*\((?!.*Loader=yaml\.SafeLoader)/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.header_injection.set_header",
+    pattern: /\bresponse\.headers\s*\[[^\]]+\]\s*=/g,
+    cwe: "CWE-113",
+  },
 
   // Go
   {
@@ -151,6 +165,13 @@ const RULES = [
     id: "go.template.html",
     pattern: /\btemplate\.HTML\s*\(/g,
     cwe: "CWE-79",
+  },
+  {
+    lang: "go",
+    kind: "sink",
+    id: "go.header_injection.header_set",
+    pattern: /\.Header\(\)\.Set\s*\(/g,
+    cwe: "CWE-113",
   },
 
   // Java
@@ -187,6 +208,13 @@ const RULES = [
     id: "java.statement.execute",
     pattern: /\bstatement\.execute(Query|Update)?\s*\(/gi,
     cwe: "CWE-89",
+  },
+  {
+    lang: "java",
+    kind: "sink",
+    id: "java.header_injection.set_header",
+    pattern: /\bresponse\.(?:setHeader|addHeader)\s*\(/g,
+    cwe: "CWE-113",
   },
 ];
 
