@@ -79,6 +79,26 @@ const RULES = [
     pattern: /\b(node-serialize|serialize\.unserialize)\s*\(/g,
     cwe: "CWE-502",
   },
+  // "Zip Slip" (CVE-2018-1000632-class): extracting an archive without
+  // validating that each entry's resolved path stays inside the target
+  // directory lets a `../../etc/cron.d/x` entry name overwrite arbitrary
+  // files. Distinct from the direct fs/sendfile path sinks above -- the
+  // attacker-controlled path segment here is an archive entry name, not a
+  // request parameter.
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.archive.extract_all_to",
+    pattern: /\.extractAllTo\s*\(/g,
+    cwe: "CWE-22",
+  },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.archive.tar_extract",
+    pattern: /\btar\.extract\s*\(/g,
+    cwe: "CWE-22",
+  },
 
   // Python
   {
@@ -129,6 +149,17 @@ const RULES = [
     pattern: /\byaml\.load\s*\((?!.*Loader=yaml\.SafeLoader)/g,
     cwe: "CWE-502",
   },
+  // Same Zip Slip class as the JS rules above: zipfile/tarfile extractall()
+  // writes every archive member to disk using its raw (attacker-controlled)
+  // name unless a `filter=` (tarfile, 3.12+) or manual member-path check
+  // guards it first.
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.archive.extractall_unsafe",
+    pattern: /\.extractall\s*\((?![^\n)]*\bfilter\s*=)/g,
+    cwe: "CWE-22",
+  },
 
   // Go
   {
@@ -151,6 +182,16 @@ const RULES = [
     id: "go.template.html",
     pattern: /\btemplate\.HTML\s*\(/g,
     cwe: "CWE-79",
+  },
+  // Same Zip Slip class as the JS/Python archive rules above: opening an
+  // archive with archive/zip and writing each entry's own (attacker-
+  // controlled) Name is the classic Go zip-slip shape.
+  {
+    lang: "go",
+    kind: "sink",
+    id: "go.archive.zip_openreader",
+    pattern: /\bzip\.OpenReader\s*\(/g,
+    cwe: "CWE-22",
   },
 
   // Java
@@ -187,6 +228,17 @@ const RULES = [
     id: "java.statement.execute",
     pattern: /\bstatement\.execute(Query|Update)?\s*\(/gi,
     cwe: "CWE-89",
+  },
+  // Same Zip Slip class as the other languages above: reading successive
+  // ZipEntry names out of a ZipInputStream and writing each one to disk
+  // (typically via a fresh FileOutputStream per entry) is the classic Java
+  // extraction loop.
+  {
+    lang: "java",
+    kind: "sink",
+    id: "java.archive.zip_entry_extraction",
+    pattern: /\bgetNextEntry\s*\(/g,
+    cwe: "CWE-22",
   },
 ];
 
