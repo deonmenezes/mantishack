@@ -79,6 +79,14 @@ const RULES = [
     pattern: /\b(node-serialize|serialize\.unserialize)\s*\(/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.ssrf.http_client",
+    pattern:
+      /\b(axios(?:\.(?:get|post|put|patch|delete|head|request))?|fetch|got|needle\.(?:get|post|put|head)|request)\s*\(|\b(?:http|https)\.(?:request|get)\s*\(/g,
+    cwe: "CWE-918",
+  },
 
   // Python
   {
@@ -129,6 +137,14 @@ const RULES = [
     pattern: /\byaml\.load\s*\((?!.*Loader=yaml\.SafeLoader)/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.ssrf.http_client",
+    pattern:
+      /\brequests\.(get|post|put|patch|delete|head|request)\s*\(|\bhttpx\.(get|post|put|patch|delete|head|request)\s*\(|\burllib2?\.(request\.)?urlopen\s*\(/g,
+    cwe: "CWE-918",
+  },
 
   // Go
   {
@@ -151,6 +167,14 @@ const RULES = [
     id: "go.template.html",
     pattern: /\btemplate\.HTML\s*\(/g,
     cwe: "CWE-79",
+  },
+  {
+    lang: "go",
+    kind: "sink",
+    id: "go.ssrf.http_client",
+    pattern:
+      /\bhttp\.(Get|Post|PostForm|Head|NewRequest)\s*\(|\.Do\s*\(\s*req\s*\)/g,
+    cwe: "CWE-918",
   },
 
   // Java
@@ -187,6 +211,14 @@ const RULES = [
     id: "java.statement.execute",
     pattern: /\bstatement\.execute(Query|Update)?\s*\(/gi,
     cwe: "CWE-89",
+  },
+  {
+    lang: "java",
+    kind: "sink",
+    id: "java.ssrf.http_client",
+    pattern:
+      /\.(openConnection|openStream)\s*\(|\bHttpClient\.newHttpClient\s*\(|\bnew\s+Http(Get|Post|Put|Delete)\s*\(/g,
+    cwe: "CWE-918",
   },
 ];
 
