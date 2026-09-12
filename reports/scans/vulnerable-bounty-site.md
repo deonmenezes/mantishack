@@ -222,3 +222,62 @@ re-confirming "still blocked" and the backlog will keep growing by
 adds a scoped exception) so the scan half of this routine can finally do
 something, and (2) spends a pass merging or closing the ~15+ small,
 independently-mergeable detection/DLP fixes already sitting open.
+
+## 2026-09-12T12:39Z — still blocked at the network layer, same day as the last check-in
+
+Second run today (previous entry above was this same day at 04:32Z, roughly
+8 hours earlier — consistent with the routine's 4h cadence having a gap
+around the last firing). Re-verified independently:
+
+- `curl -sS -m 15 https://vulnerable-bounty-site.vercel.app` →
+  `curl: (56) CONNECT tunnel failed, response 403`
+- `curl -sS -m 15 https://example.com` (unrelated control domain) → identical
+  `CONNECT tunnel failed, response 403`
+- `$HTTPS_PROXY/__agentproxy/status` → `recentRelayFailures` shows fresh
+  `connect_rejected` entries for both hosts timestamped this run
+  (`2026-09-12T12:38:48Z`, `2026-09-12T12:38:49Z`); `noProxy` allowlist is
+  byte-for-byte unchanged from every prior check (Anthropic domains, package
+  registries, git hosts, RFC1918 ranges only — no exception for this target,
+  no general internet egress)
+- `WebFetch` against the target → `EGRESS_BLOCKED: Access to
+  vulnerable-bounty-site.vercel.app is blocked by the network egress proxy`
+  (same denial shape as the last run)
+
+No request has ever reached `vulnerable-bounty-site.vercel.app` across seven
+now-logged attempts spanning 2026-07-13 through 2026-09-12. Nothing to diff;
+no findings to report from the target itself.
+
+**This run's detection PR:** #157 (CRLF / HTTP response-header-injection,
+CWE-113, sink coverage in `source_sink_scan` — a class with zero prior
+coverage and, as far as could be determined by reading full diffs rather
+than just titles, no overlapping open PR).
+
+**Process incident this run:** before settling on #157, an initial attempt
+independently picked SSRF (CWE-918) coverage again and used the branch name
+`mantis-detection/ssrf-sink-coverage` — not realizing that exact branch name
+was already in use by PR #121 (open since 2026-07-11, with its own, more
+precise, source-gated rules and unit tests). Pushing to it force-overwrote
+#121's commit for a few minutes before this was caught. It was fixed by
+fetching #121's original commit content directly via the GitHub API
+(`get_file_contents` with `ref=<original-commit-sha>`, obtained from
+`pull_request_read` `get_commits` before the branch pointer was lost) and
+pushing it back verbatim, then leaving a comment on #121 explaining the
+incident. No content was permanently lost, but it's a sign that with 55+
+branches now following similar `mantis-detection/<topic>-sink-coverage` /
+`<cwe-name>-coverage` naming patterns, a fresh run choosing a plausible name
+for a "new" gap has a real chance of colliding with something already open.
+**Recommendation for future runs:** always check `list_branches` (or search
+open PRs by exact branch name) before the first push to a newly-created
+branch, not just before opening the PR.
+
+**Backlog update:** **57 open PRs** against `main` as of this run (up from
+55 at the 04:32Z check-in this morning — the two SQLi/detection PRs #156 and
+#157 opened since). Still essentially none merged. Everything in the
+2026-07-18T16:11Z and 2026-09-12T04:32Z duplicate maps above remains
+unaddressed.
+
+**Unchanged recommendation:** same as every prior entry — (1) allow outbound
+HTTPS to this target (or a scoped exception) so the scan half of this
+routine can finally run, and (2) spend a human pass merging or closing the
+growing pile of small, independently-mergeable detection/DLP fixes before
+it grows further.
