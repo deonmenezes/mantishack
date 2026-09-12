@@ -246,8 +246,15 @@ function findingUpdate(args) {
   if (poc) changes.poc = poc;
   if (patch) changes.patch = patch;
   if (grade) {
-    const disp = gradeToDisposition(grade);
-    changes.grade = { ...grade, total: disp.total };
+    // Merge onto the finding's existing grade rather than replacing it: a
+    // verifier that re-grades one axis (e.g. bumps report_quality after
+    // improving the write-up) must not silently zero out every other axis
+    // it didn't mention. gradeToDisposition treats a missing axis as 0, so
+    // grade = { ...grade } alone would drop previously-recorded axes and
+    // could knock a real SUBMIT down to HOLD/SKIP with no grading input.
+    const mergedGrade = { ...(existing.grade || {}), ...grade };
+    const disp = gradeToDisposition(mergedGrade);
+    changes.grade = { ...mergedGrade, total: disp.total };
     changes.disposition = disp.disposition;
   }
   if (run) changes.last_seen_run = run;
@@ -432,7 +439,7 @@ createServer({
           grade: {
             type: "object",
             description:
-              "5-axis grade; total + disposition (SUBMIT>=40 / HOLD 20-39 / SKIP<20) are computed for you.",
+              "5-axis grade; total + disposition (SUBMIT>=40 / HOLD 20-39 / SKIP<20) are computed for you. Merges onto any previously-set axes -- passing only one axis re-scores just that axis and keeps the others, it does not reset them to 0.",
             properties: {
               impact: { type: "number", description: "0-30" },
               proof: { type: "number", description: "0-25" },
