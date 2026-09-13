@@ -281,3 +281,54 @@ HTTPS to this target (or a scoped exception) so the scan half of this
 routine can finally run, and (2) spend a human pass merging or closing the
 growing pile of small, independently-mergeable detection/DLP fixes before
 it grows further.
+
+## 2026-09-13T00:28Z — still blocked at the network layer, ~24h after the last check-in
+
+Eighth logged attempt, roughly a day after the 2026-09-12T12:39Z entry
+above. Re-verified independently:
+
+- `curl -sS -m 15 https://vulnerable-bounty-site.vercel.app` →
+  `curl: (56) CONNECT tunnel failed, response 403`
+- `curl -sS -m 15 https://example.com` (unrelated control domain) → identical
+  `CONNECT tunnel failed, response 403`
+- `$HTTPS_PROXY/__agentproxy/status` → `recentRelayFailures` shows fresh
+  `connect_rejected` entries for both hosts, timestamped this run
+  (`2026-09-13T00:28:10Z`, repeated at `00:35:54Z` on a second check);
+  `noProxy` allowlist is byte-for-byte unchanged from every prior check
+  (Anthropic domains, package registries, git hosts, RFC1918 ranges only —
+  no exception for this target, no general internet egress)
+
+No request has ever reached `vulnerable-bounty-site.vercel.app` across eight
+now-logged attempts spanning 2026-07-13 through 2026-09-13, over two months.
+Nothing to diff; no findings to report from the target itself. The
+repository's own scanning tools (`http_audit`, `source_sink_scan`,
+`osv_scan`, etc.) have still never been exercised against a live target.
+
+**This run's detection PR:** #159 (OSV-scanner severity: falls back to a
+computed CVSS v3 base score when an advisory's `database_specific.severity`
+is absent — true for most non-GHSA ecosystems, e.g. PyPI/crates.io/Go-native
+advisories, which previously came back as `"unknown"` and couldn't be passed
+into `mantis_findings` at all). Chosen specifically because it touches
+`.codex/mcp-servers/lib/` and `osv-scanner/server.js`, neither of which any
+other open PR touches — per the recommendation logged on 2026-09-12, this
+run verified that by reading full diffs of the plausibly-overlapping OSV
+PR (#135, which only maps GHSA's `MODERATE` vocabulary and doesn't touch
+CVSS scoring at all) rather than just titles, and by branching from
+`main`'s actual current file contents, not assumptions. Also checked
+`list_branches`-equivalent (the open-PR list) for the chosen branch name
+before the first push, per the 2026-09-12T12:39Z incident note.
+
+**Backlog update:** **59 open PRs** against `main` as of this run (up from
+57 at the 2026-09-12T12:39Z check-in — PR #158, SSRF/CWE-918 sink coverage,
+and this run's own #159). Still none merged since this routine started in
+July. Everything in the prior duplicate maps above remains unaddressed and
+continues to grow by roughly one PR per 4h firing.
+
+**Unchanged recommendation, now over two months old:** (1) allow outbound
+HTTPS to this authorized target (or a scoped egress exception) so the scan
+half of this routine can finally do something — every one of eight runs has
+produced an identical "blocked before TLS handshake" result and no further
+retries will change that outcome; (2) a human pass to merge or close the
+15+ small, independently-mergeable detection/DLP fixes sitting open with no
+reviews, several going back to July, before continuing to let this routine
+add new ones on top.
