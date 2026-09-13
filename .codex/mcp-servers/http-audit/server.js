@@ -45,8 +45,12 @@ const SECRET_VALUE_PATTERNS = [
   [/\b[A-Za-z0-9._%+-]+:[^@\s/]{6,}@/g, "[REDACTED_USERINFO]@"], // user:pass@ in URLs
   // Generically-named secret-bearing query/form params -- shape-based patterns above
   // can't catch these since the secret value itself has no distinctive shape.
+  // The optional `[A-Za-z0-9]+[_-]` prefix matters: without it this only matched
+  // bare names like `token=`/`secret=` and silently let compound names like
+  // `client_secret=`, `id_token=`, `user_password=`, or `auth_token=` through
+  // unredacted, because `\b` doesn't fire at an internal `_`/`-` (both are \w-adjacent).
   [
-    /\b(token|api[_-]?key|access[_-]?token|refresh[_-]?token|secret|password|passwd|auth|session[_-]?id|sig|signature)=([^&\s]+)/gi,
+    /\b((?:[A-Za-z0-9]+[_-])?(?:token|api[_-]?key|access[_-]?token|refresh[_-]?token|secret|password|passwd|auth|session[_-]?id|sig|signature))=([^&\s]+)/gi,
     (_match, name) => `${name}=[REDACTED]`,
   ],
 ];
