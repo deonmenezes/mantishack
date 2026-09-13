@@ -43,7 +43,7 @@ test("trailing temporal/environmental metrics are ignored, not treated as malfor
   assert.equal(withExtras, 10.0);
 });
 
-test("unparseable, unsupported-version, or non-string input returns null, never a guess", () => {
+test("unparsable, unsupported-version, or non-string input returns null, never a guess", () => {
   assert.equal(cvssV3BaseScore("not a vector"), null);
   assert.equal(
     cvssV3BaseScore("CVSS:4.0/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"),

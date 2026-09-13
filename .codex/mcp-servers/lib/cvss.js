@@ -43,7 +43,7 @@ function parseVector(vector) {
 /**
  * Base score (0-10) for a "CVSS:3.0/..." or "CVSS:3.1/..." vector string, or
  * null if the vector can't be parsed (unsupported version, missing/unknown
- * metric value, malformed string). Never guesses -- an unparseable vector is
+ * metric value, malformed string). Never guesses -- an unparsable vector is
  * reported as unknown rather than assigned a fabricated score.
  */
 function cvssV3BaseScore(vector) {
