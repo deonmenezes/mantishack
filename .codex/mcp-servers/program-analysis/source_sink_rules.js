@@ -79,6 +79,20 @@ const RULES = [
     pattern: /\b(node-serialize|serialize\.unserialize)\s*\(/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.jwt.alg_none_config",
+    pattern: /\balgorithms?\s*:\s*\[?\s*(['"])none\1/gi,
+    cwe: "CWE-347",
+  },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.jwt.decode_without_verify",
+    pattern: /\bjwt\.decode\s*\(/g,
+    cwe: "CWE-347",
+  },
 
   // Python
   {
@@ -128,6 +142,21 @@ const RULES = [
     id: "py.yaml.load_unsafe",
     pattern: /\byaml\.load\s*\((?!.*Loader=yaml\.SafeLoader)/g,
     cwe: "CWE-502",
+  },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.jwt.verify_disabled",
+    pattern:
+      /\bjwt\.decode\s*\([^)]*(verify\s*=\s*False|verify_signature['"]?\s*:\s*False)/g,
+    cwe: "CWE-347",
+  },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.jwt.alg_none_config",
+    pattern: /\balgorithms\s*=\s*\[[^\]]*(['"])none\1/gi,
+    cwe: "CWE-347",
   },
 
   // Go
@@ -187,6 +216,13 @@ const RULES = [
     id: "java.statement.execute",
     pattern: /\bstatement\.execute(Query|Update)?\s*\(/gi,
     cwe: "CWE-89",
+  },
+  {
+    lang: "java",
+    kind: "sink",
+    id: "java.jwt.parse_claims_jwt",
+    pattern: /\.parseClaimsJwt\s*\(/g,
+    cwe: "CWE-347",
   },
 ];
 
