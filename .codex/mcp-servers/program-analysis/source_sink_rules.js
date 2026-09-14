@@ -79,6 +79,20 @@ const RULES = [
     pattern: /\b(node-serialize|serialize\.unserialize)\s*\(/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.sql.template_query",
+    pattern: /\.(?:query|execute)\s*\(\s*`[^`]*\$\{/g,
+    cwe: "CWE-89",
+  },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.sql.concat_query",
+    pattern: /\.(?:query|execute)\s*\(\s*(['"])[^'"]*\1\s*\+/g,
+    cwe: "CWE-89",
+  },
 
   // Python
   {
@@ -129,6 +143,20 @@ const RULES = [
     pattern: /\byaml\.load\s*\((?!.*Loader=yaml\.SafeLoader)/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.sql.execute_fstring",
+    pattern: /\.execute\s*\(\s*f['"]/g,
+    cwe: "CWE-89",
+  },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.sql.execute_concat",
+    pattern: /\.execute\s*\(\s*(['"])[^'"]*\1\s*[%+]/g,
+    cwe: "CWE-89",
+  },
 
   // Go
   {
@@ -151,6 +179,14 @@ const RULES = [
     id: "go.template.html",
     pattern: /\btemplate\.HTML\s*\(/g,
     cwe: "CWE-79",
+  },
+  {
+    lang: "go",
+    kind: "sink",
+    id: "go.sql.query_sprintf",
+    pattern:
+      /\b(?:Query|QueryRow|Exec)(?:Context)?\s*\(\s*(?:[\w.]+,\s*)?fmt\.Sprintf/g,
+    cwe: "CWE-89",
   },
 
   // Java
