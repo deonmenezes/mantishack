@@ -5,6 +5,10 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { createServer } = require("../lib/mcp_stdio.js");
+const {
+  SECRET_SHAPES,
+  detectionPattern,
+} = require("../lib/secret_patterns.js");
 
 /**
  * Mantis findings service -- the tool-owned findings spine (PRD section 9,
@@ -39,14 +43,11 @@ const VALID_SEVERITIES = ["info", "low", "medium", "high", "critical"];
 
 // Cheap secret-shaped-string guard so raw credentials never land in a finding
 // or evidence blob (PRD section 9 "never raw secrets/tokens/cookies/full
-// bodies", section 11 secrets/DLP). This is a backstop, not a full DLP engine.
-const SECRET_PATTERNS = [
-  /\bAKIA[0-9A-Z]{16}\b/, // AWS access key id
-  /\bgh[pousr]_[A-Za-z0-9]{20,}\b/, // GitHub tokens
-  /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/, // Slack tokens
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----/, // PEM private keys
-  /\bey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/, // JWTs
-];
+// bodies", section 11 secrets/DLP). This is a backstop, not a full DLP
+// engine. Shares its pattern list with http-audit's redactor (see
+// lib/secret_patterns.js) so this guard can't fall behind what that
+// evidence-handling path already strips.
+const SECRET_PATTERNS = SECRET_SHAPES.map((shape) => detectionPattern(shape));
 
 function ensureDataDir() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
