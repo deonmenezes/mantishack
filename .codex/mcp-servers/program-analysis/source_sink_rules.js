@@ -79,6 +79,14 @@ const RULES = [
     pattern: /\b(node-serialize|serialize\.unserialize)\s*\(/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.path_traversal.file_read_write",
+    pattern:
+      /\b(fs\.(readFile|readFileSync|createReadStream|writeFile|writeFileSync)|res\.sendFile)\s*\(/g,
+    cwe: "CWE-22",
+  },
 
   // Python
   {
@@ -129,6 +137,13 @@ const RULES = [
     pattern: /\byaml\.load\s*\((?!.*Loader=yaml\.SafeLoader)/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.path_traversal.send_file",
+    pattern: /\b(send_file|send_from_directory)\s*\(/g,
+    cwe: "CWE-22",
+  },
 
   // Go
   {
@@ -151,6 +166,13 @@ const RULES = [
     id: "go.template.html",
     pattern: /\btemplate\.HTML\s*\(/g,
     cwe: "CWE-79",
+  },
+  {
+    lang: "go",
+    kind: "sink",
+    id: "go.path_traversal.file_read",
+    pattern: /\b(http\.ServeFile|os\.Open|os\.ReadFile|ioutil\.ReadFile)\s*\(/g,
+    cwe: "CWE-22",
   },
 
   // Java
@@ -187,6 +209,13 @@ const RULES = [
     id: "java.statement.execute",
     pattern: /\bstatement\.execute(Query|Update)?\s*\(/gi,
     cwe: "CWE-89",
+  },
+  {
+    lang: "java",
+    kind: "sink",
+    id: "java.path_traversal.file_read",
+    pattern: /\bnew\s+(File|FileInputStream|FileReader)\s*\(/g,
+    cwe: "CWE-22",
   },
 ];
 
