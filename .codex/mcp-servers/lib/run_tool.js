@@ -64,4 +64,18 @@ function notFoundMessage(toolName, installHint) {
   return `${toolName} is not installed or not on PATH in this environment. Install it (${installHint}) to enable this tool; until then this server reports rather than fabricates results.`;
 }
 
-module.exports = { runCommand, notFoundMessage };
+// A killed-on-timeout run and a clean "nothing to report" run both surface as
+// empty/short stdout to a naive caller -- but one is an incomplete scan and
+// the other is a real negative. Callers MUST distinguish them (never let a
+// timeout read as "no findings"); this gives every scanner wrapper the same
+// wording instead of each re-deriving it ad hoc.
+function timeoutNote(result, toolName, timeoutMs) {
+  if (!result || !result.timedOut) return null;
+  return (
+    `${toolName} did not finish within ${timeoutMs}ms and was killed -- ` +
+    "this is an incomplete/truncated scan, not a clean or empty result. " +
+    "Re-run with a narrower path/scope or a larger timeoutMs before trusting an empty finding list."
+  );
+}
+
+module.exports = { runCommand, notFoundMessage, timeoutNote };

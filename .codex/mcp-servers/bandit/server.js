@@ -2,7 +2,11 @@
 "use strict";
 
 const { createServer } = require("../lib/mcp_stdio.js");
-const { runCommand, notFoundMessage } = require("../lib/run_tool.js");
+const {
+  runCommand,
+  notFoundMessage,
+  timeoutNote,
+} = require("../lib/run_tool.js");
 
 /**
  * Mantis bandit server (PRD section 6 SAST/code catalog). Python-specific SAST
@@ -11,6 +15,7 @@ const { runCommand, notFoundMessage } = require("../lib/run_tool.js");
  */
 
 const SEVERITY_MAP = { HIGH: "high", MEDIUM: "medium", LOW: "low" };
+const TIMEOUT_MS = 300_000;
 
 async function banditScan({ path: targetPath, confidence = "low" }) {
   if (!targetPath) throw new Error("path is required");
@@ -20,7 +25,7 @@ async function banditScan({ path: targetPath, confidence = "low" }) {
   if (confidence === "high") args.push("-iii");
   else if (confidence === "medium") args.push("-ii");
 
-  const result = await runCommand("bandit", args, { timeoutMs: 300_000 });
+  const result = await runCommand("bandit", args, { timeoutMs: TIMEOUT_MS });
   if (result.notFound) {
     return {
       tool: "bandit",
@@ -36,7 +41,10 @@ async function banditScan({ path: targetPath, confidence = "low" }) {
     return {
       tool: "bandit",
       available: true,
-      error: `bandit exited ${result.code} and did not return parseable JSON`,
+      error:
+        timeoutNote(result, "bandit", TIMEOUT_MS) ||
+        `bandit exited ${result.code} and did not return parseable JSON`,
+      timed_out: !!result.timedOut,
       stderr: result.stderr.slice(0, 4000),
     };
   }
@@ -57,6 +65,7 @@ async function banditScan({ path: targetPath, confidence = "low" }) {
     available: true,
     candidate_count: findings.length,
     findings,
+    warning: timeoutNote(result, "bandit", TIMEOUT_MS) || undefined,
   };
 }
 
