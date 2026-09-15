@@ -2,7 +2,13 @@
 "use strict";
 
 const { createServer } = require("../lib/mcp_stdio.js");
-const { runCommand, notFoundMessage } = require("../lib/run_tool.js");
+const {
+  runCommand,
+  notFoundMessage,
+  timeoutNote,
+} = require("../lib/run_tool.js");
+
+const TIMEOUT_MS = 300_000;
 
 async function osvScan({ path: targetPath, offline = false }) {
   if (!targetPath) throw new Error("path is required");
@@ -11,7 +17,9 @@ async function osvScan({ path: targetPath, offline = false }) {
   if (offline) args.push("--offline", "--download-offline-databases");
   args.push(targetPath);
 
-  const result = await runCommand("osv-scanner", args, { timeoutMs: 300_000 });
+  const result = await runCommand("osv-scanner", args, {
+    timeoutMs: TIMEOUT_MS,
+  });
   if (result.notFound) {
     return {
       tool: "osv-scanner",
@@ -32,7 +40,10 @@ async function osvScan({ path: targetPath, offline = false }) {
     return {
       tool: "osv-scanner",
       available: true,
-      error: `osv-scanner exited ${result.code} and did not return parseable JSON`,
+      error:
+        timeoutNote(result, "osv-scanner", TIMEOUT_MS) ||
+        `osv-scanner exited ${result.code} and did not return parseable JSON`,
+      timed_out: !!result.timedOut,
       stderr: result.stderr.slice(0, 4000),
     };
   }
@@ -62,6 +73,7 @@ async function osvScan({ path: targetPath, offline = false }) {
     available: true,
     candidate_count: findings.length,
     findings,
+    warning: timeoutNote(result, "osv-scanner", TIMEOUT_MS) || undefined,
   };
 }
 

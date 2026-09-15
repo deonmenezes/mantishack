@@ -4,8 +4,14 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { createServer } = require("../lib/mcp_stdio.js");
-const { runCommand, notFoundMessage } = require("../lib/run_tool.js");
+const {
+  runCommand,
+  notFoundMessage,
+  timeoutNote,
+} = require("../lib/run_tool.js");
 const { RULES } = require("./source_sink_rules.js");
+
+const AST_GREP_TIMEOUT_MS = 120_000;
 
 const EXCLUDED_DIRS = new Set([
   ".git",
@@ -68,7 +74,7 @@ async function astGrepScan({ path: targetPath, pattern, lang }) {
     "ast-grep",
     ["run", "--pattern", pattern, "--lang", lang, "--json=stream", targetPath],
     {
-      timeoutMs: 120_000,
+      timeoutMs: AST_GREP_TIMEOUT_MS,
     },
   );
   if (result.notFound) {
@@ -106,6 +112,7 @@ async function astGrepScan({ path: targetPath, pattern, lang }) {
     available: true,
     match_count: matches.length,
     matches,
+    warning: timeoutNote(result, "ast-grep", AST_GREP_TIMEOUT_MS) || undefined,
   };
 }
 

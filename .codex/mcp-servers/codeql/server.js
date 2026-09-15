@@ -5,12 +5,18 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { createServer } = require("../lib/mcp_stdio.js");
-const { runCommand, notFoundMessage } = require("../lib/run_tool.js");
+const {
+  runCommand,
+  notFoundMessage,
+  timeoutNote,
+} = require("../lib/run_tool.js");
 
 const CODEQL_NOT_FOUND = notFoundMessage(
   "codeql",
   "download the CodeQL CLI bundle from github.com/github/codeql-cli-binaries and put it on PATH",
 );
+const CREATE_TIMEOUT_MS = 600_000;
+const ANALYZE_TIMEOUT_MS = 900_000;
 
 async function codeqlCreateDatabase({
   source_root: sourceRoot,
@@ -31,7 +37,7 @@ async function codeqlCreateDatabase({
       `--source-root=${sourceRoot}`,
       "--overwrite",
     ],
-    { timeoutMs: 600_000 },
+    { timeoutMs: CREATE_TIMEOUT_MS },
   );
   if (result.notFound)
     return { tool: "codeql", available: false, message: CODEQL_NOT_FOUND };
@@ -42,6 +48,11 @@ async function codeqlCreateDatabase({
     step: "create_database",
     ok: result.code === 0,
     database_path: databasePath,
+    error:
+      result.code === 0
+        ? undefined
+        : timeoutNote(result, "codeql database create", CREATE_TIMEOUT_MS) ||
+          undefined,
     stderr: result.code === 0 ? undefined : result.stderr.slice(0, 4000),
   };
 }
@@ -67,7 +78,7 @@ async function codeqlAnalyze({
       `--output=${outputPath}`,
       "--download",
     ],
-    { timeoutMs: 900_000 },
+    { timeoutMs: ANALYZE_TIMEOUT_MS },
   );
   if (result.notFound)
     return { tool: "codeql", available: false, message: CODEQL_NOT_FOUND };
@@ -78,7 +89,10 @@ async function codeqlAnalyze({
       available: true,
       step: "analyze",
       ok: false,
-      error: `codeql database analyze exited ${result.code}`,
+      error:
+        timeoutNote(result, "codeql database analyze", ANALYZE_TIMEOUT_MS) ||
+        `codeql database analyze exited ${result.code}`,
+      timed_out: !!result.timedOut,
       stderr: result.stderr.slice(0, 4000),
     };
   }

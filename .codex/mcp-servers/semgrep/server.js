@@ -2,9 +2,14 @@
 "use strict";
 
 const { createServer } = require("../lib/mcp_stdio.js");
-const { runCommand, notFoundMessage } = require("../lib/run_tool.js");
+const {
+  runCommand,
+  notFoundMessage,
+  timeoutNote,
+} = require("../lib/run_tool.js");
 
 const SEVERITY_MAP = { ERROR: "high", WARNING: "medium", INFO: "low" };
+const TIMEOUT_MS = 300_000;
 
 async function semgrepScan({ path: targetPath, config = "auto", rules }) {
   if (!targetPath) throw new Error("path is required");
@@ -13,7 +18,7 @@ async function semgrepScan({ path: targetPath, config = "auto", rules }) {
   args.push("--config", rules || config);
   args.push(targetPath);
 
-  const result = await runCommand("semgrep", args, { timeoutMs: 300_000 });
+  const result = await runCommand("semgrep", args, { timeoutMs: TIMEOUT_MS });
   if (result.notFound) {
     return {
       tool: "semgrep",
@@ -32,7 +37,10 @@ async function semgrepScan({ path: targetPath, config = "auto", rules }) {
     return {
       tool: "semgrep",
       available: true,
-      error: `semgrep exited ${result.code} and did not return parseable JSON`,
+      error:
+        timeoutNote(result, "semgrep", TIMEOUT_MS) ||
+        `semgrep exited ${result.code} and did not return parseable JSON`,
+      timed_out: !!result.timedOut,
       stderr: result.stderr.slice(0, 4000),
     };
   }
@@ -53,6 +61,7 @@ async function semgrepScan({ path: targetPath, config = "auto", rules }) {
     candidate_count: findings.length,
     findings,
     scan_errors: (parsed.errors || []).map((e) => e.message).slice(0, 20),
+    warning: timeoutNote(result, "semgrep", TIMEOUT_MS) || undefined,
   };
 }
 

@@ -2,7 +2,11 @@
 "use strict";
 
 const { createServer } = require("../lib/mcp_stdio.js");
-const { runCommand, notFoundMessage } = require("../lib/run_tool.js");
+const {
+  runCommand,
+  notFoundMessage,
+  timeoutNote,
+} = require("../lib/run_tool.js");
 
 /**
  * Mantis trivy server (PRD section 6 SCA/deps + container catalog). Broad
@@ -18,6 +22,8 @@ const SEVERITY_MAP = {
   LOW: "low",
   UNKNOWN: "info",
 };
+
+const TIMEOUT_MS = 300_000;
 
 async function trivyScan({
   path: targetPath,
@@ -35,7 +41,7 @@ async function trivyScan({
     targetPath,
   ];
 
-  const result = await runCommand("trivy", args, { timeoutMs: 300_000 });
+  const result = await runCommand("trivy", args, { timeoutMs: TIMEOUT_MS });
   if (result.notFound) {
     return {
       tool: "trivy",
@@ -54,7 +60,10 @@ async function trivyScan({
     return {
       tool: "trivy",
       available: true,
-      error: `trivy exited ${result.code} and did not return parseable JSON`,
+      error:
+        timeoutNote(result, "trivy", TIMEOUT_MS) ||
+        `trivy exited ${result.code} and did not return parseable JSON`,
+      timed_out: !!result.timedOut,
       stderr: result.stderr.slice(0, 4000),
     };
   }
@@ -102,6 +111,7 @@ async function trivyScan({
     vulnerabilities: vulns,
     misconfigurations: misconfigs,
     secrets,
+    warning: timeoutNote(result, "trivy", TIMEOUT_MS) || undefined,
   };
 }
 
