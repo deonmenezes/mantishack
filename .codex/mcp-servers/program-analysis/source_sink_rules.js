@@ -79,6 +79,16 @@ const RULES = [
     pattern: /\b(node-serialize|serialize\.unserialize)\s*\(/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.ldap.search_filter",
+    // ldapjs-shaped call: client.search(dn, { filter: ... }, cb) -- the
+    // options-object `filter:` key disambiguates this from the unrelated
+    // String.prototype.search(regex) and search-index-client `.search()` APIs.
+    pattern: /\.search\s*\(\s*[^,()]+,\s*\{[^}]*\bfilter\s*:/g,
+    cwe: "CWE-90",
+  },
 
   // Python
   {
@@ -128,6 +138,16 @@ const RULES = [
     id: "py.yaml.load_unsafe",
     pattern: /\byaml\.load\s*\((?!.*Loader=yaml\.SafeLoader)/g,
     cwe: "CWE-502",
+  },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.ldap.search",
+    // python-ldap's search_s/search_ext_s/search_ext -- distinct enough from
+    // any built-in or common-library `.search(` to avoid re.search()-style
+    // false positives while catching filter strings built from user input.
+    pattern: /\.(search_s|search_ext_s|search_ext)\s*\(/g,
+    cwe: "CWE-90",
   },
 
   // Go
