@@ -79,6 +79,17 @@ const RULES = [
     pattern: /\b(node-serialize|serialize\.unserialize)\s*\(/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.insecure_random_security_value",
+    // Math.random() is not a CSPRNG; flag it only when it co-occurs on the
+    // same line with a security-sensitive identifier (token/session/etc.),
+    // not every Math.random() call, to keep the signal-to-noise ratio usable.
+    pattern:
+      /(?:token|session|password|passwd|secret|otp|nonce|csrf|apikey|api_key)[^\n]{0,60}?Math\.random\(\)|Math\.random\(\)[^\n]{0,60}?(?:token|session|password|passwd|secret|otp|nonce|csrf|apikey|api_key)/gi,
+    cwe: "CWE-330",
+  },
 
   // Python
   {
@@ -128,6 +139,16 @@ const RULES = [
     id: "py.yaml.load_unsafe",
     pattern: /\byaml\.load\s*\((?!.*Loader=yaml\.SafeLoader)/g,
     cwe: "CWE-502",
+  },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.insecure_random_security_value",
+    // `random` is not a CSPRNG (use `secrets` instead); flag only when it
+    // co-occurs with a security-sensitive identifier on the same line.
+    pattern:
+      /(?:token|session|password|passwd|secret|otp|nonce|csrf|api_key)[^\n]{0,60}?\brandom\.(?:random|randint|choice|randrange)\s*\(|\brandom\.(?:random|randint|choice|randrange)\s*\([^\n]{0,60}?(?:token|session|password|passwd|secret|otp|nonce|csrf|api_key)/gi,
+    cwe: "CWE-330",
   },
 
   // Go
@@ -187,6 +208,16 @@ const RULES = [
     id: "java.statement.execute",
     pattern: /\bstatement\.execute(Query|Update)?\s*\(/gi,
     cwe: "CWE-89",
+  },
+  {
+    lang: "java",
+    kind: "sink",
+    id: "java.insecure_random_security_value",
+    // java.util.Random is not a CSPRNG (use SecureRandom instead); flag only
+    // when it co-occurs with a security-sensitive identifier on the same line.
+    pattern:
+      /(?:token|session|password|passwd|secret|otp|nonce|csrf|apiKey)[^\n]{0,60}?\bnew\s+Random\s*\(|\bnew\s+Random\s*\([^\n]{0,60}?(?:token|session|password|passwd|secret|otp|nonce|csrf|apiKey)/gi,
+    cwe: "CWE-330",
   },
 ];
 
