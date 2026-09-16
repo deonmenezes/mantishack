@@ -34,6 +34,9 @@ const SECRET_VALUE_PATTERNS = [
   [/\bAKIA[0-9A-Z]{16}\b/g, "[REDACTED_AWS_KEY]"],
   [/\bgh[pousr]_[A-Za-z0-9]{20,}\b/g, "[REDACTED_GH_TOKEN]"],
   [/\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g, "[REDACTED_SLACK_TOKEN]"],
+  [/\bAIza[0-9A-Za-z\-_]{35}\b/g, "[REDACTED_GOOGLE_API_KEY]"],
+  [/\b(?:sk|rk)_(?:live|test)_[0-9A-Za-z]{16,}\b/g, "[REDACTED_STRIPE_KEY]"],
+  [/\bnpm_[A-Za-z0-9]{36}\b/g, "[REDACTED_NPM_TOKEN]"],
   [
     /\bey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g,
     "[REDACTED_JWT]",
@@ -43,11 +46,22 @@ const SECRET_VALUE_PATTERNS = [
     "[REDACTED_PRIVATE_KEY]",
   ],
   [/\b[A-Za-z0-9._%+-]+:[^@\s/]{6,}@/g, "[REDACTED_USERINFO]@"], // user:pass@ in URLs
+  // A bare "Bearer <token>" can appear in a body/log line outside of the
+  // Authorization header itself (e.g. a curl example, a debug dump).
+  [/\bBearer\s+[A-Za-z0-9._-]{20,}\b/gi, "Bearer [REDACTED]"],
   // Generically-named secret-bearing query/form params -- shape-based patterns above
   // can't catch these since the secret value itself has no distinctive shape.
   [
     /\b(token|api[_-]?key|access[_-]?token|refresh[_-]?token|secret|password|passwd|auth|session[_-]?id|sig|signature)=([^&\s]+)/gi,
     (_match, name) => `${name}=[REDACTED]`,
+  ],
+  // Same generically-named secrets, but JSON-quoted ("name": "value") -- the
+  // query-string pattern above never matches this shape, so JSON API
+  // bodies (the common case for a modern web app) were sailing through
+  // unredacted.
+  [
+    /"(token|api[_-]?key|access[_-]?token|refresh[_-]?token|secret|password|passwd|auth|session[_-]?id|sig|signature)"\s*:\s*"([^"]*)"/gi,
+    (_match, name) => `"${name}":"[REDACTED]"`,
   ],
 ];
 
@@ -159,30 +173,34 @@ function auditExchange({ request, response }) {
   return pack;
 }
 
-createServer({
-  name: "mantis-http-audit",
-  version: "0.1.0",
-  tools: [
-    {
-      name: "http_audit",
-      description:
-        "Turn a raw HTTP request and/or response into a bounded, redacted evidence pack with a stable request-ref hash. Use during Validate/DAST to attach reproducible HTTP evidence to a finding WITHOUT storing raw secrets, cookies, or full bodies. Pure function; no network is made -- you pass in captured text.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          request: {
-            type: "string",
-            description:
-              "Raw HTTP request text (request line + headers + optional body).",
-          },
-          response: {
-            type: "string",
-            description:
-              "Raw HTTP response text (status line + headers + optional body).",
+module.exports = { redactValue, parseHttpMessage, auditExchange };
+
+if (require.main === module) {
+  createServer({
+    name: "mantis-http-audit",
+    version: "0.1.0",
+    tools: [
+      {
+        name: "http_audit",
+        description:
+          "Turn a raw HTTP request and/or response into a bounded, redacted evidence pack with a stable request-ref hash. Use during Validate/DAST to attach reproducible HTTP evidence to a finding WITHOUT storing raw secrets, cookies, or full bodies. Pure function; no network is made -- you pass in captured text.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            request: {
+              type: "string",
+              description:
+                "Raw HTTP request text (request line + headers + optional body).",
+            },
+            response: {
+              type: "string",
+              description:
+                "Raw HTTP response text (status line + headers + optional body).",
+            },
           },
         },
+        handler: auditExchange,
       },
-      handler: auditExchange,
-    },
-  ],
-});
+    ],
+  });
+}
