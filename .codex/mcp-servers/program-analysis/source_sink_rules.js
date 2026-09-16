@@ -9,6 +9,36 @@
  * FR-3.2's recall goal). It never claims reachability by itself; pair it
  * with smt_check_reachability once a concrete path condition is formed.
  */
+// Shared CWE-798 (hardcoded credentials) shape used across languages below.
+// A handful of common example/placeholder values are excluded so this stays
+// a signal-carrying heuristic rather than flagging every config-sample
+// snippet in a codebase; Validate still needs to confirm the value is a real
+// secret and not e.g. a rotated/expired one, but this cuts the obvious noise
+// at Detect time.
+const CREDENTIAL_KEY_NAMES =
+  "password|passwd|pwd|secret|api[_-]?key|access[_-]?key|auth[_-]?token|private[_-]?key|client[_-]?secret";
+const CREDENTIAL_PLACEHOLDERS =
+  "changeme|password|secret|example|placeholder|dummy|test|" +
+  "your[_-]?(?:api[_-]?)?(?:key|password|secret)(?:[_-]?here)?";
+
+function hardcodedCredentialPattern() {
+  // No leading \b: real-world identifiers are as often compound/camelCase
+  // (dbPassword, userApiKey) as they are a bare key name, and the key name
+  // must sit directly against the assignment operator either way, which
+  // already rules out unrelated identifiers that merely contain one of
+  // these words as a non-trailing substring (e.g. `passwordConfirmation =`).
+  return new RegExp(
+    `(?:${CREDENTIAL_KEY_NAMES})\\s*[:=]\\s*["'](?!(?:${CREDENTIAL_PLACEHOLDERS})["'])[^"'\\s]{8,}["']`,
+    "gi",
+  );
+}
+
+// AWS access key id literal -- distinctive enough shape that this alone is
+// high-confidence, no key-name context needed.
+function awsAccessKeyPattern() {
+  return /\bAKIA[0-9A-Z]{16}\b/g;
+}
+
 const RULES = [
   // JavaScript / TypeScript
   {
@@ -79,6 +109,20 @@ const RULES = [
     pattern: /\b(node-serialize|serialize\.unserialize)\s*\(/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.hardcoded_credential",
+    pattern: hardcodedCredentialPattern(),
+    cwe: "CWE-798",
+  },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.aws_access_key",
+    pattern: awsAccessKeyPattern(),
+    cwe: "CWE-798",
+  },
 
   // Python
   {
@@ -129,6 +173,20 @@ const RULES = [
     pattern: /\byaml\.load\s*\((?!.*Loader=yaml\.SafeLoader)/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.hardcoded_credential",
+    pattern: hardcodedCredentialPattern(),
+    cwe: "CWE-798",
+  },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.aws_access_key",
+    pattern: awsAccessKeyPattern(),
+    cwe: "CWE-798",
+  },
 
   // Go
   {
@@ -151,6 +209,20 @@ const RULES = [
     id: "go.template.html",
     pattern: /\btemplate\.HTML\s*\(/g,
     cwe: "CWE-79",
+  },
+  {
+    lang: "go",
+    kind: "sink",
+    id: "go.hardcoded_credential",
+    pattern: hardcodedCredentialPattern(),
+    cwe: "CWE-798",
+  },
+  {
+    lang: "go",
+    kind: "sink",
+    id: "go.aws_access_key",
+    pattern: awsAccessKeyPattern(),
+    cwe: "CWE-798",
   },
 
   // Java
@@ -187,6 +259,20 @@ const RULES = [
     id: "java.statement.execute",
     pattern: /\bstatement\.execute(Query|Update)?\s*\(/gi,
     cwe: "CWE-89",
+  },
+  {
+    lang: "java",
+    kind: "sink",
+    id: "java.hardcoded_credential",
+    pattern: hardcodedCredentialPattern(),
+    cwe: "CWE-798",
+  },
+  {
+    lang: "java",
+    kind: "sink",
+    id: "java.aws_access_key",
+    pattern: awsAccessKeyPattern(),
+    cwe: "CWE-798",
   },
 ];
 
