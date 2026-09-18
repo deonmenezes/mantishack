@@ -79,6 +79,17 @@ const RULES = [
     pattern: /\b(node-serialize|serialize\.unserialize)\s*\(/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.regexp.dynamic_construction",
+    // `new RegExp(<literal>)` is a static pattern; flag only when the first
+    // argument isn't a string/template literal, i.e. the pattern text itself
+    // is built from a variable -- the precursor to both regex injection and
+    // attacker-tunable catastrophic backtracking (ReDoS).
+    pattern: /\bnew\s+RegExp\s*\(\s*(?!['"`])/g,
+    cwe: "CWE-1333",
+  },
 
   // Python
   {
@@ -128,6 +139,17 @@ const RULES = [
     id: "py.yaml.load_unsafe",
     pattern: /\byaml\.load\s*\((?!.*Loader=yaml\.SafeLoader)/g,
     cwe: "CWE-502",
+  },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.regex.dynamic_construction",
+    // Same rationale as js.regexp.dynamic_construction: only flag
+    // re.compile/match/etc. when the pattern argument isn't a string
+    // literal, so a static, human-authored regex doesn't fire this rule.
+    pattern:
+      /\bre\.(compile|match|fullmatch|search|sub|split)\s*\(\s*(?![rRbBuUfF]{0,2}['"])/g,
+    cwe: "CWE-1333",
   },
 
   // Go
