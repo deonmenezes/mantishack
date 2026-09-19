@@ -35,6 +35,10 @@ const SECRET_VALUE_PATTERNS = [
   [/\bgh[pousr]_[A-Za-z0-9]{20,}\b/g, "[REDACTED_GH_TOKEN]"],
   [/\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g, "[REDACTED_SLACK_TOKEN]"],
   [
+    /https:\/\/hooks\.slack\.com\/services\/T[A-Za-z0-9]+\/B[A-Za-z0-9]+\/[A-Za-z0-9]+/g,
+    "[REDACTED_SLACK_WEBHOOK]",
+  ],
+  [
     /\bey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g,
     "[REDACTED_JWT]",
   ],
@@ -42,6 +46,15 @@ const SECRET_VALUE_PATTERNS = [
     /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
     "[REDACTED_PRIVATE_KEY]",
   ],
+  [/\bAIza[0-9A-Za-z_-]{35}\b/g, "[REDACTED_GOOGLE_API_KEY]"],
+  [/\bsk-[A-Za-z0-9]{20,}\b/g, "[REDACTED_OPENAI_KEY]"],
+  [/\b(?:sk|rk)_live_[A-Za-z0-9]{16,}\b/g, "[REDACTED_STRIPE_KEY]"],
+  [
+    /\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\b/g,
+    "[REDACTED_SENDGRID_KEY]",
+  ],
+  [/\bnpm_[A-Za-z0-9]{36}\b/g, "[REDACTED_NPM_TOKEN]"],
+  [/\bBearer\s+[A-Za-z0-9\-._~+/]{20,}=*/gi, "Bearer [REDACTED]"],
   [/\b[A-Za-z0-9._%+-]+:[^@\s/]{6,}@/g, "[REDACTED_USERINFO]@"], // user:pass@ in URLs
   // Generically-named secret-bearing query/form params -- shape-based patterns above
   // can't catch these since the secret value itself has no distinctive shape.
