@@ -40,12 +40,26 @@ const VALID_SEVERITIES = ["info", "low", "medium", "high", "critical"];
 // Cheap secret-shaped-string guard so raw credentials never land in a finding
 // or evidence blob (PRD section 9 "never raw secrets/tokens/cookies/full
 // bodies", section 11 secrets/DLP). This is a backstop, not a full DLP engine.
+//
+// Kept in sync with the redaction list in `mcp-servers/http-audit/server.js`
+// -- that tool redacts these shapes out of evidence packs, so the findings
+// spine's refusal gate must recognize the same shapes or a raw secret can
+// still reach the append-only log via a hand-written evidence/claim field
+// that never went through http_audit. Patterns here are intentionally
+// non-global (no `g` flag): `.test()` on a global regex is stateful across
+// calls (advancing `lastIndex`), which would make this guard flap between
+// catching and missing the same input on successive findings.
 const SECRET_PATTERNS = [
   /\bAKIA[0-9A-Z]{16}\b/, // AWS access key id
   /\bgh[pousr]_[A-Za-z0-9]{20,}\b/, // GitHub tokens
   /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/, // Slack tokens
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/, // PEM private keys
   /\bey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/, // JWTs
+  /\b[A-Za-z0-9._%+-]+:[^@\s/]{6,}@/, // user:pass@ credentials embedded in a URL
+  // Generically-named secret-bearing params (token=, api_key=, password=, ...)
+  // -- these have no distinctive shape, only a distinctive name, so they slip
+  // past every shape-based pattern above.
+  /\b(?:token|api[_-]?key|access[_-]?token|refresh[_-]?token|secret|password|passwd|session[_-]?id|sig|signature)\s*[:=]\s*\S+/i,
 ];
 
 function ensureDataDir() {
