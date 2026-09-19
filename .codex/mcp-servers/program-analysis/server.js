@@ -36,6 +36,81 @@ function langForFile(file) {
   return EXTENSION_TO_LANG[path.extname(file).toLowerCase()] || null;
 }
 
+// Per-language comment markers and string delimiters, used only to decide
+// where a "//" or "#" is a real comment start vs. text inside a string (e.g.
+// a "https://" URL) -- NOT to strip string contents, so a sink pattern that
+// legitimately appears inside a string/template literal still matches.
+const LANG_LEXICON = {
+  js: { line: "//", block: ["/*", "*/"], strings: ['"', "'", "`"] },
+  go: { line: "//", block: ["/*", "*/"], strings: ['"', "'", "`"] },
+  java: { line: "//", block: ["/*", "*/"], strings: ['"', "'"] },
+  py: { line: "#", block: null, strings: ['"""', "'''", '"', "'"] },
+};
+
+// Blanks out comment text (replacing it with spaces, preserving newlines and
+// offsets) so source/sink regexes never fire on a pattern mentioned in a
+// comment or docstring (e.g. "don't use eval() here"). String contents are
+// left untouched -- only tracked so a "//"/"#" inside a string isn't
+// mistaken for a comment start, which would otherwise truncate the rest of
+// the line from matching.
+function blankComments(content, lang) {
+  const lex = LANG_LEXICON[lang];
+  if (!lex) return content;
+
+  let out = "";
+  let i = 0;
+  const n = content.length;
+  let openString = null;
+  while (i < n) {
+    if (openString) {
+      if (content.startsWith(openString, i)) {
+        out += openString;
+        i += openString.length;
+        openString = null;
+        continue;
+      }
+      if (content[i] === "\\" && openString.length === 1 && i + 1 < n) {
+        out += content[i] + content[i + 1];
+        i += 2;
+        continue;
+      }
+      out += content[i];
+      i++;
+      continue;
+    }
+
+    const strDelim = lex.strings.find((d) => content.startsWith(d, i));
+    if (strDelim) {
+      openString = strDelim;
+      out += strDelim;
+      i += strDelim.length;
+      continue;
+    }
+
+    if (lex.line && content.startsWith(lex.line, i)) {
+      while (i < n && content[i] !== "\n") {
+        out += " ";
+        i++;
+      }
+      continue;
+    }
+
+    if (lex.block && content.startsWith(lex.block[0], i)) {
+      const end = content.indexOf(lex.block[1], i + lex.block[0].length);
+      const stop = end === -1 ? n : end + lex.block[1].length;
+      while (i < stop) {
+        out += content[i] === "\n" ? "\n" : " ";
+        i++;
+      }
+      continue;
+    }
+
+    out += content[i];
+    i++;
+  }
+  return out;
+}
+
 function walk(root) {
   const files = [];
   const stack = [root];
@@ -140,11 +215,12 @@ async function sourceSinkScan({ path: targetPath, languages }) {
     }
 
     const lines = content.split("\n");
+    const scanContent = blankComments(content, fileLang);
     for (const rule of activeRules) {
       rule.pattern.lastIndex = 0;
       let match;
-      while ((match = rule.pattern.exec(content)) !== null) {
-        const upToMatch = content.slice(0, match.index);
+      while ((match = rule.pattern.exec(scanContent)) !== null) {
+        const upToMatch = scanContent.slice(0, match.index);
         const lineNumber = upToMatch.split("\n").length;
         findings.push({
           rule_id: rule.id,
@@ -162,7 +238,7 @@ async function sourceSinkScan({ path: targetPath, languages }) {
   return {
     tool: "source-sink-heuristic",
     available: true,
-    note: "Heuristic regex proxy for FR-3.1/FR-3.2, not a dataflow/taint engine. Confirm any real source->sink connection by tracing the code before treating it as reachable.",
+    note: "Heuristic regex proxy for FR-3.1/FR-3.2, not a dataflow/taint engine. Confirm any real source->sink connection by tracing the code before treating it as reachable. Comments are blanked before matching (a pattern only mentioned in a comment/docstring won't be reported); string/template contents are still scanned as-is.",
     files_scanned: files.length,
     candidate_count: findings.length,
     sources: findings.filter((f) => f.kind === "source"),
