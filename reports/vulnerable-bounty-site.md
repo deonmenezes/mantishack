@@ -65,3 +65,29 @@ addressed. No findings, positive or negative, can be produced until it is.
 allowlist (or run this routine's scan half from an environment whose policy
 permits reaching authorized external targets). Every run until then will
 keep producing this identical "blocked, no findings" result.
+
+---
+
+## 2026-09-20T20:27Z -- still blocked, unchanged
+
+**Result: no scan performed. 0 requests sent to the target.**
+
+Re-verified independently again this run:
+
+- `curl https://vulnerable-bounty-site.vercel.app/` -- CONNECT tunnel
+  rejected with `403` (exit code 56).
+- The proxy's `/__agentproxy/status` endpoint recorded this exact host
+  under `recentRelayFailures` at `2026-09-20T20:27:12.332Z`:
+  `connect_rejected -- "gateway answered 403 to CONNECT (policy denial or
+  upstream failure)"`. `noProxy` still has no `vercel.app` entry.
+
+Same failure mode as every prior entry in this log. No scan traffic sent,
+per the proxy README's instruction not to retry or route around a policy
+403.
+
+**Action needed from the repo owner (unchanged, now overdue):** add
+`vulnerable-bounty-site.vercel.app` to this environment's outbound-egress
+allowlist. This gap has now blocked every run of the discovery-scan half
+of this routine since at least 2026-09-16 -- multiple days and roughly
+two dozen 4-hourly firings with zero scan traffic reaching the authorized
+target.
