@@ -79,6 +79,20 @@ const RULES = [
     pattern: /\b(node-serialize|serialize\.unserialize)\s*\(/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.tls.reject_unauthorized_false",
+    pattern: /\brejectUnauthorized\s*:\s*false\b/g,
+    cwe: "CWE-295",
+  },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.tls.node_env_disable",
+    pattern: /\bNODE_TLS_REJECT_UNAUTHORIZED\s*=\s*['"]?0['"]?/g,
+    cwe: "CWE-295",
+  },
 
   // Python
   {
@@ -129,6 +143,27 @@ const RULES = [
     pattern: /\byaml\.load\s*\((?!.*Loader=yaml\.SafeLoader)/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.tls.verify_false",
+    pattern: /\bverify\s*=\s*False\b/g,
+    cwe: "CWE-295",
+  },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.tls.unverified_context",
+    pattern: /\bssl\._create_unverified_context\s*\(/g,
+    cwe: "CWE-295",
+  },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.tls.cert_none",
+    pattern: /\bssl\.CERT_NONE\b/g,
+    cwe: "CWE-295",
+  },
 
   // Go
   {
@@ -151,6 +186,13 @@ const RULES = [
     id: "go.template.html",
     pattern: /\btemplate\.HTML\s*\(/g,
     cwe: "CWE-79",
+  },
+  {
+    lang: "go",
+    kind: "sink",
+    id: "go.tls.insecure_skip_verify",
+    pattern: /\bInsecureSkipVerify\s*:\s*true\b/g,
+    cwe: "CWE-295",
   },
 
   // Java
@@ -187,6 +229,21 @@ const RULES = [
     id: "java.statement.execute",
     pattern: /\bstatement\.execute(Query|Update)?\s*\(/gi,
     cwe: "CWE-89",
+  },
+  {
+    lang: "java",
+    kind: "sink",
+    id: "java.tls.allow_all_hostname_verifier",
+    pattern: /\bALLOW_ALL_HOSTNAME_VERIFIER\b/g,
+    cwe: "CWE-295",
+  },
+  {
+    lang: "java",
+    kind: "sink",
+    id: "java.tls.empty_trust_check",
+    pattern:
+      /public\s+void\s+check(Client|Server)Trusted\s*\([^)]*\)\s*(?:throws\s+[\w.]+\s*)?\{\s*\}/g,
+    cwe: "CWE-295",
   },
 ];
 
