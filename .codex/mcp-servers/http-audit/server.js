@@ -43,11 +43,26 @@ const SECRET_VALUE_PATTERNS = [
     "[REDACTED_PRIVATE_KEY]",
   ],
   [/\b[A-Za-z0-9._%+-]+:[^@\s/]{6,}@/g, "[REDACTED_USERINFO]@"], // user:pass@ in URLs
+  [/\bAIza[0-9A-Za-z_-]{35}\b/g, "[REDACTED_GOOGLE_API_KEY]"],
+  [/\b(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{16,}\b/g, "[REDACTED_STRIPE_KEY]"],
+  [
+    /\bSG\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\b/g,
+    "[REDACTED_SENDGRID_KEY]",
+  ],
+  [/\bnpm_[A-Za-z0-9]{36}\b/g, "[REDACTED_NPM_TOKEN]"],
   // Generically-named secret-bearing query/form params -- shape-based patterns above
   // can't catch these since the secret value itself has no distinctive shape.
   [
     /\b(token|api[_-]?key|access[_-]?token|refresh[_-]?token|secret|password|passwd|auth|session[_-]?id|sig|signature)=([^&\s]+)/gi,
     (_match, name) => `${name}=[REDACTED]`,
+  ],
+  // Same generically-named secrets, but shaped as JSON object fields
+  // ("key": "value") rather than query/form pairs -- the query/form pattern
+  // above doesn't match this shape, which is how most modern REST APIs
+  // (the dominant case for HTTP-audit bodies) actually carry these values.
+  [
+    /"(token|api[_-]?key|access[_-]?token|refresh[_-]?token|secret|password|passwd|auth|session[_-]?id|sig|signature)"\s*:\s*"([^"]*)"/gi,
+    (_match, name) => `"${name}":"[REDACTED]"`,
   ],
 ];
 
