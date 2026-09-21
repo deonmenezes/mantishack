@@ -79,6 +79,15 @@ const RULES = [
     pattern: /\b(node-serialize|serialize\.unserialize)\s*\(/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.libxml.noent_enabled",
+    // libxmljs/libxmljs2 default `noent` to false (safe); an explicit
+    // `noent: true` turns on entity substitution and enables XXE.
+    pattern: /\bnoent\s*:\s*true\b/g,
+    cwe: "CWE-611",
+  },
 
   // Python
   {
@@ -129,8 +138,23 @@ const RULES = [
     pattern: /\byaml\.load\s*\((?!.*Loader=yaml\.SafeLoader)/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.xml.stdlib_parse",
+    // stdlib xml.etree/xml.dom.minidom/xml.sax and lxml.etree all resolve
+    // external entities and expand internal ones by default -- Python's own
+    // docs call this out (docs.python.org/3/library/xml.html#xml-vulnerabilities).
+    // Prefer defusedxml for untrusted input instead of flagging that here.
+    pattern:
+      /\b(?:xml\.etree\.ElementTree|ET|xml\.dom\.minidom|xml\.sax|lxml\.etree)\.(?:parse|parseString|fromstring|make_parser|XMLParser)\s*\(/g,
+    cwe: "CWE-611",
+  },
 
   // Go
+  // Note: no XXE (CWE-611) sink here -- encoding/xml has no DTD/external-entity
+  // support at all, so it isn't a viable XXE vector the way Java/Python XML
+  // parsers are.
   {
     lang: "go",
     kind: "source",
@@ -187,6 +211,19 @@ const RULES = [
     id: "java.statement.execute",
     pattern: /\bstatement\.execute(Query|Update)?\s*\(/gi,
     cwe: "CWE-89",
+  },
+  {
+    lang: "java",
+    kind: "sink",
+    id: "java.xml.factory_newinstance",
+    // JAXP's DocumentBuilderFactory/SAXParserFactory/XMLInputFactory/
+    // TransformerFactory all allow external entities and DTD processing by
+    // default until FEATURE_SECURE_PROCESSING (or the equivalent disallow-doctype
+    // feature) is explicitly set -- OWASP's canonical Java XXE guidance flags
+    // the bare newInstance() call itself as the risky construct to trace.
+    pattern:
+      /\b(?:DocumentBuilderFactory|SAXParserFactory|XMLInputFactory|TransformerFactory)\.newInstance\s*\(/g,
+    cwe: "CWE-611",
   },
 ];
 
