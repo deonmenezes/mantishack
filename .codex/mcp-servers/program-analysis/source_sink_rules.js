@@ -79,6 +79,24 @@ const RULES = [
     pattern: /\b(node-serialize|serialize\.unserialize)\s*\(/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.sql.template_literal",
+    // `.query(`...${x}...`)` / `.execute(`...${x}...`)` -- attacker value
+    // interpolated straight into the SQL text instead of passed as a bound
+    // parameter.
+    pattern: /\.(query|execute|raw)\s*\(\s*`[^`]*\$\{/g,
+    cwe: "CWE-89",
+  },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.sql.string_concat",
+    // `.query("... " + x)` -- SQL text built by string concatenation.
+    pattern: /\.(query|execute|raw)\s*\(\s*(['"])(?:(?!\2).)*\2\s*\+/g,
+    cwe: "CWE-89",
+  },
 
   // Python
   {
@@ -129,6 +147,32 @@ const RULES = [
     pattern: /\byaml\.load\s*\((?!.*Loader=yaml\.SafeLoader)/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.sql.execute_fstring",
+    // cursor.execute(f"... {x} ...") -- attacker value interpolated into SQL
+    // text instead of passed via the execute(sql, params) bind-parameter form.
+    pattern: /\.execute\s*\(\s*f['"]/g,
+    cwe: "CWE-89",
+  },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.sql.execute_percent_or_format",
+    // cursor.execute("... %s" % x) / cursor.execute("...{}".format(x)) -- same
+    // string-built-SQL shape as the f-string case above.
+    pattern: /\.execute\s*\(\s*(['"])(?:(?!\1).)*\1\s*(%|\.format\s*\()/g,
+    cwe: "CWE-89",
+  },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.sql.execute_concat",
+    // cursor.execute("... " + x) -- SQL text built by string concatenation.
+    pattern: /\.execute\s*\(\s*(['"])(?:(?!\1).)*\1\s*\+/g,
+    cwe: "CWE-89",
+  },
 
   // Go
   {
@@ -151,6 +195,25 @@ const RULES = [
     id: "go.template.html",
     pattern: /\btemplate\.HTML\s*\(/g,
     cwe: "CWE-79",
+  },
+  {
+    lang: "go",
+    kind: "sink",
+    id: "go.sql.sprintf",
+    // db.Query(fmt.Sprintf("... %s ...", x)) -- SQL text built with Sprintf
+    // instead of the driver's `?`/`$1` bind-parameter placeholders.
+    pattern:
+      /\.(Query|QueryRow|Exec)(Context)?\s*\(\s*(\w+(?:\.\w+)*(?:\(\))?\s*,\s*)?fmt\.Sprintf\s*\(/g,
+    cwe: "CWE-89",
+  },
+  {
+    lang: "go",
+    kind: "sink",
+    id: "go.sql.string_concat",
+    // db.Query("... " + x) -- SQL text built by string concatenation.
+    pattern:
+      /\.(Query|QueryRow|Exec)(Context)?\s*\(\s*(\w+(?:\.\w+)*(?:\(\))?\s*,\s*)?"[^"]*"\s*\+/g,
+    cwe: "CWE-89",
   },
 
   // Java
