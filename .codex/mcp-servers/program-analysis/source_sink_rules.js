@@ -79,6 +79,18 @@ const RULES = [
     pattern: /\b(node-serialize|serialize\.unserialize)\s*\(/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.sql.injection_concat",
+    // .query()/.execute()/.raw() called with a template literal containing
+    // ${...} interpolation, or a string literal immediately concatenated
+    // with +, right at the call site -- the classic dynamic-SQL antipattern.
+    // Parameterized calls (a literal followed by a placeholder args array)
+    // do not match, keeping this precise rather than flagging every query().
+    pattern: /\.(query|execute|raw)\s*\(\s*(`[^`]*\$\{|["'][^"']*["']\s*\+)/g,
+    cwe: "CWE-89",
+  },
 
   // Python
   {
@@ -128,6 +140,18 @@ const RULES = [
     id: "py.yaml.load_unsafe",
     pattern: /\byaml\.load\s*\((?!.*Loader=yaml\.SafeLoader)/g,
     cwe: "CWE-502",
+  },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.sql.injection_format",
+    // cursor.execute()/executemany() built from an f-string, %-formatting,
+    // .format(), or + concatenation right at the call site -- the classic
+    // dynamic-SQL antipattern. A parameterized call (literal string followed
+    // by a separate params tuple/list) does not match.
+    pattern:
+      /\.execute(?:many)?\s*\(\s*(f["']|["'][^"']*["']\s*%|["'][^"']*["']\s*\.format\(|["'][^"']*["']\s*\+)/g,
+    cwe: "CWE-89",
   },
 
   // Go
