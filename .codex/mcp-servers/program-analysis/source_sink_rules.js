@@ -79,6 +79,28 @@ const RULES = [
     pattern: /\b(node-serialize|serialize\.unserialize)\s*\(/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.ssrf.fetch_dynamic_url",
+    pattern: /\bfetch\s*\(\s*(?!['"`])/g,
+    cwe: "CWE-918",
+  },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.ssrf.axios_dynamic_url",
+    pattern:
+      /\baxios(?:\.(?:get|post|put|delete|patch|head|request))?\s*\(\s*(?!['"`])/g,
+    cwe: "CWE-918",
+  },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.ssrf.http_request_dynamic_url",
+    pattern: /\b(?:http|https)\.(?:get|request)\s*\(\s*(?!['"`{])/g,
+    cwe: "CWE-918",
+  },
 
   // Python
   {
@@ -129,6 +151,28 @@ const RULES = [
     pattern: /\byaml\.load\s*\((?!.*Loader=yaml\.SafeLoader)/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.ssrf.requests_dynamic_url",
+    pattern:
+      /\brequests\.(?:get|post|put|delete|patch|head|options)\s*\(\s*(?!['"])/g,
+    cwe: "CWE-918",
+  },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.ssrf.urllib_urlopen_dynamic",
+    pattern: /\burllib\.request\.urlopen\s*\(\s*(?!['"])/g,
+    cwe: "CWE-918",
+  },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.ssrf.httpx_dynamic_url",
+    pattern: /\bhttpx\.(?:get|post|put|delete|patch|head)\s*\(\s*(?!['"])/g,
+    cwe: "CWE-918",
+  },
 
   // Go
   {
@@ -151,6 +195,20 @@ const RULES = [
     id: "go.template.html",
     pattern: /\btemplate\.HTML\s*\(/g,
     cwe: "CWE-79",
+  },
+  {
+    lang: "go",
+    kind: "sink",
+    id: "go.ssrf.http_get_dynamic",
+    pattern: /\bhttp\.Get\s*\(\s*(?!["`])/g,
+    cwe: "CWE-918",
+  },
+  {
+    lang: "go",
+    kind: "sink",
+    id: "go.ssrf.http_newrequest_dynamic",
+    pattern: /\bhttp\.NewRequest(?:WithContext)?\s*\([^,]*,\s*(?!["`])/g,
+    cwe: "CWE-918",
   },
 
   // Java
@@ -187,6 +245,20 @@ const RULES = [
     id: "java.statement.execute",
     pattern: /\bstatement\.execute(Query|Update)?\s*\(/gi,
     cwe: "CWE-89",
+  },
+  {
+    lang: "java",
+    kind: "sink",
+    id: "java.ssrf.url_construction",
+    pattern: /\bnew\s+URL\s*\(\s*(?!")/g,
+    cwe: "CWE-918",
+  },
+  {
+    lang: "java",
+    kind: "sink",
+    id: "java.ssrf.uri_create",
+    pattern: /\bURI\.create\s*\(\s*(?!")/g,
+    cwe: "CWE-918",
   },
 ];
 
