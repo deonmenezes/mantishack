@@ -27,6 +27,17 @@ const SENSITIVE_HEADERS = new Set([
   "x-amz-security-token",
   "x-csrf-token",
   "x-xsrf-token",
+  // Additional secret-bearing header names seen in the wild that the
+  // original allowlist missed (coverage gap: these leaked raw into
+  // evidence packs instead of being redacted).
+  "api-key",
+  "token",
+  "x-access-token",
+  "x-session-token",
+  "x-refresh-token",
+  "x-goog-api-key",
+  "x-secret",
+  "x-client-secret",
 ]);
 
 // Inline secret shapes that can appear anywhere in a body/URL.
@@ -43,11 +54,21 @@ const SECRET_VALUE_PATTERNS = [
     "[REDACTED_PRIVATE_KEY]",
   ],
   [/\b[A-Za-z0-9._%+-]+:[^@\s/]{6,}@/g, "[REDACTED_USERINFO]@"], // user:pass@ in URLs
+  [/\bAIza[0-9A-Za-z_-]{35}\b/g, "[REDACTED_GCP_KEY]"],
+  [/\bsk_live_[0-9A-Za-z]{16,}\b/g, "[REDACTED_STRIPE_KEY]"],
+  [/\bnpm_[A-Za-z0-9]{30,}\b/g, "[REDACTED_NPM_TOKEN]"],
   // Generically-named secret-bearing query/form params -- shape-based patterns above
   // can't catch these since the secret value itself has no distinctive shape.
   [
     /\b(token|api[_-]?key|access[_-]?token|refresh[_-]?token|secret|password|passwd|auth|session[_-]?id|sig|signature)=([^&\s]+)/gi,
     (_match, name) => `${name}=[REDACTED]`,
+  ],
+  // Same generically-named secrets, but shaped as a JSON string field
+  // (e.g. a body echoing `{"token":"..."}`) rather than a query param --
+  // the query-param pattern above only matches `key=value`, not JSON.
+  [
+    /"(token|api[_-]?key|access[_-]?token|refresh[_-]?token|secret|password|passwd|session[_-]?id)"\s*:\s*"[^"]*"/gi,
+    (_match, name) => `"${name}":"[REDACTED]"`,
   ],
 ];
 
@@ -159,30 +180,37 @@ function auditExchange({ request, response }) {
   return pack;
 }
 
-createServer({
-  name: "mantis-http-audit",
-  version: "0.1.0",
-  tools: [
-    {
-      name: "http_audit",
-      description:
-        "Turn a raw HTTP request and/or response into a bounded, redacted evidence pack with a stable request-ref hash. Use during Validate/DAST to attach reproducible HTTP evidence to a finding WITHOUT storing raw secrets, cookies, or full bodies. Pure function; no network is made -- you pass in captured text.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          request: {
-            type: "string",
-            description:
-              "Raw HTTP request text (request line + headers + optional body).",
-          },
-          response: {
-            type: "string",
-            description:
-              "Raw HTTP response text (status line + headers + optional body).",
+// Only start the stdio server when run directly (`node server.js`), not when
+// required by a test -- attaching stdin listeners at require-time makes the
+// pure redaction logic below unreachable from a plain unit test.
+if (require.main === module) {
+  createServer({
+    name: "mantis-http-audit",
+    version: "0.1.0",
+    tools: [
+      {
+        name: "http_audit",
+        description:
+          "Turn a raw HTTP request and/or response into a bounded, redacted evidence pack with a stable request-ref hash. Use during Validate/DAST to attach reproducible HTTP evidence to a finding WITHOUT storing raw secrets, cookies, or full bodies. Pure function; no network is made -- you pass in captured text.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            request: {
+              type: "string",
+              description:
+                "Raw HTTP request text (request line + headers + optional body).",
+            },
+            response: {
+              type: "string",
+              description:
+                "Raw HTTP response text (status line + headers + optional body).",
+            },
           },
         },
+        handler: auditExchange,
       },
-      handler: auditExchange,
-    },
-  ],
-});
+    ],
+  });
+}
+
+module.exports = { auditExchange, redactValue, parseHttpMessage };
