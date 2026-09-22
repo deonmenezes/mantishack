@@ -79,6 +79,27 @@ const RULES = [
     pattern: /\b(node-serialize|serialize\.unserialize)\s*\(/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.fs.read_dynamic_path",
+    // fs.readFile/readFileSync/createReadStream called with anything other
+    // than a string/template literal as the first argument -- e.g.
+    // fs.readFile(path.join(base, req.params.file)) or fs.readFile(userPath).
+    // A literal path.join("a", "b") call still starts with an identifier, not
+    // a quote, so it's flagged too; that's intentional recall over precision.
+    pattern:
+      /\bfs\.(?:readFile|readFileSync|createReadStream)\s*\((?!\s*['"`])/g,
+    cwe: "CWE-22",
+  },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.fs.write_dynamic_path",
+    pattern:
+      /\bfs\.(?:writeFile|writeFileSync|createWriteStream|unlink|unlinkSync)\s*\((?!\s*['"`])/g,
+    cwe: "CWE-22",
+  },
 
   // Python
   {
@@ -129,6 +150,28 @@ const RULES = [
     pattern: /\byaml\.load\s*\((?!.*Loader=yaml\.SafeLoader)/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.flask.send_file_dynamic",
+    // Flask's send_file(path) serves whatever path it's given; a path built
+    // from request data without validation is the classic Flask path-
+    // traversal vector (CVE-2018-16487-style bugs). Literal paths ("static/x")
+    // don't match.
+    pattern: /\bsend_file\s*\((?!\s*['"])/g,
+    cwe: "CWE-22",
+  },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.flask.send_from_directory_dynamic",
+    // send_from_directory(directory, filename) is traversal-safe against its
+    // *directory* arg (Flask normalizes/rejects ../ there) but not always
+    // against how callers build `filename` -- flag when filename itself
+    // isn't a literal.
+    pattern: /\bsend_from_directory\s*\([^,)]*,(?!\s*['"])/g,
+    cwe: "CWE-22",
+  },
 
   // Go
   {
@@ -151,6 +194,22 @@ const RULES = [
     id: "go.template.html",
     pattern: /\btemplate\.HTML\s*\(/g,
     cwe: "CWE-79",
+  },
+  {
+    lang: "go",
+    kind: "sink",
+    id: "go.os.open_dynamic_path",
+    pattern: /\bos\.(?:Open|OpenFile|ReadFile|Create)\s*\((?!\s*["`])/g,
+    cwe: "CWE-22",
+  },
+  {
+    lang: "go",
+    kind: "sink",
+    id: "go.http.servefile_dynamic",
+    // http.ServeFile(w, r, name) -- the traversal-relevant arg is the third
+    // (name); w and r are request plumbing, not the path.
+    pattern: /\bhttp\.ServeFile\s*\([^,)]*,[^,)]*,(?!\s*["`])/g,
+    cwe: "CWE-22",
   },
 
   // Java
@@ -187,6 +246,20 @@ const RULES = [
     id: "java.statement.execute",
     pattern: /\bstatement\.execute(Query|Update)?\s*\(/gi,
     cwe: "CWE-89",
+  },
+  {
+    lang: "java",
+    kind: "sink",
+    id: "java.fs.file_dynamic_path",
+    pattern: /\bnew\s+File(?:InputStream|OutputStream)?\s*\((?!\s*")/g,
+    cwe: "CWE-22",
+  },
+  {
+    lang: "java",
+    kind: "sink",
+    id: "java.nio.paths_get_dynamic",
+    pattern: /\bPaths\.get\s*\((?!\s*")/g,
+    cwe: "CWE-22",
   },
 ];
 
