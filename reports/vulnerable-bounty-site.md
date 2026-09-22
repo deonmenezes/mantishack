@@ -91,3 +91,37 @@ allowlist. This gap has now blocked every run of the discovery-scan half
 of this routine since at least 2026-09-16 -- multiple days and roughly
 two dozen 4-hourly firings with zero scan traffic reaching the authorized
 target.
+
+---
+
+## 2026-09-22T08:30Z -- still blocked, unchanged (day 6+)
+
+**Result: no scan performed. 0 requests sent to the target.**
+
+Re-verified independently again this run:
+
+- `curl https://vulnerable-bounty-site.vercel.app/` -- CONNECT tunnel
+  rejected with `403` (exit code 56, `CONNECT tunnel failed, response 403`).
+- The proxy's own `/__agentproxy/status` endpoint recorded this exact host
+  under `recentRelayFailures` at `2026-09-22T08:29:56.172Z`:
+  `connect_rejected -- "gateway answered 403 to CONNECT (policy denial or
+  upstream failure)"`. `noProxy` still has no `vercel.app` entry.
+- This PR (`#180`, still open/draft) has sat unaddressed since
+  `2026-09-18T20:31Z`; its two prior comments are about unrelated CI
+  infra failures (`cargo-deny`, `repo-checks/build-test`), not this egress
+  gap -- no owner response to the actual blocker yet.
+
+Same failure mode as every prior entry in this log, now spanning at least
+6 days and roughly three dozen 4-hourly firings with zero scan traffic ever
+reaching the authorized target. This run also implemented an unrelated
+detection-coverage improvement (path-traversal/CWE-22 sink rules in
+`source_sink_scan`, separate PR) since the scan half of the routine remains
+fully blocked by this same unresolved infra gap.
+
+**Action needed from the repo owner (unchanged, now significantly overdue):**
+add `vulnerable-bounty-site.vercel.app` to this environment's
+outbound-egress allowlist, or run the scan half of this routine from an
+environment whose network policy permits reaching authorized external
+targets. No amount of retrying from inside this environment will change
+the outcome -- this needs an out-of-band config change, not another scan
+attempt.
