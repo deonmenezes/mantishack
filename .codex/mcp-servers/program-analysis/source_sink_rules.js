@@ -79,6 +79,13 @@ const RULES = [
     pattern: /\b(node-serialize|serialize\.unserialize)\s*\(/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.express_fileupload.mv",
+    pattern: /\breq\.files?\.[A-Za-z0-9_$]+\.mv\s*\(/g,
+    cwe: "CWE-434",
+  },
 
   // Python
   {
@@ -129,6 +136,13 @@ const RULES = [
     pattern: /\byaml\.load\s*\((?!.*Loader=yaml\.SafeLoader)/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.werkzeug.file_save",
+    pattern: /\bfile\.save\s*\(/g,
+    cwe: "CWE-434",
+  },
 
   // Go
   {
@@ -138,6 +152,12 @@ const RULES = [
     pattern: /\br\.(URL\.Query\(\)|FormValue|PostFormValue)\b/g,
   },
   { lang: "go", kind: "source", id: "go.os.args", pattern: /\bos\.Args\b/g },
+  {
+    lang: "go",
+    kind: "source",
+    id: "go.multipart.formfile",
+    pattern: /\.FormFile\s*\(/g,
+  },
   {
     lang: "go",
     kind: "sink",
@@ -159,6 +179,12 @@ const RULES = [
     kind: "source",
     id: "java.servlet.request",
     pattern: /\brequest\.get(Parameter|Header|QueryString)\s*\(/g,
+  },
+  {
+    lang: "java",
+    kind: "source",
+    id: "java.servlet.part_filename",
+    pattern: /\bgetSubmittedFileName\s*\(/g,
   },
   {
     lang: "java",
