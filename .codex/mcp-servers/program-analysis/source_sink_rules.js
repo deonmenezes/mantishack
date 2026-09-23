@@ -79,6 +79,13 @@ const RULES = [
     pattern: /\b(node-serialize|serialize\.unserialize)\s*\(/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.express.redirect",
+    pattern: /\b(res|response)\.redirect\s*\(/g,
+    cwe: "CWE-601",
+  },
 
   // Python
   {
@@ -129,6 +136,13 @@ const RULES = [
     pattern: /\byaml\.load\s*\((?!.*Loader=yaml\.SafeLoader)/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.redirect",
+    pattern: /\b(redirect|HttpResponseRedirect)\s*\(/g,
+    cwe: "CWE-601",
+  },
 
   // Go
   {
@@ -151,6 +165,13 @@ const RULES = [
     id: "go.template.html",
     pattern: /\btemplate\.HTML\s*\(/g,
     cwe: "CWE-79",
+  },
+  {
+    lang: "go",
+    kind: "sink",
+    id: "go.http.redirect",
+    pattern: /\bhttp\.Redirect\s*\(/g,
+    cwe: "CWE-601",
   },
 
   // Java
@@ -187,6 +208,13 @@ const RULES = [
     id: "java.statement.execute",
     pattern: /\bstatement\.execute(Query|Update)?\s*\(/gi,
     cwe: "CWE-89",
+  },
+  {
+    lang: "java",
+    kind: "sink",
+    id: "java.response.sendredirect",
+    pattern: /\bresponse\.sendRedirect\s*\(/g,
+    cwe: "CWE-601",
   },
 ];
 
