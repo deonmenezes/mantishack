@@ -13,6 +13,36 @@ function redact(secret) {
   return `${secret.slice(0, 4)}...[REDACTED ${secret.length} chars]...${secret.slice(-4)}`;
 }
 
+// Parses trufflehog's newline-delimited JSON `--json` output into findings.
+// Extracted as a pure function so the mapping (and the file:line evidence
+// shape the findings-spine skill expects) is unit-testable without the
+// trufflehog binary.
+function parseTrufflehogOutput(stdout) {
+  const findings = [];
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let entry;
+    try {
+      entry = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    const fsMeta =
+      entry.SourceMetadata &&
+      entry.SourceMetadata.Data &&
+      entry.SourceMetadata.Data.Filesystem;
+    findings.push({
+      detector: entry.DetectorName,
+      verified: !!entry.Verified,
+      file: fsMeta && fsMeta.file,
+      line: fsMeta && fsMeta.line,
+      redacted_secret: redact(entry.Raw),
+    });
+  }
+  return findings;
+}
+
 async function trufflehogScan({ path: targetPath, only_verified = false }) {
   if (!targetPath) throw new Error("path is required");
 
@@ -32,28 +62,7 @@ async function trufflehogScan({ path: targetPath, only_verified = false }) {
     };
   }
 
-  const findings = [];
-  for (const line of result.stdout.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    let entry;
-    try {
-      entry = JSON.parse(trimmed);
-    } catch {
-      continue;
-    }
-    const file =
-      entry.SourceMetadata &&
-      entry.SourceMetadata.Data &&
-      entry.SourceMetadata.Data.Filesystem &&
-      entry.SourceMetadata.Data.Filesystem.file;
-    findings.push({
-      detector: entry.DetectorName,
-      verified: !!entry.Verified,
-      file,
-      redacted_secret: redact(entry.Raw),
-    });
-  }
+  const findings = parseTrufflehogOutput(result.stdout);
 
   if (findings.length === 0 && result.code !== 0 && result.stderr) {
     return {
@@ -72,27 +81,31 @@ async function trufflehogScan({ path: targetPath, only_verified = false }) {
   };
 }
 
-createServer({
-  name: "mantis-trufflehog",
-  version: "0.1.0",
-  tools: [
-    {
-      name: "trufflehog_scan",
-      description:
-        "Secrets scan via trufflehog. Verified secrets (live-checked against the provider) are high-confidence `confirmed` findings; unverified matches are `candidate` leads. Secret material is always redacted in the response.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          path: { type: "string", description: "Directory to scan." },
-          only_verified: {
-            type: "boolean",
-            description:
-              "Only report secrets trufflehog could live-verify against the provider.",
+if (require.main === module) {
+  createServer({
+    name: "mantis-trufflehog",
+    version: "0.1.0",
+    tools: [
+      {
+        name: "trufflehog_scan",
+        description:
+          "Secrets scan via trufflehog. Verified secrets (live-checked against the provider) are high-confidence `confirmed` findings; unverified matches are `candidate` leads. Secret material is always redacted in the response.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            path: { type: "string", description: "Directory to scan." },
+            only_verified: {
+              type: "boolean",
+              description:
+                "Only report secrets trufflehog could live-verify against the provider.",
+            },
           },
+          required: ["path"],
         },
-        required: ["path"],
+        handler: trufflehogScan,
       },
-      handler: trufflehogScan,
-    },
-  ],
-});
+    ],
+  });
+}
+
+module.exports = { parseTrufflehogOutput, redact };
