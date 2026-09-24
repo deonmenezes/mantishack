@@ -79,6 +79,20 @@ const RULES = [
     pattern: /\b(node-serialize|serialize\.unserialize)\s*\(/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.sql.query_template_literal",
+    pattern: /\.(query|raw)\s*\(\s*`[^`]*\$\{/g,
+    cwe: "CWE-89",
+  },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.sql.query_string_concat",
+    pattern: /\.(query|raw)\s*\([^)]*["'`]\s*\+/g,
+    cwe: "CWE-89",
+  },
 
   // Python
   {
@@ -128,6 +142,20 @@ const RULES = [
     id: "py.yaml.load_unsafe",
     pattern: /\byaml\.load\s*\((?!.*Loader=yaml\.SafeLoader)/g,
     cwe: "CWE-502",
+  },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.sql.execute_fstring",
+    pattern: /\.execute(many)?\s*\(\s*f["']/g,
+    cwe: "CWE-89",
+  },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.sql.execute_concat_or_format",
+    pattern: /\.execute(many)?\s*\([^)]*(%\s*\(|\.format\s*\(|["']\s*\+)/g,
+    cwe: "CWE-89",
   },
 
   // Go
