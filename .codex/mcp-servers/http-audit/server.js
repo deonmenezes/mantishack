@@ -34,6 +34,8 @@ const SECRET_VALUE_PATTERNS = [
   [/\bAKIA[0-9A-Z]{16}\b/g, "[REDACTED_AWS_KEY]"],
   [/\bgh[pousr]_[A-Za-z0-9]{20,}\b/g, "[REDACTED_GH_TOKEN]"],
   [/\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g, "[REDACTED_SLACK_TOKEN]"],
+  [/\bsk_(?:live|test)_[A-Za-z0-9]{16,}\b/g, "[REDACTED_STRIPE_KEY]"],
+  [/\bAIza[0-9A-Za-z_-]{35}\b/g, "[REDACTED_GOOGLE_API_KEY]"],
   [
     /\bey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g,
     "[REDACTED_JWT]",
@@ -49,12 +51,12 @@ const SECRET_VALUE_PATTERNS = [
     /\b(token|api[_-]?key|access[_-]?token|refresh[_-]?token|secret|password|passwd|auth|session[_-]?id|sig|signature)=([^&\s]+)/gi,
     (_match, name) => `${name}=[REDACTED]`,
   ],
-  // Same generically-named secret fields, but in JSON body shape
-  // (`"password": "value"`) rather than query/form shape -- the overwhelming
-  // majority of modern API request/response bodies are JSON, and without this
-  // the query/form pattern above never fires on them.
+  // Same generically-named fields, but in JSON body shape ("name": "value")
+  // instead of query/form encoding -- JSON is the dominant API body format
+  // and was previously missed entirely, leaking tokens/secrets/passwords
+  // into the evidence pack whenever a captured body was a JSON payload.
   [
-    /"(token|api[_-]?key|access[_-]?token|refresh[_-]?token|secret|password|passwd|auth|session[_-]?id|sig|signature)"\s*:\s*"[^"]*"/gi,
+    /"(token|api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|secret|password|passwd|auth|session[_-]?id|sig|signature)"\s*:\s*"([^"]*)"/gi,
     (_match, name) => `"${name}":"[REDACTED]"`,
   ],
 ];
@@ -167,30 +169,39 @@ function auditExchange({ request, response }) {
   return pack;
 }
 
-createServer({
-  name: "mantis-http-audit",
-  version: "0.1.0",
-  tools: [
-    {
-      name: "http_audit",
-      description:
-        "Turn a raw HTTP request and/or response into a bounded, redacted evidence pack with a stable request-ref hash. Use during Validate/DAST to attach reproducible HTTP evidence to a finding WITHOUT storing raw secrets, cookies, or full bodies. Pure function; no network is made -- you pass in captured text.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          request: {
-            type: "string",
-            description:
-              "Raw HTTP request text (request line + headers + optional body).",
-          },
-          response: {
-            type: "string",
-            description:
-              "Raw HTTP response text (status line + headers + optional body).",
+if (require.main === module) {
+  createServer({
+    name: "mantis-http-audit",
+    version: "0.1.0",
+    tools: [
+      {
+        name: "http_audit",
+        description:
+          "Turn a raw HTTP request and/or response into a bounded, redacted evidence pack with a stable request-ref hash. Use during Validate/DAST to attach reproducible HTTP evidence to a finding WITHOUT storing raw secrets, cookies, or full bodies. Pure function; no network is made -- you pass in captured text.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            request: {
+              type: "string",
+              description:
+                "Raw HTTP request text (request line + headers + optional body).",
+            },
+            response: {
+              type: "string",
+              description:
+                "Raw HTTP response text (status line + headers + optional body).",
+            },
           },
         },
+        handler: auditExchange,
       },
-      handler: auditExchange,
-    },
-  ],
-});
+    ],
+  });
+}
+
+module.exports = {
+  auditExchange,
+  redactValue,
+  redactHeaders,
+  parseHttpMessage,
+};
