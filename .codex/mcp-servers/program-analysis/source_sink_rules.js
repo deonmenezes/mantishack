@@ -79,6 +79,18 @@ const RULES = [
     pattern: /\b(node-serialize|serialize\.unserialize)\s*\(/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.sql.string_built_query",
+    // .query(/.execute( fed a template literal with `${...}` interpolation
+    // or a string literal joined with `+` -- the classic SQL-built-by-
+    // concatenation anti-pattern, as opposed to a parameterized call
+    // (`.query(sql, [params])`), which this pattern does not match.
+    pattern:
+      /\.(query|execute)\s*\(\s*(`[^`]*\$\{[^}]*\}[^`]*`|["'][^"']*["']\s*\+)/g,
+    cwe: "CWE-89",
+  },
 
   // Python
   {
@@ -128,6 +140,18 @@ const RULES = [
     id: "py.yaml.load_unsafe",
     pattern: /\byaml\.load\s*\((?!.*Loader=yaml\.SafeLoader)/g,
     cwe: "CWE-502",
+  },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.sql.string_built_query",
+    // .execute(/.executemany( fed an f-string, %-formatted string,
+    // `+`-concatenated string, or `.format()` call -- SQL built by string
+    // interpolation instead of the DB-API parameterized form
+    // (`cursor.execute(sql, params)`), which this pattern does not match.
+    pattern:
+      /\.(execute|executemany)\s*\(\s*(f["']|["'][^"']*["']\s*%\s*|["'][^"']*["']\s*\+|["'][^"']*\{[^"']*["']\s*\.\s*format\s*\()/g,
+    cwe: "CWE-89",
   },
 
   // Go
