@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { createServer } = require("../lib/mcp_stdio.js");
+const { SECRET_VALUE_PATTERNS } = require("../lib/secret_patterns.js");
 
 /**
  * Mantis findings service -- the tool-owned findings spine (PRD section 9,
@@ -37,17 +38,6 @@ const STATUS_TRANSITIONS = {
 const VALID_STATUSES = Object.keys(STATUS_TRANSITIONS);
 const VALID_SEVERITIES = ["info", "low", "medium", "high", "critical"];
 
-// Cheap secret-shaped-string guard so raw credentials never land in a finding
-// or evidence blob (PRD section 9 "never raw secrets/tokens/cookies/full
-// bodies", section 11 secrets/DLP). This is a backstop, not a full DLP engine.
-const SECRET_PATTERNS = [
-  /\bAKIA[0-9A-Z]{16}\b/, // AWS access key id
-  /\bgh[pousr]_[A-Za-z0-9]{20,}\b/, // GitHub tokens
-  /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/, // Slack tokens
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----/, // PEM private keys
-  /\bey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/, // JWTs
-];
-
 function ensureDataDir() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
@@ -60,9 +50,21 @@ function newId() {
   return `MANTIS-${crypto.randomBytes(5).toString("hex")}`;
 }
 
+// Cheap secret-shaped-string guard so raw credentials never land in a finding
+// or evidence blob (PRD section 9 "never raw secrets/tokens/cookies/full
+// bodies", section 11 secrets/DLP). This is a backstop, not a full DLP engine.
+// Shares its pattern set with the http-audit redactor so a shape added there
+// (e.g. a generically-named `password=`/`token=` param) can't drift out of
+// sync with this guard.
 function scanForSecrets(value) {
   const hay = typeof value === "string" ? value : JSON.stringify(value ?? "");
-  return SECRET_PATTERNS.some((re) => re.test(hay));
+  return SECRET_VALUE_PATTERNS.some(([re]) => {
+    // These regexes carry the `g` flag for the redactor's sake; reset
+    // lastIndex before each test so a previous call's match position can't
+    // cause this one to skip a match that appears earlier in `hay`.
+    re.lastIndex = 0;
+    return re.test(hay);
+  });
 }
 
 function appendEvent(event) {
