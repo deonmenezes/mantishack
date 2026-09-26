@@ -49,6 +49,12 @@ const SECRET_VALUE_PATTERNS = [
     /\b(token|api[_-]?key|access[_-]?token|refresh[_-]?token|secret|password|passwd|auth|session[_-]?id|sig|signature)=([^&\s]+)/gi,
     (_match, name) => `${name}=[REDACTED]`,
   ],
+  // Same generically-named fields, but in a JSON body -- "password":"..." is the
+  // dominant shape for API traffic and the form/query pattern above never matches it.
+  [
+    /"(token|api[_-]?key|access[_-]?token|refresh[_-]?token|secret|password|passwd|auth|session[_-]?id|sig|signature)"\s*:\s*"(?:[^"\\]|\\.)*"/gi,
+    (_match, name) => `"${name}":"[REDACTED]"`,
+  ],
 ];
 
 const MAX_BODY_PREVIEW = 512;
