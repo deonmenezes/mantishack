@@ -35,6 +35,10 @@ const SECRET_VALUE_PATTERNS = [
   [/\bgh[pousr]_[A-Za-z0-9]{20,}\b/g, "[REDACTED_GH_TOKEN]"],
   [/\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g, "[REDACTED_SLACK_TOKEN]"],
   [
+    /https:\/\/hooks\.slack\.com\/services\/T[A-Za-z0-9]+\/B[A-Za-z0-9]+\/[A-Za-z0-9]+/g,
+    "[REDACTED_SLACK_WEBHOOK]",
+  ],
+  [
     /\bey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g,
     "[REDACTED_JWT]",
   ],
@@ -42,6 +46,13 @@ const SECRET_VALUE_PATTERNS = [
     /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
     "[REDACTED_PRIVATE_KEY]",
   ],
+  [/\bAIza[0-9A-Za-z_-]{35}\b/g, "[REDACTED_GOOGLE_API_KEY]"],
+  [/\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{20,}\b/g, "[REDACTED_STRIPE_KEY]"],
+  [
+    /\bSG\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\b/g,
+    "[REDACTED_SENDGRID_KEY]",
+  ],
+  [/\bnpm_[A-Za-z0-9]{36}\b/g, "[REDACTED_NPM_TOKEN]"],
   [/\b[A-Za-z0-9._%+-]+:[^@\s/]{6,}@/g, "[REDACTED_USERINFO]@"], // user:pass@ in URLs
   // Generically-named secret-bearing query/form params -- shape-based patterns above
   // can't catch these since the secret value itself has no distinctive shape.
@@ -159,30 +170,36 @@ function auditExchange({ request, response }) {
   return pack;
 }
 
-createServer({
-  name: "mantis-http-audit",
-  version: "0.1.0",
-  tools: [
-    {
-      name: "http_audit",
-      description:
-        "Turn a raw HTTP request and/or response into a bounded, redacted evidence pack with a stable request-ref hash. Use during Validate/DAST to attach reproducible HTTP evidence to a finding WITHOUT storing raw secrets, cookies, or full bodies. Pure function; no network is made -- you pass in captured text.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          request: {
-            type: "string",
-            description:
-              "Raw HTTP request text (request line + headers + optional body).",
-          },
-          response: {
-            type: "string",
-            description:
-              "Raw HTTP response text (status line + headers + optional body).",
+module.exports = { redactValue, auditExchange };
+
+// Guard so `require`-ing this module from a test doesn't attach stdin
+// listeners and block waiting for MCP stdio traffic that will never arrive.
+if (require.main === module) {
+  createServer({
+    name: "mantis-http-audit",
+    version: "0.1.0",
+    tools: [
+      {
+        name: "http_audit",
+        description:
+          "Turn a raw HTTP request and/or response into a bounded, redacted evidence pack with a stable request-ref hash. Use during Validate/DAST to attach reproducible HTTP evidence to a finding WITHOUT storing raw secrets, cookies, or full bodies. Pure function; no network is made -- you pass in captured text.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            request: {
+              type: "string",
+              description:
+                "Raw HTTP request text (request line + headers + optional body).",
+            },
+            response: {
+              type: "string",
+              description:
+                "Raw HTTP response text (status line + headers + optional body).",
+            },
           },
         },
+        handler: auditExchange,
       },
-      handler: auditExchange,
-    },
-  ],
-});
+    ],
+  });
+}
