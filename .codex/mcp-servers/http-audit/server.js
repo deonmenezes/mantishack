@@ -42,6 +42,9 @@ const SECRET_VALUE_PATTERNS = [
     /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
     "[REDACTED_PRIVATE_KEY]",
   ],
+  [/\bAIza[0-9A-Za-z_-]{35}\b/g, "[REDACTED_GOOGLE_API_KEY]"],
+  [/\b[sr]k_(live|test)_[0-9A-Za-z]{16,}\b/g, "[REDACTED_STRIPE_KEY]"],
+  [/\bnpm_[0-9A-Za-z]{36}\b/g, "[REDACTED_NPM_TOKEN]"],
   [/\b[A-Za-z0-9._%+-]+:[^@\s/]{6,}@/g, "[REDACTED_USERINFO]@"], // user:pass@ in URLs
   // Generically-named secret-bearing query/form params -- shape-based patterns above
   // can't catch these since the secret value itself has no distinctive shape.
@@ -159,30 +162,34 @@ function auditExchange({ request, response }) {
   return pack;
 }
 
-createServer({
-  name: "mantis-http-audit",
-  version: "0.1.0",
-  tools: [
-    {
-      name: "http_audit",
-      description:
-        "Turn a raw HTTP request and/or response into a bounded, redacted evidence pack with a stable request-ref hash. Use during Validate/DAST to attach reproducible HTTP evidence to a finding WITHOUT storing raw secrets, cookies, or full bodies. Pure function; no network is made -- you pass in captured text.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          request: {
-            type: "string",
-            description:
-              "Raw HTTP request text (request line + headers + optional body).",
-          },
-          response: {
-            type: "string",
-            description:
-              "Raw HTTP response text (status line + headers + optional body).",
+if (require.main === module) {
+  createServer({
+    name: "mantis-http-audit",
+    version: "0.1.0",
+    tools: [
+      {
+        name: "http_audit",
+        description:
+          "Turn a raw HTTP request and/or response into a bounded, redacted evidence pack with a stable request-ref hash. Use during Validate/DAST to attach reproducible HTTP evidence to a finding WITHOUT storing raw secrets, cookies, or full bodies. Pure function; no network is made -- you pass in captured text.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            request: {
+              type: "string",
+              description:
+                "Raw HTTP request text (request line + headers + optional body).",
+            },
+            response: {
+              type: "string",
+              description:
+                "Raw HTTP response text (status line + headers + optional body).",
+            },
           },
         },
+        handler: auditExchange,
       },
-      handler: auditExchange,
-    },
-  ],
-});
+    ],
+  });
+}
+
+module.exports = { auditExchange, redactValue };
