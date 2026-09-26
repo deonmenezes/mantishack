@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { createServer } = require("../lib/mcp_stdio.js");
+const { detectionPatterns } = require("../lib/secret_patterns.js");
 
 /**
  * Mantis findings service -- the tool-owned findings spine (PRD section 9,
@@ -39,14 +40,12 @@ const VALID_SEVERITIES = ["info", "low", "medium", "high", "critical"];
 
 // Cheap secret-shaped-string guard so raw credentials never land in a finding
 // or evidence blob (PRD section 9 "never raw secrets/tokens/cookies/full
-// bodies", section 11 secrets/DLP). This is a backstop, not a full DLP engine.
-const SECRET_PATTERNS = [
-  /\bAKIA[0-9A-Z]{16}\b/, // AWS access key id
-  /\bgh[pousr]_[A-Za-z0-9]{20,}\b/, // GitHub tokens
-  /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/, // Slack tokens
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----/, // PEM private keys
-  /\bey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/, // JWTs
-];
+// bodies", section 11 secrets/DLP). This is a backstop, not a full DLP
+// engine. Shared with the http-audit redactor (`lib/secret_patterns.js`) --
+// it used to keep its own, shorter copy of this list, which meant it missed
+// user:pass@ URL credentials and generically-named secret params
+// (`password=`, `api_key=`, etc.) that http-audit already redacted.
+const SECRET_PATTERNS = detectionPatterns();
 
 function ensureDataDir() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
