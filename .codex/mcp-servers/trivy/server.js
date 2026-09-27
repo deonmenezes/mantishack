@@ -35,7 +35,8 @@ async function trivyScan({
     targetPath,
   ];
 
-  const result = await runCommand("trivy", args, { timeoutMs: 300_000 });
+  const timeoutMs = 300_000;
+  const result = await runCommand("trivy", args, { timeoutMs });
   if (result.notFound) {
     return {
       tool: "trivy",
@@ -44,6 +45,18 @@ async function trivyScan({
         "trivy",
         "brew install trivy, or see aquasecurity/trivy releases",
       ),
+    };
+  }
+
+  // Must be checked before JSON parsing so a killed process is reported as an
+  // explicit incomplete scan, not folded into the generic parse-failure error
+  // below (which reads like a tool crash rather than "results are partial").
+  if (result.timedOut) {
+    return {
+      tool: "trivy",
+      available: true,
+      timed_out: true,
+      error: `trivy was killed after exceeding the ${timeoutMs}ms timeout -- scan is incomplete. Do not treat this as "no findings"; re-run with a narrower path or a longer timeout.`,
     };
   }
 

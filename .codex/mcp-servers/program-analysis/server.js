@@ -64,12 +64,11 @@ async function astGrepScan({ path: targetPath, pattern, lang }) {
   if (!targetPath || !pattern || !lang)
     throw new Error("path, pattern, and lang are required");
 
+  const timeoutMs = 120_000;
   const result = await runCommand(
     "ast-grep",
     ["run", "--pattern", pattern, "--lang", lang, "--json=stream", targetPath],
-    {
-      timeoutMs: 120_000,
-    },
+    { timeoutMs },
   );
   if (result.notFound) {
     return {
@@ -79,6 +78,18 @@ async function astGrepScan({ path: targetPath, pattern, lang }) {
         "ast-grep",
         "brew install ast-grep, or cargo install ast-grep",
       ),
+    };
+  }
+
+  // Must be checked before the JSON-stream parse below: a killed process
+  // leaves stdout empty, which would otherwise fall through to
+  // `match_count: 0` -- a silent false negative on a structural search.
+  if (result.timedOut) {
+    return {
+      tool: "ast-grep",
+      available: true,
+      timed_out: true,
+      error: `ast-grep was killed after exceeding the ${timeoutMs}ms timeout -- scan is incomplete. Do not treat this as "no matches"; re-run with a narrower path or a longer timeout.`,
     };
   }
 

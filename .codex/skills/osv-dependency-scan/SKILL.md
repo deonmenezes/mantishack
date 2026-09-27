@@ -9,3 +9,4 @@ Use `osv_scan({ path })` (mantis_osv_scanner MCP server) for the **Detect** stag
 - Before validating, check whether the vulnerable function/API of the dependency is actually called anywhere in the target codebase (grep/ast-grep for the relevant import or call). If it's an unused transitive dependency, note that in the rejection reason rather than dropping the finding silently.
 - Prefer `offline: true` only when the environment has no network access to query the live OSV database; note in your report that offline results may be stale.
 - If `osv-scanner` reports `available: false`, say so explicitly -- don't claim SCA coverage you didn't actually get.
+- If it reports `timed_out: true`, the scan was killed before finishing -- say so explicitly (don't report `candidate_count: 0` as "no vulnerable dependencies") and re-run against a narrower path.

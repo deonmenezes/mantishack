@@ -20,7 +20,8 @@ async function trufflehogScan({ path: targetPath, only_verified = false }) {
   if (only_verified) args.push("--only-verified");
   args.push(targetPath);
 
-  const result = await runCommand("trufflehog", args, { timeoutMs: 300_000 });
+  const timeoutMs = 300_000;
+  const result = await runCommand("trufflehog", args, { timeoutMs });
   if (result.notFound) {
     return {
       tool: "trufflehog",
@@ -29,6 +30,18 @@ async function trufflehogScan({ path: targetPath, only_verified = false }) {
         "trufflehog",
         "brew install trufflehog, or see github.com/trufflesecurity/trufflehog",
       ),
+    };
+  }
+
+  // Must be checked before the NDJSON parse below: a killed process can leave
+  // stdout empty with no stderr, which would otherwise fall through to
+  // `candidate_count: 0` -- a silent false negative on a secrets scan.
+  if (result.timedOut) {
+    return {
+      tool: "trufflehog",
+      available: true,
+      timed_out: true,
+      error: `trufflehog was killed after exceeding the ${timeoutMs}ms timeout -- scan is incomplete. Do not treat this as "no secrets found"; re-run with a narrower path or a longer timeout.`,
     };
   }
 

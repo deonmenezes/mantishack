@@ -11,7 +11,8 @@ async function osvScan({ path: targetPath, offline = false }) {
   if (offline) args.push("--offline", "--download-offline-databases");
   args.push(targetPath);
 
-  const result = await runCommand("osv-scanner", args, { timeoutMs: 300_000 });
+  const timeoutMs = 300_000;
+  const result = await runCommand("osv-scanner", args, { timeoutMs });
   if (result.notFound) {
     return {
       tool: "osv-scanner",
@@ -20,6 +21,18 @@ async function osvScan({ path: targetPath, offline = false }) {
         "osv-scanner",
         "go install github.com/google/osv-scanner/v2/cmd/osv-scanner@latest, or brew install osv-scanner",
       ),
+    };
+  }
+
+  // Must be checked before JSON parsing: a killed process leaves stdout empty
+  // or truncated, and the `|| "{}"` fallback below would otherwise parse that
+  // as a clean scan with zero findings instead of an incomplete one.
+  if (result.timedOut) {
+    return {
+      tool: "osv-scanner",
+      available: true,
+      timed_out: true,
+      error: `osv-scanner was killed after exceeding the ${timeoutMs}ms timeout -- scan is incomplete. Do not treat this as "no vulnerabilities found"; re-run with a narrower path or a longer timeout.`,
     };
   }
 

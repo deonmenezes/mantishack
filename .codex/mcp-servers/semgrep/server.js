@@ -13,7 +13,8 @@ async function semgrepScan({ path: targetPath, config = "auto", rules }) {
   args.push("--config", rules || config);
   args.push(targetPath);
 
-  const result = await runCommand("semgrep", args, { timeoutMs: 300_000 });
+  const timeoutMs = 300_000;
+  const result = await runCommand("semgrep", args, { timeoutMs });
   if (result.notFound) {
     return {
       tool: "semgrep",
@@ -22,6 +23,18 @@ async function semgrepScan({ path: targetPath, config = "auto", rules }) {
         "semgrep",
         "pip install semgrep, or brew install semgrep",
       ),
+    };
+  }
+
+  // Must be checked before JSON parsing so a killed process is reported as an
+  // explicit incomplete scan, not folded into the generic parse-failure error
+  // below (which reads like a tool crash rather than "results are partial").
+  if (result.timedOut) {
+    return {
+      tool: "semgrep",
+      available: true,
+      timed_out: true,
+      error: `semgrep was killed after exceeding the ${timeoutMs}ms timeout -- scan is incomplete. Do not treat this as "no findings"; re-run with a narrower path or a longer timeout.`,
     };
   }
 
