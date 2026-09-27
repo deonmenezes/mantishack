@@ -10,3 +10,4 @@ Use the `semgrep_scan` tool (mantis_semgrep MCP server) for the **Detect** stage
 - For each candidate: trace the exact source-to-sink path in the surrounding code before deciding it's worth validating further. If the sink is unreachable from attacker-controlled input (auth-gated, admin-only, framework-sanitized), reject it and cite the specific roadblock -- never "seems safe."
 - Reachable candidates move to attacker-simulation validation (see `program-analysis` skill for the reachability tools) before you claim a confirmed finding.
 - If `semgrep` reports `available: false`, tell the user it isn't installed rather than silently skipping SAST coverage.
+- If it reports `timed_out: true`, the scan was killed before finishing -- tell the user coverage is incomplete and re-run against a narrower path rather than treating the partial result as a full sweep.

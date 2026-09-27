@@ -20,12 +20,25 @@ async function banditScan({ path: targetPath, confidence = "low" }) {
   if (confidence === "high") args.push("-iii");
   else if (confidence === "medium") args.push("-ii");
 
-  const result = await runCommand("bandit", args, { timeoutMs: 300_000 });
+  const timeoutMs = 300_000;
+  const result = await runCommand("bandit", args, { timeoutMs });
   if (result.notFound) {
     return {
       tool: "bandit",
       available: false,
       message: notFoundMessage("bandit", "pip install bandit"),
+    };
+  }
+
+  // Must be checked before JSON parsing so a killed process is reported as an
+  // explicit incomplete scan, not folded into the generic parse-failure error
+  // below (which reads like a tool crash rather than "results are partial").
+  if (result.timedOut) {
+    return {
+      tool: "bandit",
+      available: true,
+      timed_out: true,
+      error: `bandit was killed after exceeding the ${timeoutMs}ms timeout -- scan is incomplete. Do not treat this as "no findings"; re-run with a narrower path or a longer timeout.`,
     };
   }
 
