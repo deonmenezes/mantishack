@@ -79,6 +79,13 @@ const RULES = [
     pattern: /\b(node-serialize|serialize\.unserialize)\s*\(/g,
     cwe: "CWE-502",
   },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.sql.string_built_query",
+    pattern: /\.(query|execute)\s*\(\s*(`[^`]*\$\{|["'][^"']*["']\s*\+)/g,
+    cwe: "CWE-89",
+  },
 
   // Python
   {
@@ -128,6 +135,13 @@ const RULES = [
     id: "py.yaml.load_unsafe",
     pattern: /\byaml\.load\s*\((?!.*Loader=yaml\.SafeLoader)/g,
     cwe: "CWE-502",
+  },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.sql.string_built_execute",
+    pattern: /\.execute\s*\(\s*(f["']|["'][^"']*["']\s*%|["'][^"']*["']\s*\+)/g,
+    cwe: "CWE-89",
   },
 
   // Go
