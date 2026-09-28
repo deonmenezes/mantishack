@@ -35,6 +35,15 @@ const SECRET_VALUE_PATTERNS = [
   [/\bgh[pousr]_[A-Za-z0-9]{20,}\b/g, "[REDACTED_GH_TOKEN]"],
   [/\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g, "[REDACTED_SLACK_TOKEN]"],
   [
+    /https:\/\/hooks\.slack\.com\/services\/T[A-Za-z0-9]+\/B[A-Za-z0-9]+\/[A-Za-z0-9]+/g,
+    "[REDACTED_SLACK_WEBHOOK]",
+  ],
+  [/\bAIza[0-9A-Za-z_-]{35}\b/g, "[REDACTED_GOOGLE_API_KEY]"],
+  [/\b(?:sk|rk)_live_[0-9A-Za-z]{24,}\b/g, "[REDACTED_STRIPE_KEY]"],
+  [/\bSG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43}\b/g, "[REDACTED_SENDGRID_KEY]"],
+  [/\bnpm_[A-Za-z0-9]{36}\b/g, "[REDACTED_NPM_TOKEN]"],
+  [/\bBearer\s+[A-Za-z0-9._-]{10,}\b/g, "Bearer [REDACTED_BEARER_TOKEN]"], // inline Bearer tokens embedded in a body/URL, not just the Authorization header
+  [
     /\bey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g,
     "[REDACTED_JWT]",
   ],
