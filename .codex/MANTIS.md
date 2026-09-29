@@ -30,6 +30,7 @@ roadblocks). "What survives attacker-simulation is real."
 | `mantis_trivy` | `trivy_scan` | Detect / SCA+IaC+secrets | report-until-`trivy` installed |
 | `mantis_program_analysis` | `source_sink_scan`, `ast_grep_scan`, `smt_check_reachability` | Substrate / reachability ★ | `ast-grep` present; `z3` report-until-installed |
 | `mantis_http_audit` | `http_audit` | Validate/DAST evidence | **works now (pure Node)** |
+| `mantis_http_recon` | `http_recon_scan` | Recon / DAST, security misconfig | **works now (pure Node)** |
 | `mantis_findings` | `finding_create/update/get/list` | Findings spine ★ | **works now (pure Node)** |
 | `mantis_canary` | decoy tripwire tools | Prompt-injection defense ★ | **works now (pure Node)** |
 
@@ -53,7 +54,8 @@ a safety backstop and is off by default):
 
 `mantis-pipeline` (master playbook) · `findings-spine` · `semgrep-triage` ·
 `codeql-audit` · `osv-dependency-scan` · `secrets-scan` · `detection-breadth`
-(bandit+trivy) · `program-analysis` · `http-evidence` · `canary-tripwire-response`.
+(bandit+trivy) · `program-analysis` · `http-evidence` · `http-recon` ·
+`canary-tripwire-response`.
 
 ### The findings spine
 
@@ -135,10 +137,13 @@ P2/P3 and need a running target and external tooling.
    files, once the target model ids are confirmed valid in this fork.
 
 **P2 (needs a running app + external binaries) — add as MCP servers + skills:**
-4. Recon/DAST toolchain: `httpx`, `subfinder`, `naabu`, `nmap`, `katana`,
-   `wafw00f`, `nuclei`, `wapiti`, `ZAP`, `ffuf`/`dirsearch`/`arjun`. Each is a
-   report-until-installed server on the existing pattern; they only run when
-   scope is `active`/`exploit` against an authorized target.
+4. Recon/DAST toolchain: a first, dependency-free slice now works
+   (`mantis_http_recon` -- one passive GET/HEAD, security-misconfiguration
+   candidates, see the `http-recon` skill). Still to add as
+   report-until-installed servers on the existing pattern, only run when
+   scope is `active`/`exploit` against an authorized target: `httpx`,
+   `subfinder`, `naabu`, `nmap`, `katana`, `wafw00f`, `nuclei`, `wapiti`,
+   `ZAP`, `ffuf`/`dirsearch`/`arjun`.
 5. Injection confirmers: `sqlmap` + per-class HTTP confirm tools (idor/xss/cors)
    that build on `http_audit` for evidence.
 6. OOB/blind: `interactsh-client`; Auth: `jwt_tool` + auth-profiles; Browser:
