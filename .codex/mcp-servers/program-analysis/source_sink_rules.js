@@ -79,6 +79,23 @@ const RULES = [
     pattern: /\b(node-serialize|serialize\.unserialize)\s*\(/g,
     cwe: "CWE-502",
   },
+  // Flags `.query(`/`.execute(` calls whose SQL argument is built by string
+  // interpolation or concatenation instead of a parameterized placeholder --
+  // the actual CWE-89 anti-pattern, not every call to a query method.
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.sql.template_literal",
+    pattern: /\.(query|execute)\s*\(\s*`[^`]*\$\{/g,
+    cwe: "CWE-89",
+  },
+  {
+    lang: "js",
+    kind: "sink",
+    id: "js.sql.string_concat",
+    pattern: /\.(query|execute)\s*\(\s*["'][^"']*["']\s*\+/g,
+    cwe: "CWE-89",
+  },
 
   // Python
   {
@@ -128,6 +145,22 @@ const RULES = [
     id: "py.yaml.load_unsafe",
     pattern: /\byaml\.load\s*\((?!.*Loader=yaml\.SafeLoader)/g,
     cwe: "CWE-502",
+  },
+  // Same CWE-89 shape as the JS rules above: flag string-built SQL, not every
+  // parameterized `.execute(query, params)` call.
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.sql.fstring",
+    pattern: /\.execute\s*\(\s*f["'][^"']*\{/g,
+    cwe: "CWE-89",
+  },
+  {
+    lang: "py",
+    kind: "sink",
+    id: "py.sql.percent_or_concat",
+    pattern: /\.execute\s*\(\s*["'][^"']*["']\s*(%|\+)/g,
+    cwe: "CWE-89",
   },
 
   // Go
