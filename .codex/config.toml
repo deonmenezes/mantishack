@@ -95,3 +95,15 @@ args = [".codex/mcp-servers/trivy/server.js"]
 startup_timeout_sec = 10
 tool_timeout_sec = 300
 default_tools_approval_mode = "auto"
+
+# Recon/DAST: one passive, discovery-only GET/HEAD request against an
+# explicitly authorized live URL, then flags security-misconfiguration
+# candidates from the plain response (missing hardening headers, weak cookie
+# flags, version disclosure, verbose debug pages). Pure Node; works now, no
+# external binary needed. Refuses loopback/private/link-local hosts.
+[mcp_servers.mantis_http_recon]
+command = "node"
+args = [".codex/mcp-servers/http-recon/server.js"]
+startup_timeout_sec = 10
+tool_timeout_sec = 30
+default_tools_approval_mode = "auto"
