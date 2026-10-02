@@ -19,7 +19,9 @@ const { createServer } = require("../lib/mcp_stdio.js");
  * run is reconstructable (NFR-9). Zero external dependencies.
  */
 
-const DATA_DIR = path.join(__dirname, "..", "..", "findings");
+const DATA_DIR =
+  process.env.MANTIS_FINDINGS_DIR ||
+  path.join(__dirname, "..", "..", "findings");
 const EVENT_LOG = path.join(DATA_DIR, "events.jsonl");
 
 // Lifecycle: candidate -> confirmed|rejected -> exploited -> fixed -> verified
@@ -63,6 +65,32 @@ function newId() {
 function scanForSecrets(value) {
   const hay = typeof value === "string" ? value : JSON.stringify(value ?? "");
   return SECRET_PATTERNS.some((re) => re.test(hay));
+}
+
+// Identifies "the same weakness" across repeat scans of the same target:
+// same vuln class at the same file:lines. `finding_create`'s own schema has
+// documented `run` as being for "cross-run dedup" since the field existed,
+// but nothing ever implemented the dedup half -- every re-run of Detect over
+// an unchanged codebase/target minted a brand-new MANTIS-id for a finding
+// already tracked, fragmenting history and inflating the findings queue.
+function locationKey(location) {
+  if (!location || !location.file) return null;
+  return `${location.file}#${location.lines || ""}`;
+}
+
+function findExistingCandidate(findings, vuln_class, location) {
+  const key = locationKey(location);
+  if (!key) return null;
+  for (const existing of findings.values()) {
+    if (
+      existing.vuln_class === vuln_class &&
+      existing.status !== "rejected" &&
+      locationKey(existing.location) === key
+    ) {
+      return existing;
+    }
+  }
+  return null;
 }
 
 function appendEvent(event) {
@@ -143,6 +171,39 @@ function findingCreate(args) {
       "Refused: this finding payload looks like it contains a raw secret/token/key. " +
         "Store a redacted reference or hash instead -- never the raw credential (PRD section 9/11).",
     );
+  }
+
+  const findings = loadState();
+  const duplicate = findExistingCandidate(findings, vuln_class, location);
+  if (duplicate) {
+    const historyEntry = {
+      at: nowIso(),
+      status: duplicate.status,
+      note: `re-seen in run ${run || "unknown"}; suppressed as a duplicate of the same vuln_class+location`,
+    };
+    const changes = {
+      last_seen_run: run || duplicate.last_seen_run,
+      updated_at: nowIso(),
+    };
+    appendEvent({
+      kind: "update",
+      at: nowIso(),
+      id: duplicate.id,
+      changes,
+      history_entry: historyEntry,
+    });
+    const finding = {
+      ...duplicate,
+      ...changes,
+      history: [...(duplicate.history || []), historyEntry],
+    };
+    return {
+      ok: true,
+      id: duplicate.id,
+      status: finding.status,
+      finding,
+      deduplicated: true,
+    };
   }
 
   const id = newId();
@@ -321,164 +382,174 @@ function findingList(args = {}) {
   };
 }
 
-createServer({
-  name: "mantis-findings",
-  version: "0.1.0",
-  tools: [
-    {
-      name: "finding_create",
-      description:
-        "Register a new `candidate` finding in the tool-owned findings spine. Detect/recon stages call this; do NOT self-censor false positives here (that is Validate's job). Returns the assigned finding id. Never pass raw secrets -- store redacted references.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          vuln_class: {
-            type: "string",
-            description:
-              'Vulnerability class, e.g. "sql-injection", "idor", "ssrf", "rce", "secret-exposure".',
-          },
-          claim: {
-            type: "string",
-            description: "One sentence: the suspected weakness and why.",
-          },
-          location: {
-            type: "object",
-            description: "Where it lives.",
-            properties: {
-              file: { type: "string" },
-              lines: { type: "string", description: 'e.g. "42" or "42-58".' },
-              symbol: {
-                type: "string",
-                description: "Enclosing function/route/handler.",
+if (require.main === module) {
+  createServer({
+    name: "mantis-findings",
+    version: "0.1.0",
+    tools: [
+      {
+        name: "finding_create",
+        description:
+          "Register a new `candidate` finding in the tool-owned findings spine. Detect/recon stages call this; do NOT self-censor false positives here (that is Validate's job). Returns the assigned finding id. Never pass raw secrets -- store redacted references. If an existing non-rejected finding already has the same vuln_class + location, no new id is minted: that finding's last_seen_run is bumped and it is returned with `deduplicated: true` instead.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            vuln_class: {
+              type: "string",
+              description:
+                'Vulnerability class, e.g. "sql-injection", "idor", "ssrf", "rce", "secret-exposure".',
+            },
+            claim: {
+              type: "string",
+              description: "One sentence: the suspected weakness and why.",
+            },
+            location: {
+              type: "object",
+              description: "Where it lives.",
+              properties: {
+                file: { type: "string" },
+                lines: { type: "string", description: 'e.g. "42" or "42-58".' },
+                symbol: {
+                  type: "string",
+                  description: "Enclosing function/route/handler.",
+                },
               },
             },
+            cwe: {
+              type: "string",
+              description: 'CWE id if known, e.g. "CWE-89".',
+            },
+            severity: {
+              type: "string",
+              enum: VALID_SEVERITIES,
+              description:
+                "Provisional severity; final severity = demonstrated outcome.",
+            },
+            attack_vector: {
+              type: "string",
+              description: "How an attacker would reach/trigger it.",
+            },
+            evidence: {
+              type: "array",
+              items: { type: "object" },
+              description:
+                "Bounded evidence refs (hashes, redacted samples, file:line refs). Never raw secrets/bodies.",
+            },
+            reasoning_trace_ref: {
+              type: "string",
+              description:
+                "Reference to the reasoning trace for this candidate.",
+            },
+            run: {
+              type: "string",
+              description: "Run id, for cross-run dedup/first-last-seen.",
+            },
+            target: { type: "string", description: "Target id/name." },
           },
-          cwe: {
-            type: "string",
-            description: 'CWE id if known, e.g. "CWE-89".',
-          },
-          severity: {
-            type: "string",
-            enum: VALID_SEVERITIES,
-            description:
-              "Provisional severity; final severity = demonstrated outcome.",
-          },
-          attack_vector: {
-            type: "string",
-            description: "How an attacker would reach/trigger it.",
-          },
-          evidence: {
-            type: "array",
-            items: { type: "object" },
-            description:
-              "Bounded evidence refs (hashes, redacted samples, file:line refs). Never raw secrets/bodies.",
-          },
-          reasoning_trace_ref: {
-            type: "string",
-            description: "Reference to the reasoning trace for this candidate.",
-          },
-          run: {
-            type: "string",
-            description: "Run id, for cross-run dedup/first-last-seen.",
-          },
-          target: { type: "string", description: "Target id/name." },
+          required: ["vuln_class", "claim"],
         },
-        required: ["vuln_class", "claim"],
+        handler: findingCreate,
       },
-      handler: findingCreate,
-    },
-    {
-      name: "finding_update",
-      description:
-        "Advance a finding through its lifecycle (candidate -> confirmed|rejected -> exploited -> fixed -> verified) or attach evidence/poc/patch/grade. Confirming requires reachability/attack-sim evidence; rejecting requires a cited roadblock. Enforces legal transitions and grading (SUBMIT/HOLD/SKIP).",
-      inputSchema: {
-        type: "object",
-        properties: {
-          id: {
-            type: "string",
-            description: "Finding id from finding_create.",
-          },
-          status: {
-            type: "string",
-            enum: VALID_STATUSES,
-            description: "Target lifecycle status.",
-          },
-          severity: { type: "string", enum: VALID_SEVERITIES },
-          reachability_note: {
-            type: "string",
-            description:
-              "Required to move to `confirmed` if no evidence/trace is attached yet: how attacker input provably reaches the sink.",
-          },
-          rejected_reason: {
-            type: "string",
-            description:
-              "Required to move to `rejected`: the SPECIFIC roadblock that kills exploitability.",
-          },
-          evidence: {
-            type: "array",
-            items: { type: "object" },
-            description: "Additional bounded evidence refs to append.",
-          },
-          poc: {
-            type: "object",
-            description:
-              "PoC descriptor {kind, ref, reproduced}. Gated exploit stage only.",
-          },
-          patch: {
-            type: "object",
-            description:
-              "Patch descriptor {diff_ref, regression_checked, pr_url}.",
-          },
-          grade: {
-            type: "object",
-            description:
-              "5-axis grade; total + disposition (SUBMIT>=40 / HOLD 20-39 / SKIP<20) are computed for you.",
-            properties: {
-              impact: { type: "number", description: "0-30" },
-              proof: { type: "number", description: "0-25" },
-              severity_accuracy: { type: "number", description: "0-15" },
-              chain: { type: "number", description: "0-15" },
-              report_quality: { type: "number", description: "0-15" },
+      {
+        name: "finding_update",
+        description:
+          "Advance a finding through its lifecycle (candidate -> confirmed|rejected -> exploited -> fixed -> verified) or attach evidence/poc/patch/grade. Confirming requires reachability/attack-sim evidence; rejecting requires a cited roadblock. Enforces legal transitions and grading (SUBMIT/HOLD/SKIP).",
+        inputSchema: {
+          type: "object",
+          properties: {
+            id: {
+              type: "string",
+              description: "Finding id from finding_create.",
+            },
+            status: {
+              type: "string",
+              enum: VALID_STATUSES,
+              description: "Target lifecycle status.",
+            },
+            severity: { type: "string", enum: VALID_SEVERITIES },
+            reachability_note: {
+              type: "string",
+              description:
+                "Required to move to `confirmed` if no evidence/trace is attached yet: how attacker input provably reaches the sink.",
+            },
+            rejected_reason: {
+              type: "string",
+              description:
+                "Required to move to `rejected`: the SPECIFIC roadblock that kills exploitability.",
+            },
+            evidence: {
+              type: "array",
+              items: { type: "object" },
+              description: "Additional bounded evidence refs to append.",
+            },
+            poc: {
+              type: "object",
+              description:
+                "PoC descriptor {kind, ref, reproduced}. Gated exploit stage only.",
+            },
+            patch: {
+              type: "object",
+              description:
+                "Patch descriptor {diff_ref, regression_checked, pr_url}.",
+            },
+            grade: {
+              type: "object",
+              description:
+                "5-axis grade; total + disposition (SUBMIT>=40 / HOLD 20-39 / SKIP<20) are computed for you.",
+              properties: {
+                impact: { type: "number", description: "0-30" },
+                proof: { type: "number", description: "0-25" },
+                severity_accuracy: { type: "number", description: "0-15" },
+                chain: { type: "number", description: "0-15" },
+                report_quality: { type: "number", description: "0-15" },
+              },
+            },
+            note: {
+              type: "string",
+              description: "Free-text history note for this transition.",
+            },
+            run: {
+              type: "string",
+              description: "Run id (updates last_seen_run).",
             },
           },
-          note: {
-            type: "string",
-            description: "Free-text history note for this transition.",
-          },
-          run: {
-            type: "string",
-            description: "Run id (updates last_seen_run).",
+          required: ["id"],
+        },
+        handler: findingUpdate,
+      },
+      {
+        name: "finding_get",
+        description:
+          "Fetch the full current state + history of one finding by id.",
+        inputSchema: {
+          type: "object",
+          properties: { id: { type: "string" } },
+          required: ["id"],
+        },
+        handler: findingGet,
+      },
+      {
+        name: "finding_list",
+        description:
+          "List/triage findings with optional filters, plus a by-status/by-severity summary. Use this to see the current run's queue before reporting.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            status: { type: "string", enum: VALID_STATUSES },
+            severity: { type: "string", enum: VALID_SEVERITIES },
+            vuln_class: { type: "string" },
+            run: { type: "string" },
           },
         },
-        required: ["id"],
+        handler: findingList,
       },
-      handler: findingUpdate,
-    },
-    {
-      name: "finding_get",
-      description:
-        "Fetch the full current state + history of one finding by id.",
-      inputSchema: {
-        type: "object",
-        properties: { id: { type: "string" } },
-        required: ["id"],
-      },
-      handler: findingGet,
-    },
-    {
-      name: "finding_list",
-      description:
-        "List/triage findings with optional filters, plus a by-status/by-severity summary. Use this to see the current run's queue before reporting.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          status: { type: "string", enum: VALID_STATUSES },
-          severity: { type: "string", enum: VALID_SEVERITIES },
-          vuln_class: { type: "string" },
-          run: { type: "string" },
-        },
-      },
-      handler: findingList,
-    },
-  ],
-});
+    ],
+  });
+}
+
+module.exports = {
+  findingCreate,
+  findingUpdate,
+  findingGet,
+  findingList,
+};
